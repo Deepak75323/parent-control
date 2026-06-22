@@ -1,0 +1,126 @@
+{{- if .Values.rabbitmq.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}-rabbitmq
+  labels:
+    app: {{ .Chart.Name }}-rabbitmq
+spec:
+  type: ClusterIP
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+    - name: stomp
+      port: 61613
+      targetPort: 61613
+    - name: management
+      port: 15672
+      targetPort: 15672
+  selector:
+    app: {{ .Chart.Name }}-rabbitmq
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Chart.Name }}-rabbitmq
+spec:
+  serviceName: {{ .Chart.Name }}-rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}-rabbitmq
+  template:
+    metadata:
+      labels:
+        app: {{ .Chart.Name }}-rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: "{{ .Values.rabbitmq.image.repository }}:{{ .Values.rabbitmq.image.tag }}"
+          ports:
+            - containerPort: 5672
+              name: amqp
+            - containerPort: 61613
+              name: stomp
+            - containerPort: 15672
+              name: management
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.rabbitmq.existingSecret | default (printf "%s-rabbitmq" .Chart.Name) }}
+                  key: username
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.rabbitmq.existingSecret | default (printf "%s-rabbitmq" .Chart.Name) }}
+                  key: password
+          volumeMounts:
+        - name: enabled-plugins
+          mountPath: /etc/rabbitmq/enabled_plugins
+          subPath: enabled_plugins
+        - name: rabbitmq-advanced
+          mountPath: /etc/rabbitmq/advanced.config
+          subPath: advanced.config
+        - name: data
+              mountPath: /var/lib/rabbitmq
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "check_running"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.rabbitmq.resources | nindent 12 }}
+      volumes:
+        - name: enabled-plugins
+          configMap:
+            name: {{ .Chart.Name }}-rabbitmq-plugins
+        - name: rabbitmq-advanced
+          configMap:
+            name: {{ .Chart.Name }}-rabbitmq-advanced
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.rabbitmq.persistence.size }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Chart.Name }}-rabbitmq-plugins
+data:
+  enabled_plugins: |
+    [rabbitmq_management,rabbitmq_stomp,rabbitmq_web_stomp].
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Chart.Name }}-rabbitmq-advanced
+data:
+  advanced.config: |
+    [
+      {rabbitmq_stomp, [
+        {implicit_dest, true}
+      ]}
+    ].
+{{- if not .Values.rabbitmq.existingSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Chart.Name }}-rabbitmq
+type: Opaque
+stringData:
+  username: {{ .Values.rabbitmq.auth.username | quote }}
+  password: {{ .Values.rabbitmq.auth.password | quote }}
+{{- end }}
+{{- end }}

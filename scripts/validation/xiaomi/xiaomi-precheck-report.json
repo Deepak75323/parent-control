@@ -1,0 +1,80 @@
+{
+  "timestamp": "2026-06-18T11:44:02Z",
+  "device": {
+    "serial": "8HNNIBTK4PY9NRIJ",
+    "manufacturer": "Xiaomi",
+    "model": "24094RAD4I",
+    "osRelease": "16",
+    "sdkInt": 36,
+    "miuiVersion": "V816",
+    "hyperosVersion": "OS3.0"
+  },
+  "overall": "FAIL",
+  "failFast": true,
+  "items": [
+    {
+      "id": "autostart",
+      "name": "Autostart enabled",
+      "required": true,
+      "status": "PASS",
+      "detail": "override",
+      "evidence": ""
+    },
+    {
+      "id": "battery",
+      "name": "Battery optimization disabled",
+      "required": true,
+      "status": "PASS",
+      "detail": "",
+      "evidence": "True"
+    },
+    {
+      "id": "recents",
+      "name": "App locked in recents",
+      "required": true,
+      "status": "PASS",
+      "detail": "override",
+      "evidence": ""
+    },
+    {
+      "id": "notifications",
+      "name": "Notification permission granted",
+      "required": true,
+      "status": "FAIL",
+      "detail": "",
+      "evidence": ""
+    },
+    {
+      "id": "accessibility",
+      "name": "Accessibility enabled",
+      "required": true,
+      "status": "PASS",
+      "detail": "",
+      "evidence": ""
+    },
+    {
+      "id": "device_owner",
+      "name": "Device Owner status",
+      "required": true,
+      "status": "FAIL",
+      "detail": "INACTIVE",
+      "evidence": ""
+    },
+    {
+      "id": "fcm_token",
+      "name": "FCM token registered",
+      "required": true,
+      "status": "PASS",
+      "detail": "",
+      "evidence": "cXShxfFQQIKAh-cA\u2026"
+    },
+    {
+      "id": "heartbeat",
+      "name": "Heartbeat active",
+      "required": true,
+      "status": "PASS",
+      "detail": "status=OFFLINE lastSeenAt=2026-06-15T12:05:22.264470Z",
+      "evidence": ""
+    }
+  ]
+}

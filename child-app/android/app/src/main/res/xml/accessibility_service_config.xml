@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A3 fix: added flagRequestFilterKeyEvents and flagRetrieveInteractiveWindows.
+
+  Previous config used only flagDefault (0x00000001) which is insufficient for
+  remote control on Android 14+.  Specifically:
+
+  • flagRequestFilterKeyEvents — required for ACTION_SET_TEXT (TYPE_TEXT command)
+    on API 33+.  Without it, performAction(ACTION_SET_TEXT) may return false
+    silently on strict accessibility security mode introduced in Android 13.
+
+  • flagRetrieveInteractiveWindows — required for finding focusable nodes across
+    all windows (multi-window, system overlays) when executing TAP/TYPE commands.
+
+  canRequestFilterKeyEvents="true" is also added to the manifest entry for the
+  service (declared here, enforced in AndroidManifest.xml).
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewFocused"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagRequestFilterKeyEvents|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
+    android:canRequestFilterKeyEvents="true"
+    android:description="@string/accessibility_service_description"
+    android:notificationTimeout="100"
+    android:settingsActivity=""
+    />

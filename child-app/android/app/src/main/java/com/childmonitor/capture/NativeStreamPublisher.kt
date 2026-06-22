@@ -1,0 +1,484 @@
+package com.childmonitor.capture
+
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import com.childmonitor.debug.PcpFlowLogger
+import com.childmonitor.sync.DeviceHttpClient
+import com.childmonitor.telemetry.StreamLifecycleTelemetry
+import org.json.JSONObject
+import org.webrtc.DefaultVideoDecoderFactory
+import org.webrtc.DefaultVideoEncoderFactory
+import org.webrtc.EglBase
+import org.webrtc.IceCandidate
+import org.webrtc.MediaConstraints
+import org.webrtc.PeerConnection
+import org.webrtc.PeerConnectionFactory
+import org.webrtc.SdpObserver
+import org.webrtc.SessionDescription
+import org.webrtc.SurfaceTextureHelper
+import org.webrtc.VideoCapturer
+import org.webrtc.VideoSource
+import org.webrtc.VideoTrack
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Native WebRTC screen publisher using stored MediaProjection token (headless-only path).
+ * JS hidden capture owns the foreground path when React is active.
+ */
+object NativeStreamPublisher {
+
+    private const val TAG = "NativeStreamPublisher"
+    private val running = AtomicBoolean(false)
+    private val webRtcGlobalInitDone = AtomicBoolean(false)
+    private var peerConnectionFactory: PeerConnectionFactory? = null
+    private var peerConnection: PeerConnection? = null
+    private var eglBase: EglBase? = null
+    private var capturer: VideoCapturer? = null
+    private var videoSource: VideoSource? = null
+    private var pollHandler: Handler? = null
+    private var pollRunnable: Runnable? = null
+    private var activeRoomId: String? = null
+    private var activeSessionId: String? = null
+    private val seenMessageIds = mutableSetOf<String>()
+    private var remoteAnswerApplied = false
+
+    private var iceRecoveryRunnable: Runnable? = null
+    private var iceRecoveryStage = 0
+
+    fun start(context: Context, roomId: String, sessionId: String): Boolean {
+        if (!ScreenCaptureController.canUseSilentCapture(context)) {
+            Log.w(TAG, "Silent capture not available")
+            return false
+        }
+        if (StreamSessionRegistry.isBlocked(StreamSessionRegistry.Owner.NATIVE_PUBLISHER)) {
+            Log.w(TAG, "Screen capture owned by ${StreamSessionRegistry.activeOwner()} — skip native start")
+            return false
+        }
+        if (!StreamSessionRegistry.tryAcquire(StreamSessionRegistry.Owner.NATIVE_PUBLISHER, sessionId, roomId)) {
+            return false
+        }
+
+        if (running.getAndSet(true)) {
+            stopCaptureOnly()
+        }
+
+        activeRoomId = roomId
+        activeSessionId = sessionId
+        seenMessageIds.clear()
+        remoteAnswerApplied = false
+
+        return try {
+            PcpFlowLogger.log(
+                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                "native capture start",
+                "room=$roomId session=$sessionId",
+            )
+            if (MediaProjectionTokenStore.isProjectionLostAfterProcessRestart(context)) {
+                MediaProjectionTokenStore.logProjectionLostAfterProcessRestart(context)
+                throw IllegalStateException("Projection unavailable after process restart")
+            }
+            if (!ScreenCaptureForegroundService.startAndWait(context)) {
+                throw IllegalStateException("Screen capture FGS did not start")
+            }
+            val projection = ScreenCaptureController.obtainProjection(context)
+                ?: throw IllegalStateException("MediaProjection unavailable — re-grant screen capture")
+            if (!ScreenCaptureController.projectionObtainedWithFgs()) {
+                throw IllegalStateException("MediaProjection obtained before screen FGS was active")
+            }
+
+            initWebRtc(context)
+            val metrics = context.resources.displayMetrics
+            capturer = ReuseProjectionCapturer(
+                projection,
+                metrics.densityDpi,
+                onProjectionLost = {
+                    // MediaProjection.onStop fired mid-stream — OS revoked the token.
+                    // Stop the publisher so the session registry is released and the
+                    // coordinator can attempt recovery on the next STOMP command.
+                    PcpFlowLogger.warn(
+                        PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                        "native publisher: projection lost mid-stream — stopping",
+                        "room=$activeRoomId session=$activeSessionId",
+                    )
+                    stop(context)
+                    ScreenCaptureForegroundService.stopStream(context)
+                },
+            )
+            val helper = SurfaceTextureHelper.create("ScreenCaptureThread", eglBase!!.eglBaseContext)
+            videoSource = peerConnectionFactory!!.createVideoSource(capturer!!.isScreencast)
+            capturer!!.initialize(helper, context, videoSource!!.capturerObserver)
+            val width = metrics.widthPixels.coerceAtLeast(360)
+            val height = metrics.heightPixels.coerceAtLeast(640)
+            capturer!!.startCapture(width, height, 15)
+
+            val videoTrack = peerConnectionFactory!!.createVideoTrack("screen_video", videoSource)
+            peerConnection!!.addTrack(videoTrack, listOf("stream"))
+
+            createAndSendOffer(context, roomId, sessionId)
+            startSignalingPoll(context, roomId)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "start failed — stored consent kept for retry", e)
+            running.set(false)
+            StreamSessionRegistry.release(StreamSessionRegistry.Owner.NATIVE_PUBLISHER)
+            // Report the capture/setup failure so the parent UI shows a clear error
+            // instead of hanging on the offer-wait timeout (~60s).
+            reportFailureAsync(context, sessionId, classifyStartFailure(e))
+            stop(context)
+            false
+        }
+    }
+
+    private fun classifyStartFailure(e: Exception): String {
+        val msg = e.message ?: ""
+        return when {
+            msg.contains("process restart", ignoreCase = true) -> "PROJECTION_LOST_AFTER_RESTART"
+            msg.contains("re-grant", ignoreCase = true) -> "PROJECTION_REQUIRES_RECONSENT"
+            msg.contains("FGS", ignoreCase = true) -> "FGS_NOT_READY"
+            msg.contains("MediaProjection", ignoreCase = true) -> "NO_SCREEN_CAPTURE_CONSENT"
+            else -> "NATIVE_PUBLISHER_START_FAILED"
+        }
+    }
+
+    private fun reportFailureAsync(context: Context, sessionId: String, reason: String) {
+        Thread {
+            try {
+                DeviceHttpClient.reportStreamFailure(context, sessionId, reason)
+            } catch (e: Exception) {
+                Log.w(TAG, "reportStreamFailure failed", e)
+            }
+        }.start()
+    }
+
+    fun stop(context: Context) {
+        running.set(false)
+        iceRecoveryRunnable?.let { pollHandler?.removeCallbacks(it) }
+        iceRecoveryRunnable = null
+        iceRecoveryStage = 0
+        pollRunnable?.let { pollHandler?.removeCallbacks(it) }
+        pollRunnable = null
+        pollHandler = null
+        activeRoomId = null
+        activeSessionId = null
+        seenMessageIds.clear()
+        remoteAnswerApplied = false
+        StreamSessionRegistry.release(StreamSessionRegistry.Owner.NATIVE_PUBLISHER)
+
+        stopCaptureOnly()
+
+        peerConnection?.close()
+        peerConnection = null
+
+        if (!MediaProjectionTokenStore.hasValidToken(context)) {
+            ScreenCaptureController.releaseProjection()
+        } else {
+            ScreenCaptureController.detachProjection()
+        }
+    }
+
+    private fun stopCaptureOnly() {
+        try {
+            capturer?.stopCapture()
+        } catch (_: Exception) {
+        }
+        capturer?.dispose()
+        capturer = null
+        videoSource?.dispose()
+        videoSource = null
+        MediaProjectionCaptureGate.release("native-publisher-stop")
+    }
+
+    fun isRunning(): Boolean = running.get()
+
+    private fun initWebRtc(context: Context) {
+        if (peerConnectionFactory == null) {
+            eglBase = EglBase.create()
+            if (webRtcGlobalInitDone.compareAndSet(false, true)) {
+                PeerConnectionFactory.initialize(
+                    PeerConnectionFactory.InitializationOptions.builder(context)
+                        .createInitializationOptions(),
+                )
+            }
+            val encoderFactory = DefaultVideoEncoderFactory(eglBase!!.eglBaseContext, true, true)
+            val decoderFactory = DefaultVideoDecoderFactory(eglBase!!.eglBaseContext)
+            peerConnectionFactory = PeerConnectionFactory.builder()
+                .setVideoEncoderFactory(encoderFactory)
+                .setVideoDecoderFactory(decoderFactory)
+                .createPeerConnectionFactory()
+        }
+
+        peerConnection?.close()
+        peerConnection = null
+
+        // P2-4: pass sessionId so we receive session-bound TURN credentials (short TTL,
+        // limited to this stream session).
+        val iceServers = WebrtcConfigLoader.loadIceServers(context, activeSessionId)
+        val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
+            iceTransportsType = PeerConnection.IceTransportsType.ALL
+        }
+        peerConnection = peerConnectionFactory!!.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
+            override fun onIceCandidate(candidate: IceCandidate?) {
+                candidate ?: return
+                val room = activeRoomId ?: return
+                val session = activeSessionId ?: return
+                SignalingHttpClient.postMessage(
+                    context,
+                    room,
+                    "ice",
+                    JSONObject()
+                        .put("candidate", candidate.sdp)
+                        .put("sdpMid", candidate.sdpMid)
+                        .put("sdpMLineIndex", candidate.sdpMLineIndex)
+                        .toString(),
+                    session,
+                )
+            }
+
+            override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
+            override fun onSignalingChange(state: PeerConnection.SignalingState?) {
+                Log.i(TAG, "signalingState=$state")
+            }
+            override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
+                Log.i(TAG, "iceConnectionState=$state")
+                when (state) {
+                    PeerConnection.IceConnectionState.CONNECTED,
+                    PeerConnection.IceConnectionState.COMPLETED -> {
+                        iceRecoveryStage = 0
+                        iceRecoveryRunnable?.let { pollHandler?.removeCallbacks(it) }
+                        iceRecoveryRunnable = null
+                        StreamSessionRegistry.markActive()
+                        PcpFlowLogger.log(
+                            PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                            "ICE connected",
+                            "state=$state room=$activeRoomId",
+                        )
+                        StreamLifecycleTelemetry.record("ice_recovered", mapOf("state" to state?.name))
+                    }
+                    PeerConnection.IceConnectionState.DISCONNECTED,
+                    PeerConnection.IceConnectionState.FAILED -> scheduleIceRecovery(context)
+                    else -> Unit
+                }
+            }
+            override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
+                Log.i(TAG, "iceGatheringState=$state")
+            }
+            override fun onAddStream(stream: org.webrtc.MediaStream?) {}
+            override fun onRemoveStream(stream: org.webrtc.MediaStream?) {}
+            override fun onDataChannel(channel: org.webrtc.DataChannel?) {}
+            override fun onRenegotiationNeeded() {}
+            override fun onAddTrack(receiver: org.webrtc.RtpReceiver?, streams: Array<out org.webrtc.MediaStream>?) {}
+        })
+    }
+
+    private fun createAndSendOffer(context: Context, roomId: String, sessionId: String) {
+        PcpFlowLogger.log(
+            PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+            "createOffer start",
+            "room=$roomId session=$sessionId",
+        )
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
+        }
+        peerConnection!!.createOffer(object : SdpObserverAdapter() {
+            override fun onCreateSuccess(desc: SessionDescription?) {
+                desc ?: return
+                PcpFlowLogger.log(
+                    PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                    "createOffer success",
+                    "room=$roomId session=$sessionId",
+                )
+                peerConnection!!.setLocalDescription(object : SdpObserverAdapter() {
+                    override fun onSetSuccess() {
+                        val payload = JSONObject()
+                            .put("type", desc.type.canonicalForm())
+                            .put("sdp", desc.description)
+                            .toString()
+                        SignalingHttpClient.postMessage(
+                            context,
+                            roomId,
+                            "offer",
+                            payload,
+                            sessionId,
+                        )
+                        PcpFlowLogger.log(
+                            PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                            "offer sent",
+                            "room=$roomId session=$sessionId",
+                        )
+                        Log.i(TAG, "offer sent room=$roomId")
+                    }
+                }, desc)
+            }
+        }, constraints)
+    }
+
+    private fun startSignalingPoll(context: Context, roomId: String) {
+        pollHandler = Handler(Looper.getMainLooper())
+        pollRunnable = object : Runnable {
+            override fun run() {
+                if (!running.get()) return
+                processSignalingMessages(context, roomId)
+                pollHandler?.postDelayed(this, 1500)
+            }
+        }
+        pollHandler?.post(pollRunnable!!)
+    }
+
+    private fun processSignalingMessages(context: Context, roomId: String) {
+        val messages = SignalingHttpClient.fetchRecent(context, roomId) ?: return
+        for (i in 0 until messages.length()) {
+            val msg = messages.optJSONObject(i) ?: continue
+            val id = msg.optString("id", "$i-${msg.optString("messageType")}")
+            if (seenMessageIds.contains(id) || msg.optString("senderRole") == "CHILD") continue
+            if (msg.optString("messageType") == "answer") {
+                applyAnswer(context, msg.optString("payload"), id)
+            }
+        }
+        if (!remoteAnswerApplied) return
+        for (i in 0 until messages.length()) {
+            val msg = messages.optJSONObject(i) ?: continue
+            val id = msg.optString("id", "$i-${msg.optString("messageType")}")
+            if (seenMessageIds.contains(id) || msg.optString("senderRole") == "CHILD") continue
+            if (msg.optString("messageType") == "ice") {
+                applyIce(msg.optString("payload"), id)
+            }
+        }
+    }
+
+    private fun applyAnswer(context: Context, payload: String, messageId: String) {
+        val sdp = extractSdp(payload)
+        val desc = SessionDescription(SessionDescription.Type.ANSWER, sdp)
+        peerConnection?.setRemoteDescription(object : SdpObserverAdapter() {
+            override fun onSetSuccess() {
+                seenMessageIds.add(messageId)
+                remoteAnswerApplied = true
+                PcpFlowLogger.log(
+                    PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                    "answer received",
+                    "room=$activeRoomId",
+                )
+                Log.i(TAG, "remote answer applied")
+            }
+            override fun onSetFailure(error: String?) {
+                Log.e(TAG, "remote answer failed: $error")
+                val session = activeSessionId
+                if (session != null) {
+                    reportFailureAsync(context, session, "ANSWER_APPLY_FAILED")
+                }
+            }
+        }, desc)
+    }
+
+    private fun applyIce(payload: String, messageId: String) {
+        try {
+            val json = JSONObject(payload)
+            val candidate = IceCandidate(
+                json.optString("sdpMid"),
+                json.optInt("sdpMLineIndex"),
+                json.optString("candidate"),
+            )
+            peerConnection?.addIceCandidate(candidate)
+            seenMessageIds.add(messageId)
+        } catch (e: Exception) {
+            Log.w(TAG, "ice parse failed", e)
+        }
+    }
+
+    private fun scheduleIceRecovery(context: Context) {
+        if (iceRecoveryRunnable != null || !running.get()) return
+        val handler = pollHandler ?: Handler(Looper.getMainLooper()).also { pollHandler = it }
+        iceRecoveryRunnable = Runnable {
+            iceRecoveryRunnable = null
+            if (!running.get()) return@Runnable
+            val state = peerConnection?.iceConnectionState()
+            if (state == PeerConnection.IceConnectionState.CONNECTED ||
+                state == PeerConnection.IceConnectionState.COMPLETED
+            ) {
+                return@Runnable
+            }
+            val room = activeRoomId ?: return@Runnable
+            val session = activeSessionId ?: return@Runnable
+            if (iceRecoveryStage == 0) {
+                iceRecoveryStage = 1
+                StreamSessionRegistry.markReconnecting()
+                StreamLifecycleTelemetry.record("ice_restart_attempt", StreamSessionRegistry.snapshot())
+                PcpFlowLogger.log(PcpFlowLogger.Category.SCREEN_SHARE_FLOW, "native ICE restart", "room=$room")
+                renegotiateWithIceRestart(context, room, session)
+                handler.postDelayed({
+                    if (!running.get()) return@postDelayed
+                    val after = peerConnection?.iceConnectionState()
+                    if (after == PeerConnection.IceConnectionState.CONNECTED ||
+                        after == PeerConnection.IceConnectionState.COMPLETED
+                    ) {
+                        iceRecoveryStage = 0
+                        return@postDelayed
+                    }
+                    iceRecoveryStage = 2
+                    StreamLifecycleTelemetry.record("ice_recovery_failed", StreamSessionRegistry.snapshot())
+                    PcpFlowLogger.warn(PcpFlowLogger.Category.SCREEN_SHARE_FLOW, "native ICE recovery exhausted", "room=$room")
+                    // Mirror the JS publisher behaviour: tell the backend the session is dead
+                    // so the parent UI sees a "stream failed" message instead of a frozen view.
+                    reportFailureAsync(context, session, "ICE_RECOVERY_EXHAUSTED")
+                }, 12_000)
+            }
+        }
+        val delay = if (peerConnection?.iceConnectionState() == PeerConnection.IceConnectionState.FAILED) {
+            3000L
+        } else {
+            6000L
+        }
+        handler.postDelayed(iceRecoveryRunnable!!, delay)
+    }
+
+    private fun renegotiateWithIceRestart(context: Context, roomId: String, sessionId: String) {
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
+        }
+        peerConnection?.createOffer(object : SdpObserverAdapter() {
+            override fun onCreateSuccess(desc: SessionDescription?) {
+                desc ?: return
+                peerConnection!!.setLocalDescription(object : SdpObserverAdapter() {
+                    override fun onSetSuccess() {
+                        SignalingHttpClient.postMessage(
+                            context,
+                            roomId,
+                            "offer",
+                            JSONObject()
+                                .put("type", desc.type.canonicalForm())
+                                .put("sdp", desc.description)
+                                .toString(),
+                            sessionId,
+                        )
+                        Log.i(TAG, "ice-restart offer sent room=$roomId")
+                    }
+                }, desc)
+            }
+        }, constraints)
+    }
+
+    private fun extractSdp(payload: String): String {
+        return try {
+            val json = JSONObject(payload)
+            if (json.has("sdp")) json.getString("sdp") else payload
+        } catch (_: Exception) {
+            payload
+        }
+    }
+
+    private open class SdpObserverAdapter : SdpObserver {
+        override fun onCreateSuccess(desc: SessionDescription?) {}
+        override fun onSetSuccess() {}
+        override fun onCreateFailure(error: String?) {
+            Log.e(TAG, "SDP create failure: $error")
+        }
+        override fun onSetFailure(error: String?) {
+            Log.e(TAG, "SDP set failure: $error")
+        }
+    }
+}

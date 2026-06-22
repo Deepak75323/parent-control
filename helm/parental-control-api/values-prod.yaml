@@ -1,0 +1,17 @@
+# Production overrides — use: helm install -f values.yaml -f values-prod.yaml
+replicaCount: 2
+
+env:
+  SPRING_PROFILES_ACTIVE: prod
+  HMAC_REQUIRED: "true"
+  APP_ENCRYPTION_ENABLED: "true"
+  FCM_ENABLED: "true"
+  PLAY_INTEGRITY_REQUIRED: "true"
+  BILLING_ENFORCEMENT: "true"
+  STOMP_RELAY_ENABLED: "false"
+  STOMP_CLUSTER_MODE: redis
+  TURN_SECRET: ""
+  TURN_EXTERNAL_HOST: parental-control-api-turn
+  # REQUIRED — inject via K8s secret / external-secrets:
+  # JWT_SECRET, APP_ENCRYPTION_KEY, FCM_SERVER_KEY, STRIPE_*, DATABASE_URL
+  # STOMP_RELAY_SYSTEM_PASSCODE, STOMP_RELAY_CLIENT_PASSCODE (match rabbitmq secret)

@@ -1,0 +1,235 @@
+# Chaos Engineering & Reliability Validation — Test Matrix
+# Each scenario defines fault, scope, recovery expectation, and pass criteria.
+
+version: "1.0"
+platform: parental-control
+
+categories:
+  android:
+    - id: AND-01
+      name: Process kill (SIGKILL)
+      fault: adb shell am kill com.childmonitor
+      recovery_expectation: CommandRecoveryManager replays within 60s; heartbeat resumes
+      pass_criteria:
+        mttr_seconds_max: 60
+        commands_delivered_pct_min: 95
+        heartbeat_online_within_sec: 120
+      automation: scripts/chaos/scenarios/android/process-kill.sh
+      oem_matrix: [all]
+
+    - id: AND-02
+      name: Force stop
+      fault: adb shell am force-stop com.childmonitor
+      recovery_expectation: BootRecovery FAST phase + WorkManager chain
+      pass_criteria:
+        mttr_seconds_max: 120
+        service_running_within_sec: 180
+      automation: scripts/chaos/scenarios/android/force-stop.sh
+
+    - id: AND-03
+      name: Device reboot
+      fault: adb reboot
+      recovery_expectation: BootWakeChain FAST→RECOVERY→FALLBACK; ONLINE within 10m
+      pass_criteria:
+        mttr_seconds_max: 600
+        boot_phase_fast_within_sec: 120
+      automation: scripts/chaos/scenarios/android/reboot-recovery.sh
+
+    - id: AND-04
+      name: OEM battery optimization
+      fault: Restrict background + Doze
+      recovery_expectation: FCM wake + WorkManager fallback poll
+      pass_criteria:
+        heartbeat_within_sec: 300
+      automation: scripts/validation/xiaomi/lib/tests_automated.py
+      oem_matrix: [xiaomi, samsung, pixel]
+
+    - id: AND-05
+      name: Accessibility service restart
+      fault: Disable/re-enable accessibility
+      recovery_expectation: Heartbeat reports disconnected then reconnected
+      pass_criteria:
+        accessibility_reconnected_within_sec: 60
+      automation: manual
+
+    - id: AND-06
+      name: MediaProjection loss
+      fault: Revoke projection consent / process death
+      recovery_expectation: Heartbeat clears stale granted flag; parent alert
+      pass_criteria:
+        stale_flag_cleared_within_sec: 30
+      automation: child-app instrumented tests
+
+    - id: AND-07
+      name: FGS timeout (Android 15)
+      fault: 6h FGS limit / onTimeout
+      recovery_expectation: Boot chain re-scheduled; stream teardown idempotent
+      pass_criteria:
+        boot_chain_rescheduled: true
+        stream_teardown_complete: true
+      automation: docs/android15-fgs-test-plan.md
+
+    - id: AND-08
+      name: WorkManager delay
+      fault: Background restriction delays workers
+      recovery_expectation: FALLBACK phase completes within 15m
+      pass_criteria:
+        fallback_phase_within_sec: 900
+      automation: scripts/chaos/scenarios/android/workmanager-delay.sh
+
+  networking:
+    - id: NET-01
+      name: Airplane mode
+      fault: adb shell cmd connectivity airplane-mode enable
+      recovery_expectation: Offline queue; sync on restore
+      pass_criteria:
+        recovery_on_network_restore_sec: 120
+      automation: scripts/chaos/scenarios/network/airplane-mode.sh
+
+    - id: NET-02
+      name: API unreachable (backend pause)
+      fault: podman pause pcp-backend
+      recovery_expectation: Command buffer + retry; no data loss
+      pass_criteria:
+        commands_buffered: true
+        delivery_after_restore_pct_min: 95
+      automation: scripts/chaos/scenarios/network/api-unreachable.sh
+
+    - id: NET-03
+      name: DNS failure
+      fault: Invalid DNS / hosts override
+      recovery_expectation: Graceful error; retry with backoff
+      pass_criteria:
+        no_crash: true
+      automation: manual
+
+    - id: NET-04
+      name: WiFi ↔ Mobile handoff
+      fault: Toggle network transport
+      recovery_expectation: STOMP reconnect; ICE restart
+      pass_criteria:
+        stomp_reconnected_within_sec: 60
+      automation: scripts/validation/xiaomi
+
+    - id: NET-05
+      name: TURN outage
+      fault: podman stop pcp-coturn
+      recovery_expectation: STUN-only fallback or ICE failure reported
+      pass_criteria:
+        ice_failure_reported: true
+        stream_failure_metric_incremented: true
+      automation: scripts/chaos/scenarios/streaming/turn-outage.sh
+
+    - id: NET-06
+      name: STOMP disconnect
+      fault: Kill WebSocket / scale pods
+      recovery_expectation: Client reconnect; Redis cluster fan-out
+      pass_criteria:
+        command_received_after_reconnect: true
+      automation: scripts/test/stomp-multi-pod-smoke.sh
+
+  backend:
+    - id: BE-01
+      name: Pod crash
+      fault: kubectl delete pod
+      recovery_expectation: K8s reschedules; readiness passes
+      pass_criteria:
+        readiness_within_sec: 120
+      automation: scripts/chaos/scenarios/backend/pod-kill.sh
+
+    - id: BE-02
+      name: Rolling deployment
+      fault: kubectl rollout restart
+      recovery_expectation: Zero-downtime with 2+ replicas
+      pass_criteria:
+        api_available_throughout: true
+      automation: scripts/chaos/scenarios/backend/rolling-deploy.sh
+
+    - id: BE-03
+      name: Redis outage
+      fault: podman stop pcp-redis
+      recovery_expectation: HMAC nonce may fail; STOMP cluster degraded
+      pass_criteria:
+        graceful_errors: true
+        recovery_after_redis_up_sec: 60
+      automation: scripts/chaos/scenarios/backend/redis-outage.sh
+
+    - id: BE-04
+      name: PostgreSQL restart
+      fault: podman restart pcp-postgres
+      recovery_expectation: Connection pool recovery; no command loss
+      pass_criteria:
+        commands_persisted: true
+        api_recovery_sec: 90
+      automation: scripts/chaos/scenarios/backend/postgres-restart.sh
+
+    - id: BE-05
+      name: Kafka outage
+      fault: podman stop pcp-kafka
+      recovery_expectation: Heartbeat ingest degraded; core API functional
+      pass_criteria:
+        api_healthy: true
+      automation: scripts/chaos/scenarios/backend/kafka-outage.sh
+
+    - id: BE-06
+      name: FCM outage (mock)
+      fault: Invalid FCM credentials
+      recovery_expectation: STOMP-only command delivery
+      pass_criteria:
+        command_delivered_via_stomp: true
+      automation: backend integration test
+
+  streaming:
+    - id: STR-01
+      name: ICE failure
+      fault: Block UDP / TURN down
+      recovery_expectation: webrtc.ice.failures metric; parent notified
+      pass_criteria:
+        failure_reported: true
+      automation: scripts/chaos/scenarios/streaming/turn-outage.sh
+
+    - id: STR-02
+      name: Session replacement
+      fault: Start new stream while pending exists
+      recovery_expectation: Stale pending ended; single active session
+      pass_criteria:
+        single_active_session: true
+      automation: backend integration test
+
+    - id: STR-03
+      name: Parent disconnect mid-stream
+      fault: Close parent WebSocket
+      recovery_expectation: Child stream teardown coordinator completes
+      pass_criteria:
+        teardown_within_sec: 30
+      automation: manual
+
+    - id: STR-04
+      name: Child disconnect mid-stream
+      fault: Force-stop during ACTIVE stream
+      recovery_expectation: Server marks FAILED; parent notified
+      pass_criteria:
+        session_status_failed: true
+      automation: scripts/chaos/scenarios/android/force-stop.sh
+
+    - id: STR-05
+      name: Mid-stream network change
+      fault: Airplane toggle during stream
+      recovery_expectation: ICE restart or clean failure
+      pass_criteria:
+        no_orphan_fgs: true
+      automation: scripts/chaos/scenarios/network/airplane-mode.sh
+
+burst_validation:
+  commands_during_failure:
+    count: 100
+    scenario: BE-03
+    pass_criteria:
+      delivery_pct_min: 95
+      max_lag_seconds_p95: 120
+  streams_during_failure:
+    count: 100
+    scenario: NET-05
+    pass_criteria:
+      startup_success_pct_min: 90
+      failure_reported_pct_min: 100

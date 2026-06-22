@@ -1,0 +1,36 @@
+---
+description: Index of addyosmani/agent-skills rules installed in this project — use to pick the right workflow
+alwaysApply: true
+---
+
+# Agent Skills (this project)
+
+Skills from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills). Source commit in `.cursor/agent-skills-source/VERSION`.
+
+## Always active
+
+| Rule | When it applies |
+|------|-----------------|
+| `incremental-implementation` | Multi-file changes — thin vertical slices, verify each step |
+| `test-driven-development` | Behavior changes — red/green/refactor, Prove-It pattern |
+| `git-workflow-and-versioning` | All commits — atomic, ~100-line changes, trunk-based |
+| `security-and-hardening` | Auth, child/parent data, APIs, storage — OWASP, secrets, boundaries |
+
+## Load on demand (mention in chat or open matching files)
+
+| Rule | When to invoke |
+|------|----------------|
+| `spec-driven-development` | New feature or significant change — write PRD before code |
+| `code-review-and-quality` | Before merge — five-axis review, change sizing |
+| `debugging-and-error-recovery` | Tests fail, builds break, unexpected runtime behavior |
+| `api-and-interface-design` | Backend API work (`backend/**` auto-attaches) |
+
+## How to use
+
+Tell the agent explicitly when you want a workflow, e.g.:
+
+- "Follow spec-driven-development before implementing this feature"
+- "Review this diff using code-review-and-quality"
+- "Debug this using debugging-and-error-recovery"
+
+To add more skills, copy from the upstream repo into `.cursor/rules/` as `.mdc` files (see upstream `docs/cursor-setup.md`).

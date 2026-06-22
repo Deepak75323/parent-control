@@ -1,0 +1,50 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "uid": "pcp-oem-reliability",
+  "title": "PCP OEM Reliability",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Fleet readiness (avg)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "avg(device_oem_readiness_score)" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "OEM setup incomplete",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "sum(increase(device_oem_setup_incomplete_total[24h]))" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Readiness score by OEM",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "avg by (vendor) (device_oem_readiness_score)", "legendFormat": "{{vendor}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "OEM failure classifications (24h)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "sum by (vendor, classification) (increase(device_oem_failure_total[24h]))", "legendFormat": "{{vendor}} — {{classification}}" }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Certification runs by vendor",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        { "expr": "sum by (vendor, status) (increase(device_oem_certification_total[7d]))", "legendFormat": "{{vendor}} {{status}}" }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

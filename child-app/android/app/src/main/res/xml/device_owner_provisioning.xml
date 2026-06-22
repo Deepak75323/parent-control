@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- QR provisioning payload reference for production Device Owner enrollment -->
+<provisioning-data xmlns:android="http://schemas.android.com/apk/res/android">
+    <provisioning-device-admin>
+        <device-admin component="com.childmonitor/.ChildDeviceAdminReceiver" />
+    </provisioning-device-admin>
+</provisioning-data>

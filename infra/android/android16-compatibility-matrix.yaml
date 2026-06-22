@@ -1,0 +1,98 @@
+# Android 16 (API 36) Compatibility Matrix
+
+version: "1.0"
+app: com.childmonitor
+target_sdk: 36
+compile_sdk: 36
+min_sdk: 24
+
+platform_areas:
+  screen_sharing:
+    apis: [MediaProjection, VirtualDisplay, FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION]
+    api36_status: compatible_with_gate
+    components:
+      - ScreenCaptureForegroundService
+      - NativeStreamPublisher
+      - HiddenScreenCapture
+      - MediaProjectionCaptureGate
+    requirements:
+      - FGS before getMediaProjection
+      - Single VirtualDisplay per projection
+      - Consent before FGS start
+      - No BOOT_COMPLETED projection FGS
+
+  camera_monitoring:
+    apis: [Camera2, FOREGROUND_SERVICE_TYPE_CAMERA]
+    api36_status: compatible
+    components:
+      - CameraStreamForegroundService
+      - HiddenCameraCapture
+    requirements:
+      - CAMERA runtime permission before FGS
+      - Typed FGS onTimeout handler
+
+  audio_monitoring:
+    apis: [AudioRecord, FOREGROUND_SERVICE_TYPE_MICROPHONE]
+    api36_status: compatible
+    components:
+      - AudioStreamForegroundService
+      - HiddenAudioCapture
+    requirements:
+      - RECORD_AUDIO before FGS
+      - Typed FGS onTimeout handler
+
+  remote_control:
+    apis: [AccessibilityService, DevicePolicyManager]
+    api36_status: compatible
+    components:
+      - AppBlockingAccessibilityService
+      - DeviceOwnerManager
+    notes: No Android 16 breaking changes for bound accessibility services
+
+  app_blocking:
+    apis: [AccessibilityService, UsageStatsManager]
+    api36_status: compatible
+    components:
+      - AppBlockingAccessibilityService
+      - UsageStatsReader
+
+  background_monitoring:
+    apis: [WorkManager, FCM, FOREGROUND_SERVICE_TYPE_DATA_SYNC]
+    api36_status: compatible_with_burst
+    components:
+      - MonitoringForegroundService
+      - MonitoringWorkScheduler
+      - MonitoringBurstWorker
+    requirements:
+      - Burst FGS on API 35+
+      - 6h/24h dataSync cap
+      - onTimeout graceful stop
+
+  pairing_recovery:
+    apis: [BOOT_COMPLETED, USER_UNLOCKED, WorkManager]
+    api36_status: compatible
+    components:
+      - BootReceiver
+      - BootRecoveryEngine
+      - BootWakeChain
+
+device_matrix:
+  pixel_api36:
+    status: supported
+    validation: scripts/validation/android16/run-android16-validation.sh
+  samsung_api36:
+    status: supported_with_oem_steps
+  xiaomi_api36:
+    status: restricted
+    note: HyperOS autostart + battery required
+  oneplus_api36:
+    status: restricted
+    note: Chain launch allowlist
+
+deprecated_apis:
+  - api: startForegroundService from BOOT for mediaProjection
+    replacement: WorkManager BootRecoveryWorker
+  - api: 24/7 dataSync FGS
+    replacement: MonitoringPlatform.useBurstFgs
+  - api: duplicate VirtualDisplay
+    replacement: MediaProjectionCaptureGate

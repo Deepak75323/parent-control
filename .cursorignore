@@ -1,0 +1,73 @@
+# Step 5: Cursor token savings — exclude low-signal / large paths
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+target/
+build/
+dist/
+coverage/
+logs/
+
+# Gradle / IDE
+.gradle/
+**/.gradle/
+.idea/
+.vscode/
+
+# Android
+android/build/
+android/app/build/
+**/android/build/
+**/android/app/build/
+
+# iOS
+ios/build/
+ios/Pods/
+**/ios/build/
+**/ios/Pods/
+
+# Logs and artifacts
+*.log
+*.apk
+*.aab
+
+# Lock files (large, low signal for AI)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+**/Podfile.lock
+
+# Generated / vendor
+**/*.class
+**/*.jar
+!**/gradle/wrapper/*.jar
+.expo/
+
+# OS
+.DS_Store
+
+# Secrets (never index)
+.env
+.env.*
+**/.env
+**/application-local.yml
+**/application-secrets.yml
+**/google-services.json
+**/firebase-service-account.json
+**/*firebase-adminsdk*.json
+backend/secrets/
+
+# Large binary / media
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.webp
+**/*.mp4
+**/*.ipa
+
+# Validation artifacts
+scripts/validation/**/reports/

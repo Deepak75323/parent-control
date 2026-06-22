@@ -1,0 +1,205 @@
+# Local dev: Podman only — ./scripts/dev/compose.sh up -d (never docker compose)
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pcp-postgres
+    environment:
+      POSTGRES_DB: parental_control
+      POSTGRES_USER: pcp
+      POSTGRES_PASSWORD: pcp_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pcp -d parental_control"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pcp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: pcp-rabbitmq
+    hostname: rabbitmq
+    # Host 61614 → container STOMP 61613 (61613 often occupied on macOS).
+    ports:
+      - "5672:5672"
+      - "61614:61613"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: pcp
+      RABBITMQ_DEFAULT_PASS: pcp_secret
+    volumes:
+      - ./infra/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./infra/rabbitmq/advanced.config:/etc/rabbitmq/advanced.config:ro
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  minio:
+    image: minio/minio:latest
+    container_name: pcp-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  coturn:
+    image: coturn/coturn:4.6.2
+    container_name: pcp-coturn
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "5349:5349/tcp"
+      - "49160-49200:49160-49200/udp"
+    environment:
+      TURN_SECRET: ${TURN_SECRET:-pcp_dev_turn_secret_32chars_minimum}
+    command:
+      - -n
+      - --log-file=stdout
+      - --fingerprint
+      - --no-cli
+      - --realm=pcp
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:-pcp_dev_turn_secret_32chars_minimum}
+      - --listening-ip=0.0.0.0
+      - --listening-port=3478
+      - --tls-listening-port=5349
+      - --min-port=49160
+      - --max-port=49200
+      - --no-tls
+      - --no-dtls
+
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: pcp-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pcp-backend
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/parental_control
+      SPRING_DATASOURCE_USERNAME: pcp
+      SPRING_DATASOURCE_PASSWORD: pcp_secret
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-256-bit-minimum-secret-key!!}
+      KAFKA_ENABLED: ${KAFKA_ENABLED:-true}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      STOMP_RELAY_ENABLED: ${STOMP_RELAY_ENABLED:-false}
+      STOMP_CLUSTER_MODE: ${STOMP_CLUSTER_MODE:-redis}
+      TURN_SECRET: ${TURN_SECRET:-pcp_dev_turn_secret_32chars_minimum}
+      TURN_EXTERNAL_HOST: ${TURN_EXTERNAL_HOST:-host.docker.internal}
+      BILLING_ENFORCEMENT: ${BILLING_ENFORCEMENT:-false}
+      FCM_ENABLED: ${FCM_ENABLED:-false}
+      FCM_SERVICE_ACCOUNT_FILE: ${FCM_SERVICE_ACCOUNT_FILE:-}
+      FCM_SERVER_KEY: ${FCM_SERVER_KEY:-}
+      OBSERVABILITY_PROMETHEUS_PUBLIC: ${OBSERVABILITY_PROMETHEUS_PUBLIC:-true}
+      METRICS_SCRAPE_TOKEN: ${METRICS_SCRAPE_TOKEN:-dev_metrics_token}
+      OBSERVABILITY_TRACING_ENABLED: ${OBSERVABILITY_TRACING_ENABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: pcp-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: pcp-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./infra/observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: pcp-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    container_name: pcp-otel-collector
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+    volumes:
+      - ./infra/observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:

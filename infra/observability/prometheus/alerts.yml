@@ -1,0 +1,101 @@
+groups:
+  - name: pcp-slo-burn-rate
+    rules:
+      - alert: BootRecoverySLOBurnRate
+        expr: |
+          (
+            sum(rate(device_boot_recovery_total{success="false"}[15m]))
+            /
+            clamp_min(sum(rate(device_boot_recovery_total[15m])), 0.001)
+          ) > 0.02
+        for: 15m
+        labels:
+          severity: warning
+          slo: boot_recovery
+        annotations:
+          summary: Boot recovery error budget burning (>2% failure rate)
+
+      - alert: CommandDeliverySLOBurnRate
+        expr: |
+          (
+            sum(rate(command_failure_total[5m]))
+            /
+            clamp_min(sum(rate(command_sent_total[5m])), 0.001)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          slo: command_delivery
+        annotations:
+          summary: Command delivery error budget burning (>5% failure rate)
+          description: Command failure ratio exceeded 5% over 10 minutes.
+
+      - alert: StreamStartupSLOBurnRate
+        expr: |
+          (
+            sum(rate(stream_failure_total[5m]))
+            /
+            clamp_min(sum(rate(stream_start_total[5m])), 0.001)
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          slo: stream_startup
+        annotations:
+          summary: Stream startup error budget burning (>10% failure rate)
+
+      - alert: DeviceHeartbeatStale
+        expr: device_heartbeat_freshness_max_lag_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+          slo: device_availability
+        annotations:
+          summary: Fleet heartbeat staleness exceeds 5 minutes
+
+      - alert: APIHighErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(http_server_requests_seconds_count[5m])), 0.001)
+          > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          slo: api_availability
+        annotations:
+          summary: API 5xx rate above 1%
+
+  - name: pcp-operational
+    rules:
+      - alert: StompDisconnectSpike
+        expr: increase(stomp_sessions_disconnected_total[5m]) > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: STOMP disconnect spike detected
+
+      - alert: IceFailureSpike
+        expr: increase(webrtc_ice_failures_total[10m]) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: WebRTC ICE failure spike
+
+      - alert: SuspiciousDeviceCountHigh
+        expr: device_suspicious_count > 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated suspicious device count
+
+      - alert: HmacFailureSpike
+        expr: increase(security_hmac_failures_total[10m]) > 30
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Possible credential theft or replay attack

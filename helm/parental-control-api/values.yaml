@@ -1,0 +1,131 @@
+replicaCount: 2
+
+image:
+  repository: parental-control-api
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: nginx
+  host: api.parentalcontrol.local
+  # Supplementary — broker relay is the primary cross-pod fan-out mechanism.
+  stickySessions: true
+  annotations: {}
+
+secrets:
+  # When true and existingSecret is empty, chart renders a Secret from secretEnv.
+  create: true
+  # Prefer an operator-managed Secret in production (e.g. External Secrets Operator).
+  existingSecret: ""
+
+networkPolicy:
+  enabled: true
+  ingressFromNamespaces:
+    - ingress-nginx
+    - default
+
+rabbitmq:
+  enabled: false
+  image:
+    repository: rabbitmq
+    tag: 3.13-management-alpine
+  auth:
+    username: pcp
+    password: pcp_secret
+  existingSecret: ""
+  persistence:
+    size: 5Gi
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+coturn:
+  enabled: true
+  image:
+    repository: coturn/coturn
+    tag: 4.6.2
+  replicas: 2
+  realm: pcp
+  externalIp: ""
+  authSecret: pcp_turn_secret_change_in_prod
+  existingSecret: ""
+  hostNetwork: false
+  relayMinPort: 49160
+  relayMaxPort: 49200
+  tls:
+    enabled: true
+    certSecret: ""
+    certFile: tls.crt
+    keyFile: tls.key
+  service:
+    type: LoadBalancer
+    loadBalancerIP: ""
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCpuUtilization: 70
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 1Gi
+      cpu: "2"
+
+env:
+  SPRING_PROFILES_ACTIVE: prod
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/parental_control
+  KAFKA_ENABLED: "true"
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  HMAC_REQUIRED: "true"
+  APP_ENCRYPTION_ENABLED: "true"
+  BILLING_ENFORCEMENT: "true"
+  FCM_ENABLED: "true"
+  PLAY_INTEGRITY_REQUIRED: "true"
+  PLAY_INTEGRITY_REQUIRE_PLAY_RECOGNIZED: "true"
+  PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE: "/secrets/play-integrity-sa.json"
+  DEVICE_TRUST_ENFORCEMENT: "true"
+  DEVICE_TRUST_MIN_PAIRING_SCORE: "80"
+  DEVICE_TRUST_MIN_SESSION_SCORE: "50"
+  OBSERVABILITY_TRACING_ENABLED: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
+  WEBSOCKET_ALLOWED_ORIGINS: "https://app.parentalcontrol.local"
+  STOMP_RELAY_ENABLED: "false"
+  STOMP_CLUSTER_MODE: redis
+  SPRING_DATA_REDIS_HOST: redis
+  TURN_EXTERNAL_HOST: parental-control-api-turn
+  TURN_REALM: pcp
+  TURN_CREDENTIAL_TTL_SECONDS: "86400"
+
+# Sensitive values — injected via Kubernetes Secret (never plain env in Deployment).
+secretEnv:
+  JWT_SECRET: ""
+  APP_ENCRYPTION_KEY: ""
+  FCM_SERVER_KEY: ""
+  METRICS_SCRAPE_TOKEN: ""
+  TURN_SECRET: ""
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    tokenSecretName: pcp-metrics-token
+
+resources:
+  requests:
+    memory: 512Mi
+    cpu: 250m
+  limits:
+    memory: 1Gi
+    cpu: "1"

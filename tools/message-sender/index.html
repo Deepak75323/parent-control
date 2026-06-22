@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Send WhatsApp Message — India</title>
+  <style>
+    :root {
+      --bg: #f0f4f8;
+      --card: #fff;
+      --text: #1a2b3c;
+      --muted: #5c6b7a;
+      --accent: #128c7e;
+      --accent-hover: #0e7368;
+      --border: #d8e0e8;
+      --whatsapp: #25d366;
+      --whatsapp-hover: #1da851;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    .wrap {
+      max-width: 520px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 3rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #0d47a1;
+      margin-bottom: 0.5rem;
+    }
+
+    header p {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 1.75rem;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+      border: 1px solid var(--border);
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.875rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .field { margin-bottom: 1.25rem; }
+
+    select, input, textarea {
+      width: 100%;
+      padding: 0.75rem 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 1rem;
+      font-family: inherit;
+      background: #fff;
+      transition: border-color 0.15s;
+    }
+
+    select:focus, input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(18, 140, 126, 0.15);
+    }
+
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 0.35rem;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 0.6rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #f8fafc;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+    }
+
+    .tab.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .btn-send {
+      width: 100%;
+      padding: 0.9rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      color: #fff;
+      background: var(--whatsapp);
+      transition: background 0.15s;
+    }
+
+    .btn-send:hover { background: var(--whatsapp-hover); }
+    .btn-send.sms { background: #3b82f6; }
+    .btn-send.sms:hover { background: #2563eb; }
+
+    .notice {
+      margin-top: 1.25rem;
+      padding: 0.85rem 1rem;
+      background: #fff8e6;
+      border: 1px solid #f0d78c;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      color: #7a5c00;
+    }
+
+    .error {
+      color: #c62828;
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+      display: none;
+    }
+
+    .error.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Send Message Without Saving Contact</h1>
+      <p>Enter number and message — opens WhatsApp or SMS on your device</p>
+    </header>
+
+    <div class="card">
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" data-mode="whatsapp" role="tab">WhatsApp</button>
+        <button type="button" class="tab" data-mode="sms" role="tab">SMS (mobile)</button>
+      </div>
+
+      <form id="messageForm">
+        <div class="field">
+          <label for="country">Select country</label>
+          <select id="country" name="country" required></select>
+        </div>
+
+        <div class="field">
+          <label for="phone">Mobile number</label>
+          <input
+            id="phone"
+            name="phone"
+            type="tel"
+            inputmode="numeric"
+            placeholder="e.g. 9876543210"
+            autocomplete="tel-national"
+            required
+          />
+          <p class="hint">Enter number without country code (+91 is added automatically for India)</p>
+        </div>
+
+        <div class="field">
+          <label for="message">Message</label>
+          <textarea
+            id="message"
+            name="message"
+            placeholder="Type your message here…"
+          ></textarea>
+        </div>
+
+        <p id="error" class="error" role="alert"></p>
+
+        <button type="submit" id="sendBtn" class="btn-send">Send WhatsApp Message</button>
+      </form>
+
+      <div class="notice" id="notice">
+        <strong>WhatsApp:</strong> Enable pop-ups if the chat does not open. You still tap Send inside WhatsApp.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const countries = [
+      { code: "91", name: "India", flag: "🇮🇳", default: true },
+      { code: "1", name: "United States / Canada", flag: "🇺🇸" },
+      { code: "44", name: "United Kingdom", flag: "🇬🇧" },
+      { code: "971", name: "United Arab Emirates", flag: "🇦🇪" },
+      { code: "966", name: "Saudi Arabia", flag: "🇸🇦" },
+      { code: "61", name: "Australia", flag: "🇦🇺" },
+      { code: "49", name: "Germany", flag: "🇩🇪" },
+      { code: "33", name: "France", flag: "🇫🇷" },
+      { code: "81", name: "Japan", flag: "🇯🇵" },
+      { code: "86", name: "China", flag: "🇨🇳" },
+      { code: "92", name: "Pakistan", flag: "🇵🇰" },
+      { code: "880", name: "Bangladesh", flag: "🇧🇩" },
+      { code: "94", name: "Sri Lanka", flag: "🇱🇰" },
+      { code: "977", name: "Nepal", flag: "🇳🇵" },
+    ];
+
+    let mode = "whatsapp";
+
+    const countrySelect = document.getElementById("country");
+    const phoneInput = document.getElementById("phone");
+    const messageInput = document.getElementById("message");
+    const form = document.getElementById("messageForm");
+    const sendBtn = document.getElementById("sendBtn");
+    const errorEl = document.getElementById("error");
+    const noticeEl = document.getElementById("notice");
+    const tabs = document.querySelectorAll(".tab");
+
+    countries.forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = c.code;
+      opt.textContent = `${c.flag} ${c.name} (+${c.code})`;
+      if (c.default) opt.selected = true;
+      countrySelect.appendChild(opt);
+    });
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        mode = tab.dataset.mode;
+        tabs.forEach((t) => t.classList.toggle("active", t === tab));
+        sendBtn.textContent =
+          mode === "whatsapp" ? "Send WhatsApp Message" : "Open SMS App";
+        sendBtn.classList.toggle("sms", mode === "sms");
+        noticeEl.innerHTML =
+          mode === "whatsapp"
+            ? "<strong>WhatsApp:</strong> Enable pop-ups if the chat does not open. You still tap Send inside WhatsApp."
+            : "<strong>SMS:</strong> Works on phones only. Opens your default Messages app with this number — sent from your SIM, not a website.";
+      });
+    });
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.add("show");
+    }
+
+    function clearError() {
+      errorEl.textContent = "";
+      errorEl.classList.remove("show");
+    }
+
+    function normalizePhone(raw) {
+      return raw.replace(/\D/g, "");
+    }
+
+    function validateIndiaNumber(digits) {
+      if (digits.length !== 10) {
+        return "Indian mobile numbers must be 10 digits.";
+      }
+      if (!/^[6-9]/.test(digits)) {
+        return "Indian mobile numbers start with 6, 7, 8, or 9.";
+      }
+      return null;
+    }
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      clearError();
+
+      const countryCode = countrySelect.value;
+      let phone = normalizePhone(phoneInput.value);
+      const text = messageInput.value.trim();
+
+      if (!phone) {
+        showError("Please enter a mobile number.");
+        return;
+      }
+
+      if (countryCode === "91") {
+        if (phone.startsWith("91") && phone.length === 12) {
+          phone = phone.slice(2);
+        }
+        if (phone.startsWith("0")) {
+          phone = phone.slice(1);
+        }
+        const indiaError = validateIndiaNumber(phone);
+        if (indiaError) {
+          showError(indiaError);
+          return;
+        }
+      }
+
+      const fullNumber = countryCode + phone;
+
+      if (mode === "whatsapp") {
+        let url = "https://wa.me/" + fullNumber;
+        if (text) {
+          url += "?text=" + encodeURIComponent(text);
+        }
+        window.open(url, "_blank", "noopener,noreferrer");
+      } else {
+        let url = "sms:+" + fullNumber;
+        if (text) {
+          url += "?body=" + encodeURIComponent(text);
+        }
+        window.location.href = url;
+      }
+    });
+  </script>
+</body>
+</html>

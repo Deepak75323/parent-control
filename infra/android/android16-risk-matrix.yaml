@@ -1,0 +1,95 @@
+# Android 16 (API 36) Risk Matrix — Parental Control Platform
+
+version: "1.0"
+target_sdk: 36
+baseline_readiness: 45
+post_migration_target: 85
+
+risks:
+  - id: FGS_DATA_SYNC_CAP
+    area: foreground_services
+    severity: high
+    likelihood: medium
+    impact: Monitoring heartbeat gaps after 6h dataSync cap
+    mitigation: Burst FGS + WorkManager periodic (MonitoringWorkScheduler)
+    status: mitigated
+
+  - id: FGS_BOOT_MEDIA_PROJECTION
+    area: media_projection
+    severity: critical
+    likelihood: low
+    impact: Screen share fails after reboot
+    mitigation: WorkManager boot chain; no projection FGS from BOOT_COMPLETED
+    status: mitigated
+
+  - id: MEDIA_PROJECTION_DUAL_DISPLAY
+    area: screen_sharing
+    severity: critical
+    likelihood: medium
+    impact: SecurityException on second VirtualDisplay (API 36)
+    mitigation: MediaProjectionCaptureGate single-owner lock
+    status: mitigated
+
+  - id: BACKGROUND_ACTIVITY_LAUNCH
+    area: streaming
+    severity: high
+    likelihood: medium
+    impact: StreamBootstrapActivity blocked when child hidden
+    mitigation: Android16CompatibilityLayer headless fallback
+    status: mitigated
+
+  - id: TYPED_FGS_TIMEOUT
+    area: camera_audio_screen
+    severity: high
+    likelihood: medium
+    impact: Stream drops during long sessions
+    mitigation: TypedStreamFgsTimeout + P1-7 ICE recovery
+    status: mitigated
+
+  - id: ACCESSIBILITY_RESTRICTIONS
+    area: app_blocking
+    severity: medium
+    likelihood: low
+    impact: Remote control / block overlay degraded
+    mitigation: Device Owner path; AccessibilityHealthChecker
+    status: monitored
+
+  - id: OEM_BATTERY_KILL
+    area: oem
+    severity: high
+    likelihood: high
+    impact: All background features stop
+    mitigation: P1-10 OEM certification + autostart prompts
+    status: partial
+
+  - id: EXACT_ALARM_DENIAL
+    area: recovery
+    severity: low
+    likelihood: low
+    impact: Delayed recovery on API 31+
+    mitigation: WorkManager replaces exact alarms
+    status: mitigated
+
+  - id: EDGE_TO_EDGE
+    area: ui
+    severity: low
+    likelihood: high
+    impact: RN layout overlap on API 36
+    mitigation: Android16CompatibilityLayer.applyWindowInsets
+    status: mitigated
+
+  - id: NON_SDK_INTERFACE
+    area: platform
+    severity: medium
+    likelihood: medium
+    impact: OEM property reads fail
+    mitigation: try/catch in OemDiagnosticsCollector.getSystemProperty
+    status: monitored
+
+rollout_gates:
+  - score: 70
+    action: internal_canary
+  - score: 80
+    action: oem_certified_fleet
+  - score: 90
+    action: play_store_target_sdk_36

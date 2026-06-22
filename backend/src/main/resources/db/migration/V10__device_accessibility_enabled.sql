@@ -1,0 +1,2 @@
+ALTER TABLE devices
+    ADD COLUMN IF NOT EXISTS accessibility_enabled BOOLEAN NOT NULL DEFAULT FALSE;

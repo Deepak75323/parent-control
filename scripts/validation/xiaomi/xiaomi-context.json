@@ -1,0 +1,22 @@
+{
+  "device_id": "6e73d6b9-8c64-4f3c-9009-1ee11fea9c83",
+  "child_device_id": "6e73d6b9-8c64-4f3c-9009-1ee11fea9c83",
+  "parent_device_id": "",
+  "pairing_code": "",
+  "room_id": "",
+  "session_id": "",
+  "command_id": "296ae7d6-f7d4-48a4-9174-6560877e539e",
+  "jwt": "",
+  "fcm_token": "cXShxfFQQIKAh-cA_sO8Ay:A\u2026",
+  "android_id": "2886321b551d66c2",
+  "device_owner_state": "INACTIVE",
+  "parent_token": "eyJhbGciOiJIUzM4NCJ9.eyJ\u2026",
+  "api_base_url": "http://localhost:8080",
+  "adb_serial": "8HNNIBTK4PY9NRIJ",
+  "manufacturer": "Xiaomi",
+  "model": "24094RAD4I",
+  "os_release": "16",
+  "sdk_int": 36,
+  "miui_version": "V816",
+  "hyperos_version": "OS3.0"
+}

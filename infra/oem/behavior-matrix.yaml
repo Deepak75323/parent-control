@@ -1,0 +1,187 @@
+# OEM Behavior Matrix — Parental Control Platform (P1-10)
+# Status: supported | restricted | broken | requires_user_action | requires_workaround
+
+version: "1.0"
+
+android_versions:
+  - id: API33
+    release: Android 13
+  - id: API34
+    release: Android 14
+  - id: API35
+    release: Android 15
+  - id: API36
+    release: Android 16 Preview/Beta
+
+oem_sensitive_areas:
+  foreground_services:
+    description: Monitoring FGS, stream FGS, Android 15 onTimeout
+    vendors:
+      xiaomi: { status: restricted, note: "HyperOS may kill FGS without autostart + battery exempt" }
+      samsung: { status: supported, note: "Add to Never sleeping apps" }
+      oppo: { status: restricted, note: "ColorOS background freeze" }
+      vivo: { status: restricted, note: "Aggressive power manager" }
+      realme: { status: restricted, note: "Shares ColorOS stack" }
+      oneplus: { status: restricted, note: "Battery optimization chain launch" }
+      motorola: { status: supported }
+      pixel: { status: supported, note: "AOSP baseline; Android 15 FGS limits apply" }
+
+  accessibility_services:
+    vendors:
+      xiaomi: { status: supported }
+      samsung: { status: supported }
+      oppo: { status: supported }
+      vivo: { status: supported }
+      realme: { status: supported }
+      oneplus: { status: supported }
+      motorola: { status: supported }
+      pixel: { status: supported }
+
+  media_projection:
+    vendors:
+      xiaomi: { status: requires_workaround, note: "Consent automation via accessibility" }
+      samsung: { status: supported }
+      oppo: { status: supported }
+      vivo: { status: supported }
+      realme: { status: supported }
+      oneplus: { status: supported }
+      motorola: { status: supported }
+      pixel: { status: supported }
+
+  autostart:
+    vendors:
+      xiaomi: { status: requires_user_action, workaround: "MIUI autostart deep-link" }
+      samsung: { status: requires_user_action, workaround: "Never sleeping apps" }
+      oppo: { status: requires_user_action, workaround: "Startup manager" }
+      vivo: { status: requires_user_action, workaround: "Background whitelist" }
+      realme: { status: requires_user_action, workaround: "Startup manager" }
+      oneplus: { status: requires_user_action, workaround: "Chain launch allow" }
+      motorola: { status: supported }
+      pixel: { status: supported, note: "Not required on stock Android" }
+
+  battery_optimization:
+    vendors:
+      xiaomi: { status: requires_user_action, workaround: "Ignore battery optimizations" }
+      samsung: { status: requires_user_action }
+      oppo: { status: requires_user_action }
+      vivo: { status: requires_user_action }
+      realme: { status: requires_user_action }
+      oneplus: { status: requires_user_action }
+      motorola: { status: requires_user_action }
+      pixel: { status: supported, note: "Optional on Pixel" }
+
+  work_manager:
+    vendors:
+      xiaomi: { status: restricted, note: "FALLBACK phase may delay up to 15m" }
+      samsung: { status: supported }
+      oppo: { status: restricted }
+      vivo: { status: restricted }
+      realme: { status: restricted }
+      oneplus: { status: restricted }
+      motorola: { status: supported }
+      pixel: { status: supported }
+
+  alarm_manager:
+    vendors:
+      xiaomi: { status: restricted, note: "Exact alarms may be denied" }
+      samsung: { status: supported }
+      oppo: { status: restricted }
+      vivo: { status: restricted }
+      realme: { status: restricted }
+      oneplus: { status: restricted }
+      motorola: { status: supported }
+      pixel: { status: supported }
+
+  fcm_delivery:
+    vendors:
+      xiaomi: { status: restricted, note: "Doze + MIUI push restrictions" }
+      samsung: { status: supported }
+      oppo: { status: restricted }
+      vivo: { status: restricted }
+      realme: { status: restricted }
+      oneplus: { status: restricted }
+      motorola: { status: supported }
+      pixel: { status: supported }
+
+  notification_permissions:
+    vendors:
+      xiaomi: { status: requires_user_action, note: "POST_NOTIFICATIONS API 33+" }
+      samsung: { status: requires_user_action }
+      oppo: { status: requires_user_action }
+      vivo: { status: requires_user_action }
+      realme: { status: requires_user_action }
+      oneplus: { status: requires_user_action }
+      motorola: { status: requires_user_action }
+      pixel: { status: requires_user_action }
+
+  overlay_permissions:
+    vendors:
+      xiaomi: { status: supported }
+      samsung: { status: supported }
+      oppo: { status: supported }
+      vivo: { status: supported }
+      realme: { status: supported }
+      oneplus: { status: supported }
+      motorola: { status: supported }
+      pixel: { status: supported }
+
+certification_tests:
+  common:
+    - id: CERT-01
+      name: Pairing
+      automation: scripts/validation/oem/lib/common_tests.py::test_pairing
+    - id: CERT-02
+      name: Heartbeat online
+      automation: common_tests.py::test_heartbeat
+    - id: CERT-03
+      name: Process kill recovery
+      automation: common_tests.py::test_process_kill
+    - id: CERT-04
+      name: Reboot recovery
+      automation: common_tests.py::test_reboot
+    - id: CERT-05
+      name: Force stop recovery
+      automation: common_tests.py::test_force_stop
+    - id: CERT-06
+      name: Background survival
+      automation: common_tests.py::test_background
+    - id: CERT-07
+      name: Network loss / restore
+      automation: common_tests.py::test_network
+    - id: CERT-08
+      name: FCM wake (doze)
+      automation: common_tests.py::test_fcm_wake
+    - id: CERT-09
+      name: Screen sharing
+      automation: manual
+    - id: CERT-10
+      name: Audio monitoring
+      automation: manual
+    - id: CERT-11
+      name: Camera monitoring
+      automation: manual
+    - id: CERT-12
+      name: Remote control
+      automation: manual
+
+  vendor_extensions:
+    xiaomi: scripts/validation/xiaomi/xiaomi_validate.py
+    samsung: scripts/validation/oem/vendors/samsung_validate.py
+    oppo: scripts/validation/oem/vendors/oppo_validate.py
+    vivo: scripts/validation/oem/vendors/vivo_validate.py
+    realme: scripts/validation/oem/vendors/realme_validate.py
+    oneplus: scripts/validation/oem/vendors/oneplus_validate.py
+    motorola: scripts/validation/oem/vendors/motorola_validate.py
+    pixel: scripts/validation/oem/vendors/pixel_validate.py
+
+readiness_gates:
+  minimum_score: 80
+  required_failures_absent:
+    - ACCESSIBILITY_DISABLED
+    - MEDIA_PROJECTION_NOT_ACTIVE
+    - FCM_TOKEN_MISSING
+
+certification_gates:
+  automated_pass_pct_min: 85
+  overall_pass_pct_min: 90
+  manual_stream_tests_required: true

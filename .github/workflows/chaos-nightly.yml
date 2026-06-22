@@ -1,0 +1,65 @@
+name: Chaos Nightly
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Suite to run'
+        required: false
+        default: 'ci-backend'
+
+jobs:
+  backend-chaos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman jq curl
+          podman system service --time=0 unix:///tmp/podman.sock &
+          echo "DOCKER_HOST=unix:///tmp/podman.sock" >> $GITHUB_ENV
+
+      - name: Start infra stack
+        run: |
+          ./scripts/dev/compose.sh up -d postgres redis backend
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8080/actuator/health && break
+            sleep 5
+          done
+
+      - name: Run backend chaos suite
+        run: |
+          chmod +x scripts/chaos/run-chaos-suite.sh scripts/chaos/scenarios/**/*.sh
+          ./scripts/chaos/run-chaos-suite.sh --suite "${{ github.event.inputs.suite || 'ci-backend' }}"
+
+      - name: Upload scorecard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-scorecard
+          path: artifacts/chaos/
+
+  backend-chaos-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+          cache: maven
+      - name: Podman for tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+          podman system service --time=0 unix:///tmp/podman.sock &
+          echo "DOCKER_HOST=unix:///tmp/podman.sock" >> $GITHUB_ENV
+      - name: Chaos reliability integration tests
+        run: mvn -B test -Dtest=ChaosReliabilityIntegrationTest

@@ -1,0 +1,146 @@
+{{- if .Values.coturn.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}-turn
+  labels:
+    app: {{ .Chart.Name }}-turn
+spec:
+  type: {{ .Values.coturn.service.type }}
+  {{- if and (eq .Values.coturn.service.type "LoadBalancer") .Values.coturn.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.coturn.service.loadBalancerIP }}
+  {{- end }}
+  externalTrafficPolicy: Local
+  ports:
+    - name: turn-udp
+      port: 3478
+      targetPort: 3478
+      protocol: UDP
+    - name: turn-tcp
+      port: 3478
+      targetPort: 3478
+      protocol: TCP
+    - name: turns-tcp
+      port: 5349
+      targetPort: 5349
+      protocol: TCP
+  selector:
+    app: {{ .Chart.Name }}-turn
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}-turn
+spec:
+  replicas: {{ .Values.coturn.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}-turn
+  template:
+    metadata:
+      labels:
+        app: {{ .Chart.Name }}-turn
+    spec:
+      {{- if .Values.coturn.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      {{- if and .Values.coturn.tls.enabled .Values.coturn.tls.certSecret }}
+      volumes:
+        - name: turn-tls
+          secret:
+            secretName: {{ .Values.coturn.tls.certSecret }}
+      {{- end }}
+      containers:
+        - name: coturn
+          image: "{{ .Values.coturn.image.repository }}:{{ .Values.coturn.image.tag }}"
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              exec turnserver \
+                -n \
+                --log-file=stdout \
+                --fingerprint \
+                --no-cli \
+                --realm={{ .Values.coturn.realm }} \
+                --use-auth-secret \
+                --static-auth-secret="$TURN_SECRET" \
+                --listening-port=3478 \
+                --tls-listening-port=5349 \
+                --min-port={{ .Values.coturn.relayMinPort }} \
+                --max-port={{ .Values.coturn.relayMaxPort }} \
+                {{- if .Values.coturn.tls.enabled }}
+                --cert=/tls/{{ .Values.coturn.tls.certFile }} \
+                --pkey=/tls/{{ .Values.coturn.tls.keyFile }} \
+                {{- else }}
+                --no-tls \
+                --no-dtls \
+                {{- end }} \
+                {{- if .Values.coturn.externalIp }} \
+                --external-ip={{ .Values.coturn.externalIp }} \
+                --relay-ip={{ .Values.coturn.externalIp }} \
+                {{- end }}
+          env:
+            - name: TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.coturn.existingSecret | default (printf "%s-turn" .Chart.Name) }}
+                  key: secret
+          {{- if and .Values.coturn.tls.enabled .Values.coturn.tls.certSecret }}
+          volumeMounts:
+            - name: turn-tls
+              mountPath: /tls
+              readOnly: true
+          {{- end }}
+          ports:
+            - containerPort: 3478
+              protocol: UDP
+            - containerPort: 3478
+              protocol: TCP
+            - containerPort: 5349
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: 3478
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: 3478
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.coturn.resources | nindent 12 }}
+{{- if not .Values.coturn.existingSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Chart.Name }}-turn
+type: Opaque
+stringData:
+  secret: {{ .Values.coturn.authSecret | quote }}
+{{- end }}
+{{- if .Values.coturn.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Chart.Name }}-turn
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Chart.Name }}-turn
+  minReplicas: {{ .Values.coturn.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.coturn.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.coturn.autoscaling.targetCpuUtilization }}
+{{- end }}
+{{- end }}

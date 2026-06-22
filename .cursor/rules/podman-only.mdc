@@ -1,0 +1,29 @@
+---
+description: Use Podman only for containers — never Docker CLI
+alwaysApply: true
+---
+
+# Podman only (no Docker)
+
+This project uses **Podman** for all local containers. Do not run `docker`, `docker compose`, or `docker ps`.
+
+## Commands
+
+- Start infra: `./scripts/dev/compose.sh up -d postgres redis coturn`
+- Check containers: `podman ps`
+- Shell into Postgres: `./scripts/dev/psql.sh`
+- Dev stack: `./scripts/dev/dev-up.sh` or `./scripts/dev/run-dual-device.sh`
+
+## Testcontainers (backend tests)
+
+Point Testcontainers at Podman on macOS:
+
+```bash
+export DOCKER_HOST="unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
+cd backend && mvn test
+```
+
+## Notes
+
+- `docker-compose.yml` is the Compose file format name — run it via `./scripts/dev/compose.sh`, which wraps `podman compose`.
+- Never suggest installing or using Docker Desktop for this repo.

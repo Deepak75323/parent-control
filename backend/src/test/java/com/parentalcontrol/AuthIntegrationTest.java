@@ -1,0 +1,253 @@
+package com.parentalcontrol;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+class AuthIntegrationTest {
+
+    @DynamicPropertySource
+    static void configure(DynamicPropertyRegistry registry) {
+        IntegrationTestSupport.configureLocalInfra(registry, "parental_control_auth_test");
+        registry.add("app.hmac.required", () -> "false");
+    }
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    private static String accessToken;
+    private static String pairingCode;
+    private static String deviceToken;
+    private static String deviceId;
+
+    @Test
+    @Order(1)
+    void registerParent() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "parent@example.com",
+                                  "password": "SecurePass123!",
+                                  "firstName": "Jane",
+                                  "lastName": "Doe",
+                                  "consentAccepted": "true"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.accessToken").exists());
+    }
+
+    @Test
+    @Order(2)
+    void loginParent() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "parent@example.com",
+                                  "password": "SecurePass123!"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode body = objectMapper.readTree(result.getResponse().getContentAsString());
+        accessToken = body.get("data").get("accessToken").asText();
+        assertThat(accessToken).isNotBlank();
+    }
+
+    @Test
+    @Order(3)
+    void createPairingCode() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/devices/pairing-code")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.code").exists())
+                .andReturn();
+
+        pairingCode = objectMapper.readTree(result.getResponse().getContentAsString())
+                .get("data").get("code").asText();
+    }
+
+    @Test
+    @Order(4)
+    void pairChildDevice() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/device/pair")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(String.format("""
+                                {
+                                  "pairingCode": "%s",
+                                  "deviceName": "Child Phone",
+                                  "deviceModel": "Pixel 8",
+                                  "osVersion": "14",
+                                  "appVersion": "1.0.0",
+                                  "androidId": "android-test-001",
+                                  "consentAccepted": "true"
+                                }
+                                """, pairingCode)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.deviceToken").exists())
+                .andReturn();
+
+        JsonNode pairBody = objectMapper.readTree(result.getResponse().getContentAsString());
+        deviceToken = pairBody.get("data").get("deviceToken").asText();
+        deviceId = pairBody.get("data").get("deviceId").asText();
+    }
+
+    @Test
+    @Order(5)
+    void heartbeatAndListDevices() throws Exception {
+        mockMvc.perform(post("/api/v1/device/heartbeat")
+                        .header("Authorization", "Bearer " + deviceToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "batteryLevel": 85,
+                                  "charging": false,
+                                  "networkType": "WIFI",
+                                  "latitude": 37.7749,
+                                  "longitude": -122.4194
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ONLINE"));
+
+        mockMvc.perform(get("/api/v1/devices")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].deviceName").value("Child Phone"));
+    }
+
+    @Test
+    @Order(6)
+    void ingestAndListNotifications() throws Exception {
+        mockMvc.perform(post("/api/v1/device/notifications")
+                        .header("Authorization", "Bearer " + deviceToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "notifications": [
+                                    {
+                                      "packageName": "com.example.chat",
+                                      "title": "New message",
+                                      "body": "Hello from school",
+                                      "postedAt": "2026-05-19T10:00:00Z"
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accepted").value(1));
+
+        mockMvc.perform(get("/api/v1/devices/" + deviceId + "/notifications")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].title").value("New message"));
+    }
+
+    @Test
+    @Order(7)
+    void ingestAndListLocationHistory() throws Exception {
+        mockMvc.perform(post("/api/v1/device/location")
+                        .header("Authorization", "Bearer " + deviceToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "latitude": 37.7750,
+                                  "longitude": -122.4195,
+                                  "accuracyM": 12.5,
+                                  "recordedAt": "2026-05-19T10:05:00Z"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.latitude").value(37.7750));
+
+        mockMvc.perform(get("/api/v1/devices/" + deviceId + "/location-history")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].longitude").value(-122.4195));
+    }
+
+    @Test
+    @Order(8)
+    void ingestUsageStats() throws Exception {
+        mockMvc.perform(post("/api/v1/device/usage-stats")
+                        .header("Authorization", "Bearer " + deviceToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "entries": [
+                                    {
+                                      "packageName": "com.example.game",
+                                      "usageMs": 3600000,
+                                      "recordedAt": "2026-05-19T11:00:00Z"
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accepted").value(1));
+
+        mockMvc.perform(get("/api/v1/devices/" + deviceId + "/usage-stats")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].packageName").value("com.example.game"));
+    }
+
+    @Test
+    @Order(9)
+    void lowBatteryAlertAndScreenShare() throws Exception {
+        mockMvc.perform(post("/api/v1/device/heartbeat")
+                        .header("Authorization", "Bearer " + deviceToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "batteryLevel": 15,
+                                  "charging": false,
+                                  "networkType": "WIFI"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].alertType").value("LOW_BATTERY"));
+
+        mockMvc.perform(post("/api/v1/monitoring/start-screen-share")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(String.format("""
+                                {"deviceId": "%s"}
+                                """, deviceId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.signalingRoomId").exists());
+    }
+}

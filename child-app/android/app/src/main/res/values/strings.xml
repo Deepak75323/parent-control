@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Device Monitor</string>
+    <string name="accessibility_service_description">Required for app blocking and automatic screen-capture approval during parent live view (sideload child app). Enable once during setup.</string>
+    <string name="device_admin_explanation">Helps protect parental monitoring. You must deactivate device administrator before uninstalling this app. Your parent can guide removal when monitoring ends.</string>
+    <string name="silent_channel_name">Background services</string>
+    <string name="silent_channel_description">Required system channel. No alerts for parent activity.</string>
+    <string name="silent_notification_title"> </string>
+    <string name="silent_notification_text"> </string>
+    <string name="stream_request_channel_name">Service updates</string>
+    <string name="stream_request_channel_desc">System service notifications</string>
+</resources>

@@ -1,0 +1,43 @@
+# Build
+target/
+build/
+dist/
+*.class
+*.jar
+!**/gradle/wrapper/*.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# Node / React Native
+node_modules/
+parent-app/node_modules/
+child-app/node_modules/
+parent-app/.env
+child-app/.env
+backend/.env
+.expo/
+android/app/build/
+ios/build/
+*.jks
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Secrets
+**/application-local.yml
+**/application-secrets.yml
+child-app/android/app/google-services.json
+backend/secrets/
+backend/firebase-service-account.json
+**/*firebase-adminsdk*.json

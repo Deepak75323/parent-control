@@ -1,0 +1,55 @@
+{
+  "title": "PCP Reliability & Chaos",
+  "uid": "pcp-reliability-chaos",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Boot Recovery Success Rate (1h)",
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "sum(rate(device_boot_recovery_total{success=\"true\"}[1h])) / clamp_min(sum(rate(device_boot_recovery_total[1h])), 0.001) * 100"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Chaos Experiments (24h)",
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+      "targets": [{"expr": "sum(increase(chaos_experiment_total[24h]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "Command Delivery Success (1h)",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+      "targets": [{
+        "expr": "sum(rate(command_executed_total{success=\"true\"}[1h])) / clamp_min(sum(rate(command_sent_total[1h])), 0.001) * 100"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Boot Phase Outcomes",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {"expr": "sum by (phase) (rate(device_boot_phase_total{success=\"true\"}[5m]))", "legendFormat": "{{phase}} ok"},
+        {"expr": "sum by (phase) (rate(device_boot_phase_total{success=\"false\"}[5m]))", "legendFormat": "{{phase}} fail"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Chaos Recovery MTTR",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum(rate(chaos_recovery_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Heartbeat Max Lag",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+      "targets": [{"expr": "device_heartbeat_freshness_max_lag_seconds", "legendFormat": "max lag s"}]
+    }
+  ]
+}

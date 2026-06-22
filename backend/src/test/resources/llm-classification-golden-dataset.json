@@ -1,0 +1,494 @@
+{
+  "version": "1.0",
+  "description": "Golden dataset for LLM log classification validation. Each case includes a realistic log payload and expected classification output.",
+  "cases": [
+    {
+      "id": "activity-user-create",
+      "log": {
+        "timestamp": "2026-03-23T10:30:45Z",
+        "message": "User created successfully",
+        "log_level": "info",
+        "source_service": "user-service",
+        "host": "api-server-01",
+        "environment": "production",
+        "activity_event": {
+          "event_type": "user.create",
+          "action": "create",
+          "status": "success",
+          "actor": {
+            "user_id": "user_12345",
+            "username": "john_doe",
+            "email": "admin@example.com",
+            "role": "admin",
+            "ip_address": "192.168.1.100",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "session_id": "sess_012abc",
+            "permissions": ["admin", "manager", "user"]
+          },
+          "target": {
+            "type": "user",
+            "id": "user_12345",
+            "name": "john_doe",
+            "attributes": {
+              "email": "admin@example.com",
+              "role": "admin",
+              "status": "active"
+            }
+          },
+          "metadata": {
+            "operation_type": "create",
+            "operation_name": "create_user",
+            "resource_type": "user",
+            "resource_id": "user_12345",
+            "action": "create",
+            "severity": "info"
+          },
+          "correlation": {
+            "correlation_id": "req_abc123",
+            "request_id": "req_456def",
+            "trace_id": "trace_789xyz",
+            "session_id": "sess_012abc"
+          },
+          "change_details": {
+            "new_value": {
+              "username": "john_doe",
+              "email": "admin@example.com",
+              "role": "admin"
+            },
+            "reason": "Manual user creation via API"
+          },
+          "additional_fields": {},
+          "raw_message": {
+            "action": "create",
+            "user": {
+              "id": "user_12345",
+              "username": "john_doe",
+              "email": "admin@example.com"
+            },
+            "requested_by": "admin@example.com"
+          },
+          "log_format": "json"
+        }
+      },
+      "expected_output": {
+        "event_type": "activity",
+        "activity_type": "user_create",
+        "status": "success",
+        "message": "Activity event: user created",
+        "confidence": 0.93,
+        "actor_type": "user",
+        "reason": "Log contains user creation action with complete actor and operation metadata",
+        "subject": "user creation",
+        "target_type": "user",
+        "target_id": "user_12345",
+        "target_name": "john_doe",
+        "extracted_fields": {
+          "action": "create",
+          "username": "john_doe",
+          "email": "admin@example.com",
+          "request_id": "req_456def",
+          "trace_id": "trace_789xyz"
+        },
+        "metadata": {
+          "source_service": "user-service",
+          "level": "info",
+          "environment": "production",
+          "severity": "info",
+          "operation_name": "create_user"
+        },
+        "tags": ["user-service", "user", "create", "admin", "production"],
+        "suggested_attributes": {}
+      },
+      "notes": "Rich activity log with actor, target, correlation IDs, and change details"
+    },
+    {
+      "id": "activity-missing-metadata",
+      "log": {
+        "timestamp": "2026-03-23T08:05:10Z",
+        "message": "Role updated",
+        "log_level": "info",
+        "source_service": "unknown-service",
+        "host": "worker-01",
+        "environment": "staging"
+      },
+      "expected_output": {
+        "event_type": "activity",
+        "activity_type": "role_update",
+        "status": "success",
+        "message": "Activity event: role updated",
+        "confidence": 0.66,
+        "actor_type": "system",
+        "reason": "Log describes a role update but actor and target are incomplete",
+        "subject": "role management",
+        "target_type": "role",
+        "target_name": "unknown",
+        "extracted_fields": {
+          "host": "worker-01"
+        },
+        "metadata": {
+          "source_service": "unknown-service",
+          "level": "info",
+          "environment": "staging"
+        },
+        "tags": ["role", "update", "staging", "unknown-service"],
+        "suggested_attributes": {
+          "activity_type": "role_update",
+          "target_type": "role"
+        }
+      },
+      "notes": "Activity log with minimal metadata should still classify but with lower confidence"
+    },
+    {
+      "id": "audit-data-export",
+      "log": {
+        "timestamp": "2026-03-23T12:20:00Z",
+        "message": "Audit event recorded",
+        "log_level": "warn",
+        "source_service": "audit-service",
+        "host": "audit-node-02",
+        "environment": "production",
+        "audit_event": {
+          "event_id": "audit_evt_9001",
+          "event_type": "admin.data_export",
+          "category": "security",
+          "outcome": "failure",
+          "actor": {
+            "user_id": "user_67890",
+            "username": "jane.smith",
+            "email": "jane.smith@example.com",
+            "role": "manager",
+            "ip_address": "10.0.0.22",
+            "user_agent": "Mozilla/5.0",
+            "session_id": "sess_abc999"
+          },
+          "resource": {
+            "type": "report",
+            "id": "report_555",
+            "name": "Monthly Compliance Report",
+            "tenant_id": "tenant_001",
+            "collection": "reports"
+          },
+          "details": {
+            "description": "Bulk export of user data attempted without approval",
+            "reason": "Export threshold exceeded",
+            "failure_reason": "Policy violation: bulk export requires second approval",
+            "policy_id": "policy_77",
+            "record_count": 25000,
+            "export_format": "csv"
+          },
+          "correlation": {
+            "request_id": "req_export_001",
+            "trace_id": "trace_export_789",
+            "workflow_id": "wf_export_001"
+          }
+        },
+        "compliance": {
+          "standard": "ISO 27001",
+          "control_id": "A.12.4.1",
+          "retention_days": 365
+        }
+      },
+      "expected_output": {
+        "event_type": "audit",
+        "audit_type": "security_event",
+        "status": "failure",
+        "message": "Audit event: admin data export failed",
+        "confidence": 0.96,
+        "actor_type": "user",
+        "reason": "Log contains explicit audit event with security category and failure outcome",
+        "subject": "data export",
+        "target_type": "report",
+        "target_id": "report_555",
+        "target_name": "Monthly Compliance Report",
+        "extracted_fields": {
+          "event_type": "admin.data_export",
+          "user_id": "user_67890",
+          "username": "jane.smith",
+          "role": "manager",
+          "ip_address": "10.0.0.22",
+          "failure_reason": "Policy violation: bulk export requires second approval",
+          "record_count": 25000,
+          "request_id": "req_export_001"
+        },
+        "metadata": {
+          "source_service": "audit-service",
+          "level": "warn",
+          "environment": "production",
+          "category": "security",
+          "outcome": "failure",
+          "compliance_standard": "ISO 27001",
+          "control_id": "A.12.4.1"
+        },
+        "tags": ["audit-service", "audit", "security", "data-export", "policy-violation", "production"],
+        "suggested_attributes": {}
+      },
+      "notes": "Detailed audit payload with actor/resource/details/compliance metadata"
+    },
+    {
+      "id": "audit-suspicious-login",
+      "log": {
+        "timestamp": "2026-03-23T23:58:12Z",
+        "message": "Suspicious authentication attempt detected",
+        "log_level": "error",
+        "source_service": "auth-service",
+        "host": "auth-node-01",
+        "environment": "production",
+        "audit_event": {
+          "event_type": "auth.suspicious_login",
+          "category": "security",
+          "outcome": "failure",
+          "actor": {
+            "username": "root",
+            "ip_address": "203.0.113.18",
+            "country": "US",
+            "device_fingerprint": "fp_998877"
+          },
+          "details": {
+            "attempt_count": 12,
+            "blocked": true,
+            "risk_score": 0.95,
+            "failure_reason": "Too many failed authentication attempts"
+          }
+        }
+      },
+      "expected_output": {
+        "event_type": "audit",
+        "audit_type": "security_event",
+        "status": "failure",
+        "message": "Audit event: suspicious login attempt blocked",
+        "confidence": 0.94,
+        "actor_type": "system",
+        "reason": "Security audit event for suspicious login with blocked outcome",
+        "subject": "authentication",
+        "target_type": "user",
+        "target_name": "root",
+        "extracted_fields": {
+          "event_type": "auth.suspicious_login",
+          "username": "root",
+          "ip_address": "203.0.113.18",
+          "attempt_count": 12,
+          "blocked": true,
+          "risk_score": 0.95
+        },
+        "metadata": {
+          "source_service": "auth-service",
+          "level": "error",
+          "environment": "production",
+          "category": "security",
+          "outcome": "failure"
+        },
+        "tags": ["auth-service", "audit", "security", "authentication", "suspicious-login", "production"],
+        "suggested_attributes": {}
+      },
+      "notes": "Security-focused audit event with risk scoring and blocking outcome"
+    },
+    {
+      "id": "authentication-failed-login",
+      "log": {
+        "timestamp": "2026-03-23T09:15:33Z",
+        "message": "Authentication failed for user login attempt",
+        "log_level": "warn",
+        "source_service": "auth-service",
+        "host": "auth-node-01",
+        "environment": "production",
+        "auth_event": {
+          "event_type": "login_failed",
+          "username": "john.doe@example.com",
+          "method": "password",
+          "reason": "invalid_credentials",
+          "ip_address": "192.168.1.55",
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+          "session_attempt_id": "sess_try_111",
+          "mfa_required": false,
+          "attempt_number": 3,
+          "lockout_triggered": false
+        },
+        "request_metadata": {
+          "request_id": "req_auth_001",
+          "trace_id": "trace_auth_777",
+          "endpoint": "/api/v1/auth/login"
+        }
+      },
+      "expected_output": {
+        "event_type": "authentication",
+        "authentication_type": "login_failed",
+        "status": "failure",
+        "message": "Authentication failed for john.doe@example.com",
+        "confidence": 0.95,
+        "actor_type": "user",
+        "reason": "Log explicitly contains auth_event login_failed with invalid credentials",
+        "subject": "login",
+        "target_type": "user",
+        "target_name": "john.doe@example.com",
+        "extracted_fields": {
+          "username": "john.doe@example.com",
+          "method": "password",
+          "reason": "invalid_credentials",
+          "ip_address": "192.168.1.55",
+          "attempt_number": 3,
+          "request_id": "req_auth_001"
+        },
+        "metadata": {
+          "source_service": "auth-service",
+          "level": "warn",
+          "environment": "production",
+          "endpoint": "/api/v1/auth/login"
+        },
+        "tags": ["auth-service", "authentication", "login-failed", "invalid-credentials", "production"],
+        "suggested_attributes": {}
+      },
+      "notes": "Failed login auth event with request metadata and attempt count"
+    },
+    {
+      "id": "authentication-logout",
+      "log": {
+        "timestamp": "2026-03-23T10:22:01Z",
+        "message": "User logged out",
+        "log_level": "info",
+        "source_service": "auth-service",
+        "host": "auth-node-02",
+        "environment": "production",
+        "auth_event": {
+          "event_type": "logout",
+          "user_id": "user_12345",
+          "username": "john_doe",
+          "session_id": "sess_012abc",
+          "logout_reason": "user_initiated",
+          "session_duration_seconds": 3621
+        }
+      },
+      "expected_output": {
+        "event_type": "authentication",
+        "authentication_type": "logout",
+        "status": "success",
+        "message": "User logout completed",
+        "confidence": 0.92,
+        "actor_type": "user",
+        "reason": "Log contains auth_event logout with user context",
+        "subject": "logout",
+        "target_type": "user",
+        "target_id": "user_12345",
+        "target_name": "john_doe",
+        "extracted_fields": {
+          "session_id": "sess_012abc",
+          "logout_reason": "user_initiated",
+          "session_duration_seconds": 3621
+        },
+        "metadata": {
+          "source_service": "auth-service",
+          "level": "info",
+          "environment": "production"
+        },
+        "tags": ["auth-service", "authentication", "logout", "production"],
+        "suggested_attributes": {}
+      },
+      "notes": "Simple logout event with session duration context"
+    },
+    {
+      "id": "generic-info",
+      "log": {
+        "timestamp": "2026-03-23T14:05:20Z",
+        "message": "Application started successfully",
+        "log_level": "info",
+        "source_service": "api-gateway",
+        "host": "gateway-03",
+        "environment": "staging",
+        "startup": {
+          "version": "2.4.1",
+          "port": 8080,
+          "profiles": ["staging"],
+          "startup_time_ms": 1420
+        },
+        "runtime": {
+          "pid": 8842,
+          "node": "gateway-03"
+        }
+      },
+      "expected_output": {
+        "event_type": "generic",
+        "status": "success",
+        "message": "Generic operational log: application startup",
+        "confidence": 0.78,
+        "actor_type": "system",
+        "reason": "Log is operational startup information without audit/activity/auth/security semantics",
+        "subject": "application startup",
+        "extracted_fields": {
+          "version": "2.4.1",
+          "port": 8080,
+          "startup_time_ms": 1420,
+          "pid": 8842
+        },
+        "metadata": {
+          "source_service": "api-gateway",
+          "level": "info",
+          "environment": "staging",
+          "host": "gateway-03"
+        },
+        "tags": ["api-gateway", "generic", "startup", "staging"],
+        "suggested_attributes": {}
+      },
+      "notes": "Generic operational startup log with useful runtime metadata"
+    },
+    {
+      "id": "security-bruteforce-block",
+      "log": {
+        "timestamp": "2026-03-23T23:58:12Z",
+        "message": "Brute force attack detected and blocked",
+        "log_level": "error",
+        "source_service": "waf-service",
+        "host": "edge-01",
+        "environment": "production",
+        "security_event": {
+          "event_type": "brute_force_detected",
+          "severity": "high",
+          "threat_type": "credential_stuffing",
+          "source_ip": "203.0.113.18",
+          "target_endpoint": "/api/v1/auth/login",
+          "attempt_count": 45,
+          "window_seconds": 60,
+          "action_taken": "blocked",
+          "rule_id": "waf_rule_bruteforce_01",
+          "geo": {
+            "country": "US",
+            "region": "CA",
+            "city": "San Jose"
+          },
+          "user_agents": ["python-requests/2.31.0", "curl/8.5.0"]
+        },
+        "correlation": {
+          "request_id": "req_waf_101",
+          "trace_id": "trace_waf_909"
+        }
+      },
+      "expected_output": {
+        "event_type": "security_event",
+        "status": "failure",
+        "message": "Security event: brute force attack blocked",
+        "confidence": 0.97,
+        "actor_type": "system",
+        "reason": "Log contains explicit security_event with high severity and blocked action",
+        "subject": "brute force detection",
+        "target_type": "service",
+        "target_name": "/api/v1/auth/login",
+        "extracted_fields": {
+          "event_type": "brute_force_detected",
+          "source_ip": "203.0.113.18",
+          "attempt_count": 45,
+          "window_seconds": 60,
+          "action_taken": "blocked",
+          "rule_id": "waf_rule_bruteforce_01"
+        },
+        "metadata": {
+          "source_service": "waf-service",
+          "level": "error",
+          "environment": "production",
+          "severity": "high",
+          "threat_type": "credential_stuffing"
+        },
+        "tags": ["waf-service", "security-event", "brute-force", "blocked", "production"],
+        "suggested_attributes": {}
+      },
+      "notes": "Security event with geo/user-agent/correlation metadata and explicit threat context"
+    }
+  ]
+}

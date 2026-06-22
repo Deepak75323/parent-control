@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCP Reliability Scorecard",
+  "type": "object",
+  "required": ["runId", "startedAt", "environment", "summary", "scenarios"],
+  "properties": {
+    "runId": { "type": "string" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "environment": { "type": "string", "enum": ["local", "staging", "prod-shadow", "device-farm"] },
+    "suite": { "type": "string", "enum": ["nightly", "pre-release", "ci-backend", "oem-matrix", "manual"] },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer" },
+        "passed": { "type": "integer" },
+        "failed": { "type": "integer" },
+        "skipped": { "type": "integer" },
+        "reliabilityScore": { "type": "number", "minimum": 0, "maximum": 100 },
+        "mttrSecondsP50": { "type": "number" },
+        "mttrSecondsP95": { "type": "number" }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["PASS", "FAIL", "SKIP", "MANUAL"] },
+          "mttrSeconds": { "type": "number" },
+          "recoveryExpectationMet": { "type": "boolean" },
+          "evidence": { "type": "string" },
+          "metrics": { "type": "object" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Debug-only automation receiver — not present in release builds. -->
+    <application>
+        <receiver
+            android:name="com.childmonitor.debug.DebugPairingReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.childmonitor.DEBUG_APPLY_PAIR" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name="com.childmonitor.debug.ValidationDumpReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.childmonitor.VALIDATION_DUMP" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
