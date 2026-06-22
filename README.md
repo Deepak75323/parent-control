@@ -1,2 +1,0 @@
-# parent-control
-parent control
