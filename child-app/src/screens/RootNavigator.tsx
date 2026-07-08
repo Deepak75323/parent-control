@@ -21,8 +21,9 @@ import {
   getParentDisplayName,
 } from '../services/deviceStorage';
 import {startMonitoringSync, stopMonitoringSync} from '../services/syncService';
-import {pauseStreamingListener} from '../services/streamingService';
-import {isStreamActive} from '../services/webrtcService';
+import {pauseStreamingListener, startStreamingListener} from '../services/streamingService';
+import {isStreamActive, isStreamConnecting} from '../services/webrtcService';
+import {isAutoLockSuppressed} from '../services/autoLockGuard';
 import {
   getCurrentChildRoute,
   isSetupOrPairingRoute,
@@ -160,6 +161,21 @@ export function RootNavigator() {
           flowLog('SCREEN_SHARE_FLOW', 'AppState active — skip ServiceStatus reset during setup', {
             route: route ?? 'unknown',
           });
+          return;
+        }
+        if (isAutoLockSuppressed() || isStreamActive() || isStreamConnecting()) {
+          // A screen-capture consent dialog or a live stream is in flight — the app only
+          // briefly lost the foreground because of that system UI, not a real backgrounding.
+          // Re-locking here would tear down the in-progress stream/consent flow and bounce
+          // the child back to the parent-password screen for no reason.
+          flowLog('SCREEN_SHARE_FLOW', 'AppState active — skip ServiceStatus reset, stream/consent in flight', {
+            route,
+          });
+          // Re-attach the JS stream-wake listener that the background handler detached —
+          // otherwise the app looks foregrounded but silently stops responding to
+          // subsequent stream requests until the next real re-lock cycle.
+          startStreamingListener();
+          void nativeModules.setJsStreamingListenerActive(true);
           return;
         }
         const name = await getParentDisplayName();

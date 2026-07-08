@@ -12,6 +12,7 @@ import {
 } from '../components/AppScreen';
 import {authenticateWithPassword} from '../services/onboarding/childLoginService';
 import {flowLog} from '../services/flowLogger';
+import {markJustAuthenticated} from '../services/autoLockGuard';
 
 type Props = NativeStackScreenProps<ChildStackParamList, 'ChildLogin'>;
 
@@ -29,6 +30,9 @@ export function ChildLoginScreen({navigation, route}: Props) {
     try {
       const result = await authenticateWithPassword(password);
       if (result.ok) {
+        // Guard against a spurious foreground re-lock (e.g. a pending screen-share
+        // request resolving its consent dialog) bouncing the child straight back here.
+        markJustAuthenticated();
         if (returnTo === 'ServiceStatus') {
           flowLog('ONBOARDING', 'ChildLogin success — returning to ServiceStatus');
           navigation.replace('ServiceStatus');

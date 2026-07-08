@@ -5,12 +5,13 @@ import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
-import com.childmonitor.MonitoringPrefs
 
 /**
  * Sideload-only helper: auto-tap Android "Share screen" / "Start now" on the
- * MediaProjection consent dialog when armed by pairing, recovery, or parent stream.
- * Requires Accessibility enabled once at setup.
+ * MediaProjection consent dialog whenever it appears. Requires Accessibility enabled
+ * once at setup — after that, any of this app's own MediaProjection dialogs are
+ * auto-approved unconditionally (no separate "arm" step needed). Safety comes from the
+ * dialog package allowlist and title/button text matching below, not from a time window.
  */
 object MediaProjectionConsentAutomation {
 
@@ -76,10 +77,6 @@ object MediaProjectionConsentAutomation {
     )
 
     fun tryAutoApprove(service: AccessibilityService, packageName: String?): Boolean {
-        if (!MonitoringPrefs.isScreenCaptureAutoApproveArmed(service)) {
-            return false
-        }
-
         val now = System.currentTimeMillis()
         if (now - lastClickAt < 1200) return false
         if (now - lastScanAt < 400) return false
@@ -87,7 +84,7 @@ object MediaProjectionConsentAutomation {
 
         val roots = collectDialogRoots(service)
         if (roots.isEmpty()) {
-            Log.d(TAG, "Armed but no window roots (pkg=$packageName)")
+            Log.d(TAG, "No window roots to scan (pkg=$packageName)")
             return false
         }
 
@@ -269,7 +266,7 @@ object MediaProjectionConsentAutomation {
         if (loggedUnknownPackages.add(packageName)) {
             Log.w(
                 TAG,
-                "Armed but dialog pkg not in allowlist: $packageName " +
+                "Dialog pkg not in allowlist: $packageName " +
                     "(if MediaProjection dialog, add to DIALOG_PACKAGES)",
             )
         }

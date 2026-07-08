@@ -83,10 +83,12 @@ class AppBlockingAccessibilityService : AccessibilityService() {
         val packageName = snapshot.packageName?.toString()
         val eventType = snapshot.eventType
 
-        if (MonitoringPrefs.isScreenCaptureAutoApproveArmed(this) &&
-            (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
-                eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
-                eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED)
+        // Auto-approve is always on once Accessibility is connected — no separate "arm"
+        // window required. Safety comes from the dialog package/text allowlist in
+        // MediaProjectionConsentAutomation, not from timing.
+        if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
+            eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
         ) {
             mainHandler.post { tryAutoApproveMediaProjection(packageName) }
         }
@@ -128,17 +130,13 @@ class AppBlockingAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Dialog nodes may appear after WINDOW_STATE_CHANGED — retry for ~3s while armed.
+     * Dialog nodes may appear after WINDOW_STATE_CHANGED — retry for ~3s.
      */
     private fun scheduleAutoApproveRetries(packageName: String?) {
         if (autoApproveRetryRunnable != null) return
         autoApproveRetryAttempts = 0
         val runnable = object : Runnable {
             override fun run() {
-                if (!MonitoringPrefs.isScreenCaptureAutoApproveArmed(this@AppBlockingAccessibilityService)) {
-                    cancelAutoApproveRetries()
-                    return
-                }
                 val clicked = MediaProjectionConsentAutomation.tryAutoApprove(
                     this@AppBlockingAccessibilityService,
                     packageName,

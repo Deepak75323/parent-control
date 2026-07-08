@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import com.childmonitor.capture.BalSafeActivityLauncher
 import com.childmonitor.capture.MediaProjectionConsentHelper
 import com.childmonitor.capture.ScreenCaptureController
 import com.childmonitor.capture.MediaProjectionLossHandler
@@ -124,11 +125,18 @@ class MediaProjectionConsentActivity : Activity() {
     companion object {
         const val REQUEST_CODE = 9101
 
+        /**
+         * Launch the consent activity from a background service/broadcast context
+         * (recovery, silent re-consent for an incoming parent stream). A plain
+         * startActivity() here is silently dropped by MIUI/HyperOS BAL restrictions,
+         * which previously made background screen-share recovery a no-op — route
+         * through the same fallback chain [StreamBootstrapActivity] uses.
+         */
         fun startFromBackground(context: Context) {
             val intent = Intent(context, MediaProjectionConsentActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(intent)
+            BalSafeActivityLauncher.launch(context, intent, "MediaProjectionConsent")
         }
     }
 }

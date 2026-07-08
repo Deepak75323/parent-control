@@ -1,7 +1,6 @@
 package com.childmonitor.capture
 
 import android.app.Activity
-import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -9,7 +8,6 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.childmonitor.AppBlockingAccessibilityService
 import com.childmonitor.MonitoringPrefs
 import com.childmonitor.StreamingHeadlessTaskService
 import com.childmonitor.debug.PcpFlowLogger
@@ -146,18 +144,9 @@ class StreamBootstrapActivity : Activity() {
         }
 
         /**
-         * Start [StreamBootstrapActivity] with a three-layer Background Activity Launch
-         * (BAL) fallback chain — required for MIUI/HyperOS where direct startActivity()
-         * from a service context is silently blocked.
-         *
-         * Layer 1 (direct): Works on stock Android, EMUI, and when the app has a recent
-         *   foreground window.
-         * Layer 2 (accessibility): [AppBlockingAccessibilityService] may hold a weaker
-         *   foreground token that MIUI honours for startActivity().
-         * Layer 3 (notification): Post a PRIORITY_MAX / CATEGORY_CALL notification with
-         *   fullScreenIntent.  The system auto-triggers the intent on a locked screen;
-         *   on an active screen it shows as a heads-up peek that the user (or our
-         *   accessibility service) can tap.
+         * Start [StreamBootstrapActivity] via [BalSafeActivityLauncher] — required for
+         * MIUI/HyperOS where direct startActivity() from a service context is silently
+         * blocked. See [BalSafeActivityLauncher] for the fallback chain.
          */
         fun startWithBalFallback(
             context: Context,
@@ -187,61 +176,7 @@ class StreamBootstrapActivity : Activity() {
         }
 
         private fun launchWithFallback(context: Context, intent: Intent, kind: StreamKind) {
-            // Layer 1: direct startActivity() — allowed on API < 29, or when the app has
-            // a recent foreground window / BAL token from the OS.
-            if (canLaunchDirectly(context)) {
-                try {
-                    context.startActivity(intent)
-                    PcpFlowLogger.log(
-                        PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                        "StreamBootstrap direct launch",
-                        "kind=$kind",
-                    )
-                    return
-                } catch (e: Exception) {
-                    PcpFlowLogger.warn(
-                        PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                        "StreamBootstrap direct launch failed — trying accessibility",
-                        "kind=$kind error=${e.message}",
-                    )
-                }
-            }
-
-            // Layer 2: accessibility service context — may bypass MIUI BAL restrictions.
-            if (AppBlockingAccessibilityService.tryStartActivity(intent)) {
-                PcpFlowLogger.log(
-                    PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                    "StreamBootstrap accessibility launch",
-                    "kind=$kind",
-                )
-                return
-            }
-
-            // Layer 3: fullScreenIntent notification — legal activity launch via the
-            // notification system.  MIUI honours this path even from a background process.
-            PcpFlowLogger.warn(
-                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                "StreamBootstrap BAL blocked — falling back to fullScreenIntent notification",
-                "kind=$kind",
-            )
-            StreamRequestNotificationHelper.post(context.applicationContext, intent)
-        }
-
-        /**
-         * Returns true when direct startActivity() is likely to succeed.
-         * Conservative: only allow on API < 29 or when the process is not restricted.
-         */
-        private fun canLaunchDirectly(context: Context): Boolean {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
-            return try {
-                val am = context.getSystemService(ActivityManager::class.java)
-                // isBackgroundRestricted: true means battery-saver / user explicitly
-                // restricted the app.  If NOT restricted, we still try — worst case the
-                // OS blocks it and we fall to layer 2/3.
-                !am.isBackgroundRestricted
-            } catch (_: Exception) {
-                true
-            }
+            BalSafeActivityLauncher.launch(context, intent, "StreamBootstrap(kind=$kind)")
         }
 
         fun start(

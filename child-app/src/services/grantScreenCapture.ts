@@ -1,6 +1,7 @@
 import {Alert, AppState} from 'react-native';
 import {nativeModules} from '../nativeModules';
 import {flowLog} from './flowLogger';
+import {beginSuppressAutoLock, endSuppressAutoLock} from './autoLockGuard';
 
 const SETTINGS_WAIT_MS = 120_000;
 
@@ -92,17 +93,25 @@ export async function grantScreenCapture(): Promise<boolean> {
     return true;
   }
 
-  const ready = await ensureAccessibilityForScreenCapture();
-  if (!ready) {
-    return false;
-  }
-
-  flowLog('PERMISSION_FLOW', 'grantScreenCapture — arming auto-approve');
-  await nativeModules.armScreenCaptureAutoApprove();
+  // The system MediaProjection dialog backgrounds/foregrounds the app; suppress the
+  // foreground re-lock for the whole flow so RootNavigator doesn't bounce back to
+  // ChildLogin the moment the dialog resolves.
+  beginSuppressAutoLock();
   try {
-    return await nativeModules.requestMediaProjectionConsent();
+    const ready = await ensureAccessibilityForScreenCapture();
+    if (!ready) {
+      return false;
+    }
+
+    flowLog('PERMISSION_FLOW', 'grantScreenCapture — arming auto-approve');
+    await nativeModules.armScreenCaptureAutoApprove();
+    try {
+      return await nativeModules.requestMediaProjectionConsent();
+    } finally {
+      await nativeModules.disarmScreenCaptureAutoApprove().catch(() => undefined);
+    }
   } finally {
-    await nativeModules.disarmScreenCaptureAutoApprove().catch(() => undefined);
+    endSuppressAutoLock();
   }
 }
 
