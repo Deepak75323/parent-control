@@ -112,6 +112,14 @@ object StreamSessionRegistry {
     @Synchronized
     fun activeSessionId(): String? = sessionId
 
+    /** True while WebRTC is still setting up — poll must not tear down the session. */
+    @JvmStatic
+    @Synchronized
+    fun isNegotiatingOrReconnecting(): Boolean =
+        phase == LifecyclePhase.ACQUIRING ||
+            phase == LifecyclePhase.NEGOTIATING ||
+            phase == LifecyclePhase.RECONNECTING
+
     @Synchronized
     fun activeRoomId(): String? = roomId
 

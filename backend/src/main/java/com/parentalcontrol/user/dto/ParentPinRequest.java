@@ -8,6 +8,6 @@ import lombok.Data;
 public class ParentPinRequest {
 
     @NotBlank
-    @Size(min = 4, max = 8)
+    @Size(min = 4, max = 64)
     private String pin;
 }

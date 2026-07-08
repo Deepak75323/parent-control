@@ -1,4 +1,4 @@
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -12,8 +12,7 @@ import {useFocusEffect} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {ChildStackParamList} from './RootNavigator';
 import {nativeModules} from '../nativeModules';
-import {flowLog} from '../services/flowLogger';
-import {recoverScreenCaptureIfLost} from '../services/streamingPermissions';
+import {grantScreenCaptureWithAlerts} from '../services/grantScreenCapture';
 
 type Props = NativeStackScreenProps<ChildStackParamList, 'CheckPermissions'>;
 
@@ -23,27 +22,28 @@ interface PermStatus {
   title: string;
   features: string;
   granted: boolean | null;
-  openSettings: () => Promise<void>;
+  grant: () => Promise<void>;
 }
 
-function PermCard({perm}: {perm: PermStatus}) {
-  const [opening, setOpening] = useState(false);
+function PermCard({perm, onGranted}: {perm: PermStatus; onGranted: () => void}) {
+  const [busy, setBusy] = useState(false);
 
-  const onGetHelp = async () => {
-    setOpening(true);
+  const onGrant = async () => {
+    setBusy(true);
     try {
-      await perm.openSettings();
+      await perm.grant();
+      onGranted();
     } finally {
-      setOpening(false);
+      setBusy(false);
     }
   };
 
-  const status = perm.granted == null ? 'checking' : perm.granted ? 'ok' : 'abnormal';
+  const status = perm.granted == null ? 'checking' : perm.granted ? 'granted' : 'missing';
 
   return (
-    <View style={[styles.card, status === 'abnormal' && styles.cardBad, status === 'ok' && styles.cardOk]}>
+    <View style={[styles.card, status === 'missing' && styles.cardBad, status === 'granted' && styles.cardOk]}>
       <View style={styles.cardTop}>
-        <View style={[styles.iconWrap, status === 'ok' ? styles.iconWrapOk : styles.iconWrapBad]}>
+        <View style={[styles.iconWrap, status === 'granted' ? styles.iconWrapOk : styles.iconWrapBad]}>
           <Text style={styles.icon}>{perm.icon}</Text>
         </View>
         <View style={styles.cardMid}>
@@ -53,36 +53,43 @@ function PermCard({perm}: {perm: PermStatus}) {
               <ActivityIndicator size="small" color="#7c3aed" />
             ) : (
               <>
-                <View style={[styles.statusDot, {backgroundColor: status === 'ok' ? '#22c55e' : '#ef4444'}]} />
-                <Text style={[styles.statusText, {color: status === 'ok' ? '#16a34a' : '#dc2626'}]}>
-                  {status === 'ok' ? 'Working normally' : 'Abnormal'}
+                <View
+                  style={[
+                    styles.statusDot,
+                    {backgroundColor: status === 'granted' ? '#22c55e' : '#ef4444'},
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.statusText,
+                    {color: status === 'granted' ? '#16a34a' : '#dc2626'},
+                  ]}>
+                  {status === 'granted' ? 'Granted' : 'Not granted'}
                 </Text>
               </>
             )}
           </View>
         </View>
         {status !== 'checking' ? (
-          <Text style={styles.checkmark}>{status === 'ok' ? '✓' : '✗'}</Text>
+          <Text style={styles.checkmark}>{status === 'granted' ? '✓' : '✗'}</Text>
         ) : null}
       </View>
-      {status !== 'ok' && (
+      {status === 'missing' ? (
         <>
-          <Text style={styles.featureLabel}>
-            If this permission is not turned on, the following features will be unavailable:
-          </Text>
+          <Text style={styles.featureLabel}>Needed for:</Text>
           <Text style={styles.featureList}>{perm.features}</Text>
           <Pressable
-            style={({pressed}) => [styles.helpBtn, pressed && {opacity: 0.8}]}
-            onPress={onGetHelp}
-            disabled={opening}>
-            {opening ? (
-              <ActivityIndicator size="small" color="#7c3aed" />
+            style={({pressed}) => [styles.grantBtn, pressed && {opacity: 0.8}]}
+            onPress={() => void onGrant()}
+            disabled={busy}>
+            {busy ? (
+              <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text style={styles.helpBtnText}>Get help</Text>
+              <Text style={styles.grantBtnText}>Grant permission</Text>
             )}
           </Pressable>
         </>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -90,9 +97,15 @@ function PermCard({perm}: {perm: PermStatus}) {
 export function CheckPermissionsScreen({navigation}: Props) {
   const [perms, setPerms] = useState<PermStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const checkSeq = useRef(0);
+  const grantInFlight = useRef(false);
 
   const check = useCallback(async () => {
-    setLoading(true);
+    const seq = ++checkSeq.current;
+    const firstLoad = perms.length === 0;
+    if (firstLoad) {
+      setLoading(true);
+    }
     try {
       const [accessibility, camera, deviceAdmin, usageStats, notification, location, mic, overlay, battery] =
         await Promise.all([
@@ -107,171 +120,174 @@ export function CheckPermissionsScreen({navigation}: Props) {
           nativeModules.isBatteryOptimizationExempt(),
         ]);
 
-      let screen = await nativeModules.isMediaProjectionGranted();
-      if (!screen && (await nativeModules.needsScreenCaptureRecovery()) && accessibility) {
-        flowLog('PERMISSION_FLOW', 'CheckPermissions — auto-recovering screen capture');
-        screen = await recoverScreenCaptureIfLost();
+      if (seq !== checkSeq.current) {
+        return;
+      }
+
+      const screen =
+        (await nativeModules.isMediaProjectionGranted()) && accessibility;
+
+      if (seq !== checkSeq.current) {
+        return;
       }
 
       setPerms([
         {
           key: 'accessibility',
           icon: '🛡️',
-          title: 'Accessibility Permission',
-          features:
-            'App blocking、Screen time limits、Usage reporting、MediaProjection auto-approve (Device Owner)',
+          title: 'Accessibility',
+          features: 'App blocking, screen time, auto-tap Share screen for live view',
           granted: accessibility,
-          openSettings: nativeModules.openAccessibilitySettings,
+          grant: nativeModules.openAccessibilitySettings,
         },
         {
           key: 'camera',
           icon: '📷',
-          title: 'Camera Permission',
-          features: 'Remote Camera、Camera Snapshot',
+          title: 'Camera',
+          features: 'Remote camera and snapshots',
           granted: camera,
-          openSettings: nativeModules.requestCameraAndMicPermissions,
-        },
-        {
-          key: 'deviceAdmin',
-          icon: '👤',
-          title: 'Device Admin Permission',
-          features:
-            'The child app might be deleted by the child and it will not be able to be recovered. Device screen lock control will be unavailable.',
-          granted: deviceAdmin,
-          openSettings: nativeModules.openDeviceAdminSettings,
-        },
-        {
-          key: 'usageStats',
-          icon: '📊',
-          title: 'Usage Statistics Permission',
-          features: 'Usage Report、App Usage Time、Screen Time Limits',
-          granted: usageStats,
-          openSettings: nativeModules.openUsageStatsSettings,
-        },
-        {
-          key: 'notification',
-          icon: '🔔',
-          title: 'Notification Listener Permission',
-          features: 'App Notifications、Social App Detection',
-          granted: notification,
-          openSettings: nativeModules.openNotificationListenerSettings,
-        },
-        {
-          key: 'location',
-          icon: '📍',
-          title: 'Location Permission',
-          features: 'Live Location、Geofence Alerts',
-          granted: location,
-          openSettings: async () => {
-            await nativeModules.requestLocationPermission();
-          },
+          grant: nativeModules.requestCameraAndMicPermissions,
         },
         {
           key: 'mic',
           icon: '🎙️',
-          title: 'Microphone Permission',
-          features: 'One-Way Audio、Ambient Recording',
+          title: 'Microphone',
+          features: 'One-way audio and ambient recording',
           granted: mic,
-          openSettings: nativeModules.requestCameraAndMicPermissions,
+          grant: nativeModules.requestCameraAndMicPermissions,
         },
         {
           key: 'screen',
           icon: '📺',
-          title: 'Screen Capture Permission',
-          features: 'Screen Mirroring、Live View',
+          title: 'Screen capture',
+          features: 'Screen mirroring and live view',
           granted: screen,
-          openSettings: async () => {
-            if (screen) {
-              flowLog('PERMISSION_FLOW', 'CheckPermissions — screen capture already granted');
-              return;
-            }
-            flowLog('PERMISSION_FLOW', 'CheckPermissions — starting screen capture consent');
+          grant: async () => {
+            grantInFlight.current = true;
             try {
-              await nativeModules.armScreenCaptureAutoApprove();
-              const granted = await nativeModules.requestMediaProjectionConsent();
-              const debug = await nativeModules.getMediaProjectionDebugState().catch(() => ({}));
-              flowLog('PERMISSION_FLOW', 'CheckPermissions — consent finished', {granted, debug});
+              await grantScreenCaptureWithAlerts();
             } finally {
-              await nativeModules.disarmScreenCaptureAutoApprove().catch(() => undefined);
+              grantInFlight.current = false;
+              void check();
             }
           },
         },
         {
+          key: 'location',
+          icon: '📍',
+          title: 'Location',
+          features: 'Live location and geofence alerts',
+          granted: location,
+          grant: nativeModules.requestLocationPermission,
+        },
+        {
+          key: 'notification',
+          icon: '🔔',
+          title: 'Notification access',
+          features: 'App notifications and social app detection',
+          granted: notification,
+          grant: nativeModules.openNotificationListenerSettings,
+        },
+        {
+          key: 'usageStats',
+          icon: '📊',
+          title: 'Usage access',
+          features: 'App usage time and screen time limits',
+          granted: usageStats,
+          grant: nativeModules.openUsageStatsSettings,
+        },
+        {
           key: 'overlay',
           icon: '🪟',
-          title: 'Display Over Other Apps',
-          features: 'App Block Overlay、Time Limit Screen',
+          title: 'Display over other apps',
+          features: 'App block overlay and time-limit screen',
           granted: overlay,
-          openSettings: nativeModules.openOverlaySettings,
+          grant: nativeModules.openOverlaySettings,
         },
         {
           key: 'battery',
           icon: '🔋',
-          title: 'Battery Optimization Exemption',
-          features: 'Background Monitoring、Auto Restart After Reboot',
+          title: 'Battery optimization',
+          features: 'Background monitoring after reboot',
           granted: battery,
-          openSettings: nativeModules.openBatteryOptimizationSettings,
+          grant: nativeModules.openBatteryOptimizationSettings,
+        },
+        {
+          key: 'deviceAdmin',
+          icon: '👤',
+          title: 'Device administrator',
+          features: 'Anti-tamper and screen lock control',
+          granted: deviceAdmin,
+          grant: async () => {
+            if (await nativeModules.isDeviceAdminActive()) {
+              await nativeModules.openDeviceAdminSettings();
+            } else {
+              await nativeModules.requestDeviceAdmin();
+            }
+          },
         },
       ]);
     } finally {
-      setLoading(false);
+      if (seq === checkSeq.current) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [perms.length]);
 
-  useFocusEffect(check);
+  useFocusEffect(
+    useCallback(() => {
+      void check();
+      const poll = setInterval(() => {
+        if (!grantInFlight.current) {
+          void check();
+        }
+      }, 4000);
+      return () => {
+        checkSeq.current += 1;
+        clearInterval(poll);
+      };
+    }, [check]),
+  );
 
-  const abnormalCount = perms.filter(p => p.granted === false).length;
-  const allOk = perms.length > 0 && abnormalCount === 0;
+  const grantedCount = perms.filter(p => p.granted === true).length;
+  const missingCount = perms.filter(p => p.granted === false).length;
+  const allOk = perms.length > 0 && missingCount === 0;
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-      {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backText}>‹</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>Check Permissions</Text>
-        <Pressable onPress={check} style={styles.refreshBtn}>
+        <Text style={styles.headerTitle}>Grant Permissions</Text>
+        <Pressable onPress={() => void check()} style={styles.refreshBtn}>
           <Text style={styles.refreshText}>↻</Text>
         </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Device header */}
         <View style={styles.deviceCard}>
-          <View style={styles.deviceIconWrap}>
-            <Text style={styles.deviceIcon}>📱</Text>
-          </View>
-          <Text style={styles.deviceName}>Child Device</Text>
+          <Text style={styles.summaryTitle}>
+            {loading && perms.length === 0
+              ? 'Checking permissions…'
+              : `${grantedCount} of ${perms.length} granted`}
+          </Text>
+          <Text style={styles.summarySub}>
+            Tap Grant permission on any item marked Not granted. Return here after each system screen.
+          </Text>
           <View style={[styles.statusBadge, allOk ? styles.statusBadgeOk : styles.statusBadgeBad]}>
             <Text style={[styles.statusBadgeText, allOk ? {color: '#15803d'} : {color: '#dc2626'}]}>
-              {loading ? 'Checking…' : allOk ? 'Working Normally' : 'Working Abnormally'}
+              {loading && perms.length === 0 ? '…' : allOk ? 'All permissions granted' : `${missingCount} missing`}
             </Text>
           </View>
         </View>
 
-        {!loading && !allOk && (
-          <View style={styles.bannerBad}>
-            <Text style={styles.bannerTitle}>The following permissions are abnormal</Text>
-            <Text style={styles.bannerSub}>
-              Please get the device and follow the tutorial to enable the abnormal permissions.
-            </Text>
-          </View>
-        )}
-
-        {!loading && allOk && (
-          <View style={styles.bannerOk}>
-            <Text style={styles.bannerTitle}>All permissions are working correctly</Text>
-            <Text style={styles.bannerSub}>
-              All features are available on this device.
-            </Text>
-          </View>
-        )}
-
-        {loading ? (
+        {loading && perms.length === 0 ? (
           <ActivityIndicator color="#7c3aed" size="large" style={{marginTop: 40}} />
         ) : (
-          perms.map(perm => <PermCard key={perm.key} perm={perm} />)
+          perms.map(perm => (
+            <PermCard key={perm.key} perm={perm} onGranted={() => void check()} />
+          ))
         )}
       </ScrollView>
     </SafeAreaView>
@@ -299,7 +315,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 16,
     padding: 20,
-    alignItems: 'center',
     marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 1},
@@ -307,18 +322,12 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 2,
   },
-  deviceIconWrap: {width: 60, height: 60, borderRadius: 16, backgroundColor: '#ede9fe', alignItems: 'center', justifyContent: 'center', marginBottom: 8},
-  deviceIcon: {fontSize: 30},
-  deviceName: {fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 8},
-  statusBadge: {paddingHorizontal: 14, paddingVertical: 5, borderRadius: 20},
+  summaryTitle: {fontSize: 17, fontWeight: '800', color: '#0f172a', marginBottom: 6},
+  summarySub: {fontSize: 13, color: '#64748b', lineHeight: 18, marginBottom: 12},
+  statusBadge: {alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 5, borderRadius: 20},
   statusBadgeOk: {backgroundColor: '#dcfce7'},
   statusBadgeBad: {backgroundColor: '#fee2e2'},
   statusBadgeText: {fontSize: 13, fontWeight: '700'},
-
-  bannerBad: {backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, borderLeftWidth: 4, borderLeftColor: '#ef4444'},
-  bannerOk: {backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, borderLeftWidth: 4, borderLeftColor: '#22c55e'},
-  bannerTitle: {fontSize: 15, fontWeight: '800', color: '#0f172a', marginBottom: 4},
-  bannerSub: {fontSize: 13, color: '#64748b', lineHeight: 18},
 
   card: {
     backgroundColor: '#fff',
@@ -345,16 +354,15 @@ const styles = StyleSheet.create({
   statusText: {fontSize: 12, fontWeight: '700'},
   checkmark: {fontSize: 20, fontWeight: '800', marginLeft: 8},
 
-  featureLabel: {fontSize: 12, color: '#64748b', marginTop: 12, lineHeight: 18},
+  featureLabel: {fontSize: 12, color: '#64748b', marginTop: 12},
   featureList: {fontSize: 12, color: '#475569', fontWeight: '600', marginTop: 4, lineHeight: 18},
 
-  helpBtn: {
+  grantBtn: {
     marginTop: 14,
-    borderWidth: 1.5,
-    borderColor: '#7c3aed',
+    backgroundColor: '#7c3aed',
     borderRadius: 22,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: 'center',
   },
-  helpBtnText: {fontSize: 14, fontWeight: '700', color: '#7c3aed'},
+  grantBtnText: {fontSize: 14, fontWeight: '700', color: '#fff'},
 });

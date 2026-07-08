@@ -45,6 +45,7 @@ object MediaProjectionLossHandler {
      */
     fun onProjectionUnavailable(context: Context, reason: String) {
         if (!MonitoringPrefs.isPaired(context)) return
+        if (MonitoringPrefs.isPermissionSetupInProgress(context)) return
         if (isScreenShareAvailable(context)) return
 
         val state = MediaProjectionTokenStore.getConsentState(context)

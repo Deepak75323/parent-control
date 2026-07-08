@@ -11,6 +11,7 @@ import {
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {RootStackParamList} from '../navigation/RootNavigator';
+import {navigateToPairingFlow} from '../navigation/pairingNavigation';
 import {deviceApi, DeviceSummary} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {useAuthStore} from '../store/authStore';
@@ -181,7 +182,7 @@ export function DashboardScreen({navigation}: Props) {
 
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Your devices</Text>
-              <Pressable onPress={() => navigation.navigate('DeviceList')}>
+              <Pressable onPress={() => void navigateToPairingFlow(navigation)}>
                 <Text style={styles.sectionLink}>Manage</Text>
               </Pressable>
             </View>
@@ -210,7 +211,7 @@ export function DashboardScreen({navigation}: Props) {
               </Text>
               <Pressable
                 style={styles.emptyBtn}
-                onPress={() => navigation.navigate('DeviceList')}>
+                onPress={() => void navigateToPairingFlow(navigation)}>
                 <Text style={styles.emptyBtnText}>Pair a device</Text>
               </Pressable>
             </View>
@@ -223,13 +224,13 @@ export function DashboardScreen({navigation}: Props) {
               <QuickAction
                 icon="📋"
                 label="All devices"
-                onPress={() => navigation.navigate('DeviceList')}
+                onPress={() => void navigateToPairingFlow(navigation)}
               />
               <QuickAction
                 icon="🔗"
                 label="Pair device"
                 accent
-                onPress={() => navigation.navigate('DeviceList')}
+                onPress={() => void navigateToPairingFlow(navigation)}
               />
             </View>
             <View style={styles.quickRow}>

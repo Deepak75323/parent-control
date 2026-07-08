@@ -7,25 +7,29 @@ import {
   ScrollView,
   View,
   KeyboardAvoidingView,
-  AppState,
   Platform,
   Animated,
   StatusBar,
   ActivityIndicator,
+  InteractionManager,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {useFocusEffect} from '@react-navigation/native';
 import {ChildStackParamList, usePairingComplete} from './RootNavigator';
 import {deviceApi} from '../services/api';
 import {saveDeviceCredentials} from '../services/deviceStorage';
 import {startMonitoringSync} from '../services/syncService';
-import {ensureAllStreamingPermissions} from '../services/streamingPermissions';
+import {
+  isPermissionStatusComplete,
+  loadPermissionStatus,
+} from '../services/permissionDashboard/permissionStatus';
+import {getPendingPairingCode} from '../services/onboarding/onboardingSession';
 import {nativeModules} from '../nativeModules';
 import {getApiBaseUrl, isApiReachable} from '../utils/config';
 import {slog} from '../services/streamDebug';
 
 type Props = NativeStackScreenProps<ChildStackParamList, 'Pairing'>;
-type PairPhase = 'code' | 'permissions' | 'done';
 
 const CODE_LENGTH = 8;
 const C = {
@@ -78,15 +82,10 @@ export function PairingScreen({navigation}: Props) {
   const [focused, setFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
-  const [phase, setPhase] = useState<PairPhase>('code');
-  const [parentName, setParentName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [serverUrl, setServerUrl] = useState(getApiBaseUrl());
   const [serverOk, setServerOk] = useState<boolean | null>(null);
-  const [permLoading, setPermLoading] = useState(false);
-  const [perms, setPerms] = useState({camera: false, mic: false, screen: false});
   const pairingRef = useRef(false);
-  const pendingCredsRef = useRef<{token: string; hmacKey?: string} | null>(null);
 
   const heroAnim = useRef(new Animated.Value(0)).current;
   const cardAnim = useRef(new Animated.Value(24)).current;
@@ -114,58 +113,45 @@ export function PairingScreen({navigation}: Props) {
 
   useEffect(() => { void checkServer(); }, [checkServer]);
 
-  const refreshPerms = useCallback(async () => {
-    setPerms({
-      camera: await nativeModules.isCameraGranted(),
-      mic: await nativeModules.isMicGranted(),
-      screen: await nativeModules.isMediaProjectionGranted(),
-    });
-  }, []);
-
-  useEffect(() => {
-    if (phase !== 'permissions') return;
-    void refreshPerms();
-    const sub = AppState.addEventListener('change', next => {
-      if (next === 'active') void refreshPerms();
-    });
-    return () => sub.remove();
-  }, [phase, refreshPerms]);
-
-  const finishPairing = useCallback(async (displayName: string) => {
-    const creds = pendingCredsRef.current;
-    if (!creds) return;
-    setDone(true);
-    setPhase('done');
-    markPaired(displayName);
-    void startMonitoringSync(creds.token, creds.hmacKey, displayName)
-      .catch(e => slog('PAIR', 'startMonitoringSync failed', String(e)));
-  }, [markPaired]);
-
-  const grantPermissions = useCallback(async () => {
-    setPermLoading(true);
-    setError(null);
-    try {
-      slog('PAIR', 'requesting streaming permissions');
-      const result = await ensureAllStreamingPermissions();
-      setPerms(result);
-      if (!result.camera || !result.mic || !result.screen) {
-        setError(
-          'Live view needs camera, microphone, and screen capture. Tap "Grant permissions" and approve each Android prompt.',
-        );
-        return;
+  const focusCodeInput = useCallback(() => {
+    if (loading || done) return;
+    InteractionManager.runAfterInteractions(() => {
+      const input = inputRef.current;
+      if (!input) return;
+      if (input.isFocused()) {
+        input.blur();
+        setTimeout(() => input.focus(), 80);
+      } else {
+        input.focus();
       }
-      if (parentName) {
-        await finishPairing(parentName);
-      }
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setPermLoading(false);
-    }
-  }, [finishPairing, parentName]);
+    });
+  }, [done, loading]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadPermissionStatus().then(status => {
+        if (!isPermissionStatusComplete(status)) {
+          navigation.replace('PermissionWizard');
+        }
+      });
+      void getPendingPairingCode().then(saved => {
+        if (saved) {
+          setCode(prev => (prev.trim() ? prev : saved));
+        }
+      });
+      const t = setTimeout(() => focusCodeInput(), 350);
+      return () => clearTimeout(t);
+    }, [focusCodeInput, navigation]),
+  );
 
   const pair = useCallback(async (codeOverride?: string) => {
     if (done || pairingRef.current) return;
+    const permStatus = await loadPermissionStatus();
+    if (!isPermissionStatusComplete(permStatus)) {
+      setError('Complete all permissions in setup before pairing.');
+      navigation.replace('PermissionWizard');
+      return;
+    }
     const normalized = (codeOverride ?? code).trim().toUpperCase();
     if (normalized.length < CODE_LENGTH) {
       setError('Enter the full 8-character code from the parent app.'); return;
@@ -205,27 +191,15 @@ export function PairingScreen({navigation}: Props) {
       });
       if (!data.success || !data.data?.deviceToken) { setError(data.message ?? 'Could not pair this device.'); return; }
       const displayName = data.data.parentDisplayName?.trim() || 'Parent';
-      setParentName(displayName);
       await saveDeviceCredentials(data.data.deviceToken, data.data.deviceHmacKey, displayName);
-      pendingCredsRef.current = {token: data.data.deviceToken, hmacKey: data.data.deviceHmacKey};
-
-      // Check if streaming permissions were already granted during setup
-      const existing = {
-        camera: await nativeModules.isCameraGranted(),
-        mic: await nativeModules.isMicGranted(),
-        screen: await nativeModules.isMediaProjectionGranted(),
-      };
-      setPerms(existing);
-
-      if (existing.camera && existing.mic && existing.screen) {
-        await finishPairing(displayName);
-      } else {
-        setPhase('permissions');
-        setError(null);
-      }
+      setDone(true);
+      markPaired(displayName);
+      void startMonitoringSync(data.data.deviceToken, data.data.deviceHmacKey, displayName)
+        .catch(e => slog('PAIR', 'startMonitoringSync failed', String(e)));
     } catch (e: unknown) {
       const axiosMsg = (e as {response?: {data?: {message?: string}}})?.response?.data?.message;
       const networkMsg = (e as {message?: string})?.message;
+      const hasHttpResponse = !!(e as {response?: unknown})?.response;
       const message = axiosMsg === 'DEVICE_TRUST_DENIED'
         ? 'This device failed security checks (rooted, emulator, or modified app). Use a stock device from Google Play.'
         : axiosMsg === 'PAIRING_CODE_EXPIRED'
@@ -234,13 +208,18 @@ export function PairingScreen({navigation}: Props) {
           ? 'Wrong or used code. Generate a fresh code in the parent app.'
           : axiosMsg ?? (networkMsg?.includes('Network Error') ? 'Cannot reach the server. USB: run ./scripts/dev/setup-phone.sh on your Mac. Wi‑Fi: same network + DEV_LAN_HOST in .env.' : networkMsg) ?? 'Invalid or expired code.';
       setError(message);
-      setServerOk(false);
+      // Keep "Connected" when the server responded (e.g. invalid code) — only mark offline for network failures.
+      setServerOk(
+        hasHttpResponse ||
+          (!networkMsg?.includes('Network Error') &&
+            !message.includes('Cannot reach the server')),
+      );
       setServerUrl(getApiBaseUrl());
     } finally {
       pairingRef.current = false;
       setLoading(false);
     }
-  }, [code, done, finishPairing]);
+  }, [code, done, markPaired, navigation]);
 
   const onCodeChange = (text: string) => {
     const next = text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, CODE_LENGTH);
@@ -251,9 +230,16 @@ export function PairingScreen({navigation}: Props) {
     }
   };
 
+  useEffect(() => {
+    const t = setTimeout(() => focusCodeInput(), 400);
+    return () => clearTimeout(t);
+  }, [focusCodeInput]);
+
   const connectionLabel = serverOk === null ? '⏳ Checking…' : serverOk ? '✓ Connected' : '✗ Offline';
   const connectionColor = serverOk === null ? C.textTertiary : serverOk ? C.success : C.danger;
   const connectionBg = serverOk === null ? '#F1F5F9' : serverOk ? C.successLight : '#FEF2F2';
+  const remaining = CODE_LENGTH - code.length;
+  const canPair = code.length === CODE_LENGTH && !loading && !done;
 
   return (
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
@@ -265,7 +251,15 @@ export function PairingScreen({navigation}: Props) {
           <Animated.View style={[s.hero, {opacity: heroAnim}]}>
             <View style={s.heroBubble1} />
             <View style={s.heroBubble2} />
-            <Pressable style={s.backBtn} onPress={() => navigation.goBack()}>
+            <Pressable
+              style={s.backBtn}
+              onPress={() => {
+                if (navigation.canGoBack()) {
+                  navigation.goBack();
+                } else {
+                  navigation.replace('PermissionWizard');
+                }
+              }}>
               <Text style={s.backBtnText}>‹</Text>
             </Pressable>
             <View style={s.heroIconWrap}><Text style={{fontSize: 36}}>🔗</Text></View>
@@ -319,71 +313,48 @@ export function PairingScreen({navigation}: Props) {
             </Animated.View>
           ) : null}
 
-          {/* Code entry / Permissions / Success */}
+          {/* Code entry */}
           <Animated.View style={[{opacity: cardOpacity, transform: [{translateY: cardAnim}]}]}>
-            {phase === 'permissions' && parentName ? (
-              <View style={s.permCard}>
-                <Text style={s.permTitle}>One more step</Text>
-                <Text style={s.permSub}>
-                  Grant live view permissions now so your parent can see the screen, camera, and hear audio — without asking again later.
-                </Text>
-                {[
-                  {key: 'camera', label: 'Camera', icon: '📷', ok: perms.camera},
-                  {key: 'mic', label: 'Microphone', icon: '🎤', ok: perms.mic},
-                  {key: 'screen', label: 'Screen capture', icon: '📺', ok: perms.screen},
-                ].map(item => (
-                  <View key={item.key} style={s.permRow}>
-                    <Text style={s.permIcon}>{item.icon}</Text>
-                    <Text style={s.permLabel}>{item.label}</Text>
-                    <View style={[s.permBadge, item.ok && s.permBadgeOk]}>
-                      <Text style={[s.permBadgeText, item.ok && s.permBadgeTextOk]}>
-                        {item.ok ? 'Granted' : 'Required'}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-                <Pressable
-                  style={({pressed}) => [s.pairBtn, {marginTop: 16}, pressed && {opacity: 0.87}, permLoading && {opacity: 0.6}]}
-                  onPress={() => void grantPermissions()}
-                  disabled={permLoading}>
-                  {permLoading
-                    ? <ActivityIndicator color="#fff" />
-                    : <Text style={s.pairBtnText}>Grant permissions</Text>
-                  }
-                </Pressable>
-                <Text style={s.permHint}>
-                  Android will show prompts — tap "Start now" or "Allow" on each one.
-                </Text>
-              </View>
-            ) : done && parentName ? (
+            {done ? (
               <View style={s.successCard}>
                 <View style={s.successCheck}><Text style={{fontSize: 28}}>✓</Text></View>
                 <Text style={s.successTitle}>Paired successfully!</Text>
                 <Text style={s.successSub}>Your device is now protected</Text>
               </View>
             ) : (
-              <Pressable onPress={() => inputRef.current?.focus()} disabled={loading || done}>
-                <View style={s.codeCard}>
-                  <Text style={s.codeLabel}>Pairing code</Text>
+              <View style={s.codeCard}>
+                <Text style={s.codeLabel}>Pairing code</Text>
+                <View style={s.codeTapZone}>
                   <CodeBoxes code={code} focused={focused} />
-                  <TextInput
-                    ref={inputRef}
-                    style={s.hiddenInput}
-                    value={code}
-                    onChangeText={onCodeChange}
-                    onFocus={() => setFocused(true)}
-                    onBlur={() => setFocused(false)}
-                    autoCapitalize="characters"
-                    autoCorrect={false}
-                    maxLength={CODE_LENGTH}
-                    editable={!loading && !done}
-                    caretHidden
-                  />
-                  <Text style={s.codeHint}>
-                    {loading ? '⏳ Pairing…' : code.length === 0 ? 'Tap to enter code' : `${code.length}/${CODE_LENGTH} characters`}
-                  </Text>
                 </View>
-              </Pressable>
+                <Text style={s.codeHint}>
+                  {loading
+                    ? '⏳ Pairing…'
+                    : code.length === 0
+                      ? 'Tap to enter the 8-character code'
+                      : remaining > 0
+                        ? `${code.length}/${CODE_LENGTH} — enter ${remaining} more to enable Pair device`
+                        : 'Ready — tap Pair device'}
+                </Text>
+                <TextInput
+                  ref={inputRef}
+                  style={s.codeInputOverlay}
+                  value={code}
+                  onChangeText={onCodeChange}
+                  onFocus={() => setFocused(true)}
+                  onBlur={() => setFocused(false)}
+                  onPressIn={focusCodeInput}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  importantForAutofill="no"
+                  maxLength={CODE_LENGTH}
+                  editable={!loading && !done}
+                  caretHidden
+                  showSoftInputOnFocus
+                  keyboardType="visible-password"
+                />
+              </View>
             )}
           </Animated.View>
 
@@ -394,11 +365,15 @@ export function PairingScreen({navigation}: Props) {
             </View>
           ) : null}
 
-          {!done && phase === 'code' ? (
+          {!done ? (
             <Pressable
-              style={({pressed}) => [s.pairBtn, pressed && {opacity: 0.87}, (loading || code.length < CODE_LENGTH) && {opacity: 0.5}]}
+              style={({pressed}) => [
+                s.pairBtn,
+                pressed && canPair && {opacity: 0.87},
+                !canPair && s.pairBtnDisabled,
+              ]}
               onPress={() => void pair()}
-              disabled={loading || code.length < CODE_LENGTH}>
+              disabled={!canPair}>
               {loading
                 ? <ActivityIndicator color="#fff" />
                 : <Text style={s.pairBtnText}>Pair device  →</Text>
@@ -451,8 +426,9 @@ const s = StyleSheet.create({
   helpText: {fontSize: 13, color: '#78350F', lineHeight: 20},
 
   // Code card
-  codeCard: {backgroundColor: C.surface, borderRadius: 22, padding: 22, marginBottom: 14, alignItems: 'center', borderWidth: 1.5, borderColor: C.primary + '40', shadowColor: C.primary, shadowOffset: {width: 0, height: 3}, shadowOpacity: 0.08, shadowRadius: 14, elevation: 4},
+  codeCard: {backgroundColor: C.surface, borderRadius: 22, padding: 22, marginBottom: 14, alignItems: 'center', borderWidth: 1.5, borderColor: C.primary + '40', shadowColor: C.primary, shadowOffset: {width: 0, height: 3}, shadowOpacity: 0.08, shadowRadius: 14, elevation: 4, position: 'relative', overflow: 'hidden'},
   codeLabel: {fontSize: 11, fontWeight: '700', color: C.textTertiary, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 18},
+  codeTapZone: {minHeight: 52, justifyContent: 'center', alignItems: 'center', width: '100%'},
   codeRow: {flexDirection: 'row', alignItems: 'center'},
   codeBox: {width: 36, height: 48, borderRadius: 12, borderWidth: 1.5, borderColor: C.border, backgroundColor: '#F8F7FF', alignItems: 'center', justifyContent: 'center', marginHorizontal: 3},
   codeBoxGap: {marginRight: 14},
@@ -460,7 +436,14 @@ const s = StyleSheet.create({
   codeBoxActive: {borderColor: C.primary, borderWidth: 2, backgroundColor: C.primarySurface},
   codeChar: {fontSize: 20, fontWeight: '800', color: C.textTertiary},
   codeCharFilled: {color: C.primary},
-  hiddenInput: {position: 'absolute', opacity: 0, height: 1, width: 1},
+  codeInputOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.02,
+    color: 'transparent',
+    fontSize: 16,
+    padding: 0,
+    margin: 0,
+  },
   codeHint: {marginTop: 16, fontSize: 13, color: C.textTertiary, fontWeight: '500'},
 
   // Permissions step
@@ -488,6 +471,7 @@ const s = StyleSheet.create({
 
   // Pair button
   pairBtn: {backgroundColor: C.primary, borderRadius: 18, paddingVertical: 16, alignItems: 'center', marginBottom: 12, shadowColor: C.primary, shadowOffset: {width: 0, height: 6}, shadowOpacity: 0.35, shadowRadius: 14, elevation: 6},
+  pairBtnDisabled: {backgroundColor: '#C7D2FE', shadowOpacity: 0, elevation: 0},
   pairBtnText: {color: '#fff', fontWeight: '800', fontSize: 16, letterSpacing: 0.2},
 
   footerNote: {textAlign: 'center', fontSize: 12, color: C.textTertiary, lineHeight: 18, marginTop: 4},

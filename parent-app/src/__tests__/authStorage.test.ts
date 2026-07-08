@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   clearPersistedAuth,
+  InsecureAuthStorageError,
+  isInsecureAuthStorageAllowed,
   loadPersistedAuth,
   savePersistedAuth,
 } from '../services/authStorage';
@@ -29,10 +31,17 @@ describe('authStorage', () => {
     clearSecureAuth: jest.fn(() => Promise.resolve()),
   };
 
+  const originalDev = (global as {__DEV__?: boolean}).__DEV__;
+
   beforeEach(() => {
     jest.clearAllMocks();
     (resolveSecureAuthBridge as jest.Mock).mockReturnValue(bridge);
     bridge.loadSecureAuth.mockResolvedValue(null);
+    (global as {__DEV__?: boolean}).__DEV__ = true;
+  });
+
+  afterAll(() => {
+    (global as {__DEV__?: boolean}).__DEV__ = originalDev;
   });
 
   it('persists auth in EncryptedSharedPreferences on Android', async () => {
@@ -62,7 +71,7 @@ describe('authStorage', () => {
     expect(AsyncStorage.removeItem).toHaveBeenCalledWith('pcp_parent_auth_v1');
   });
 
-  it('falls back to AsyncStorage when secure bridge unavailable', async () => {
+  it('falls back to AsyncStorage in dev when secure bridge unavailable', async () => {
     (resolveSecureAuthBridge as jest.Mock).mockReturnValue(null);
     (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify(auth));
 
@@ -72,10 +81,36 @@ describe('authStorage', () => {
     expect(bridge.loadSecureAuth).not.toHaveBeenCalled();
   });
 
+  it('refuses insecure save in release when secure bridge unavailable', async () => {
+    (global as {__DEV__?: boolean}).__DEV__ = false;
+    (resolveSecureAuthBridge as jest.Mock).mockReturnValue(null);
+
+    await expect(savePersistedAuth(auth)).rejects.toBeInstanceOf(InsecureAuthStorageError);
+    expect(AsyncStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('refuses insecure load in release when secure bridge unavailable', async () => {
+    (global as {__DEV__?: boolean}).__DEV__ = false;
+    (resolveSecureAuthBridge as jest.Mock).mockReturnValue(null);
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify(auth));
+
+    const loaded = await loadPersistedAuth();
+
+    expect(loaded).toBeNull();
+    expect(AsyncStorage.getItem).not.toHaveBeenCalled();
+  });
+
   it('clears secure and legacy storage', async () => {
     await clearPersistedAuth();
 
     expect(bridge.clearSecureAuth).toHaveBeenCalled();
     expect(AsyncStorage.removeItem).toHaveBeenCalledWith('pcp_parent_auth_v1');
+  });
+
+  it('isInsecureAuthStorageAllowed mirrors __DEV__', () => {
+    (global as {__DEV__?: boolean}).__DEV__ = true;
+    expect(isInsecureAuthStorageAllowed()).toBe(true);
+    (global as {__DEV__?: boolean}).__DEV__ = false;
+    expect(isInsecureAuthStorageAllowed()).toBe(false);
   });
 });

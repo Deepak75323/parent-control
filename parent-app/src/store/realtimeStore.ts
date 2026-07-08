@@ -46,6 +46,8 @@ interface RealtimeState {
   pairingStartedAt: number | null;
   pairingBaselineIds: Set<string>;
   pairingBaselineLastSeen: Record<string, string>;
+  /** Status snapshot when the pairing code was created (detect re-pair of revoked devices). */
+  pairingBaselineStatuses: Record<string, string>;
   setPendingPairingCode: (code: string, baselineDevices: DeviceSummary[], expiresAt?: string | null) => void;
   clearPendingPairingCode: () => void;
   bumpDeviceListVersion: () => void;
@@ -75,6 +77,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   pairingStartedAt: null,
   pairingBaselineIds: new Set<string>(),
   pairingBaselineLastSeen: {},
+  pairingBaselineStatuses: {},
   setPendingPairingCode: (code, baselineDevices, expiresAt) => {
     get().mergeDevices(baselineDevices);
     set({
@@ -84,6 +87,9 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       pairingBaselineIds: new Set(baselineDevices.map(d => d.id)),
       pairingBaselineLastSeen: Object.fromEntries(
         baselineDevices.map(d => [d.id, d.lastSeenAt ?? '']),
+      ),
+      pairingBaselineStatuses: Object.fromEntries(
+        baselineDevices.map(d => [d.id, (d.status ?? '').toUpperCase()]),
       ),
       // Clear stale banner from a previous pairing session.
       lastPairedDevice: undefined,
@@ -96,6 +102,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       pairingStartedAt: null,
       pairingBaselineIds: new Set<string>(),
       pairingBaselineLastSeen: {},
+      pairingBaselineStatuses: {},
     }),
   bumpDeviceListVersion: () => set(state => ({deviceListVersion: state.deviceListVersion + 1})),
   notifyPairingComplete: device => {
@@ -114,6 +121,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       pairingStartedAt: null,
       pairingBaselineIds: new Set<string>(),
       pairingBaselineLastSeen: {},
+      pairingBaselineStatuses: {},
     }));
   },
   setWsConnected: wsConnected => set({wsConnected}),
@@ -174,5 +182,6 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       pairingStartedAt: null,
       pairingBaselineIds: new Set<string>(),
       pairingBaselineLastSeen: {},
+      pairingBaselineStatuses: {},
     }),
 }));

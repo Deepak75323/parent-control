@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.childmonitor.debug.PcpFlowLogger
+import com.childmonitor.debug.StreamState
 import com.childmonitor.sync.DeviceHttpClient
 import com.childmonitor.telemetry.StreamLifecycleTelemetry
 import org.json.JSONObject
@@ -30,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 object NativeStreamPublisher {
 
     private const val TAG = "NativeStreamPublisher"
+    private const val FIRST_FRAME_TIMEOUT_MS = 8_000L
     private val running = AtomicBoolean(false)
     private val webRtcGlobalInitDone = AtomicBoolean(false)
     private var peerConnectionFactory: PeerConnectionFactory? = null
@@ -70,6 +72,8 @@ object NativeStreamPublisher {
         remoteAnswerApplied = false
 
         return try {
+            PcpFlowLogger.transitionState(StreamState.CAPTURE_STARTING, "NativeStreamPublisher.start",
+                "room=$roomId session=$sessionId")
             PcpFlowLogger.log(
                 PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
                 "native capture start",
@@ -82,8 +86,10 @@ object NativeStreamPublisher {
             if (!ScreenCaptureForegroundService.startAndWait(context)) {
                 throw IllegalStateException("Screen capture FGS did not start")
             }
-            val projection = ScreenCaptureController.obtainProjection(context)
+            val projection = ScreenCaptureController.acquireProjectionForCapture(context)
                 ?: throw IllegalStateException("MediaProjection unavailable — re-grant screen capture")
+            PcpFlowLogger.transitionState(StreamState.PERMISSION_VERIFIED, "NativeStreamPublisher.start",
+                "projection acquired session=$sessionId")
             if (!ScreenCaptureController.projectionObtainedWithFgs()) {
                 throw IllegalStateException("MediaProjection obtained before screen FGS was active")
             }
@@ -109,17 +115,28 @@ object NativeStreamPublisher {
             val helper = SurfaceTextureHelper.create("ScreenCaptureThread", eglBase!!.eglBaseContext)
             videoSource = peerConnectionFactory!!.createVideoSource(capturer!!.isScreencast)
             capturer!!.initialize(helper, context, videoSource!!.capturerObserver)
+            ReuseProjectionCapturer.resetFirstFrameFlag()
             val width = metrics.widthPixels.coerceAtLeast(360)
             val height = metrics.heightPixels.coerceAtLeast(640)
             capturer!!.startCapture(width, height, 15)
 
+            if (!awaitFirstCaptureFrame(FIRST_FRAME_TIMEOUT_MS)) {
+                throw IllegalStateException("No screen capture frames within ${FIRST_FRAME_TIMEOUT_MS}ms")
+            }
+            PcpFlowLogger.transitionState(StreamState.CAPTURE_RUNNING, "NativeStreamPublisher.start",
+                "firstFrame session=$sessionId")
+
             val videoTrack = peerConnectionFactory!!.createVideoTrack("screen_video", videoSource)
             peerConnection!!.addTrack(videoTrack, listOf("stream"))
+            PcpFlowLogger.transitionState(StreamState.WEBRTC_CONNECTING, "NativeStreamPublisher.start",
+                "peerConnection ready session=$sessionId")
 
             createAndSendOffer(context, roomId, sessionId)
             startSignalingPoll(context, roomId)
             true
         } catch (e: Exception) {
+            PcpFlowLogger.transitionState(StreamState.FAILED, "NativeStreamPublisher.start",
+                e.message ?: "unknown")
             Log.e(TAG, "start failed — stored consent kept for retry", e)
             running.set(false)
             StreamSessionRegistry.release(StreamSessionRegistry.Owner.NATIVE_PUBLISHER)
@@ -131,6 +148,22 @@ object NativeStreamPublisher {
         }
     }
 
+    private fun awaitFirstCaptureFrame(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (CaptureFrameLogger.hasReceivedFrame()) {
+                return true
+            }
+            try {
+                Thread.sleep(50)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                break
+            }
+        }
+        return CaptureFrameLogger.hasReceivedFrame()
+    }
+
     private fun classifyStartFailure(e: Exception): String {
         val msg = e.message ?: ""
         return when {
@@ -138,6 +171,7 @@ object NativeStreamPublisher {
             msg.contains("re-grant", ignoreCase = true) -> "PROJECTION_REQUIRES_RECONSENT"
             msg.contains("FGS", ignoreCase = true) -> "FGS_NOT_READY"
             msg.contains("MediaProjection", ignoreCase = true) -> "NO_SCREEN_CAPTURE_CONSENT"
+            msg.contains("No screen capture frames", ignoreCase = true) -> "NO_CAPTURE_FRAMES"
             else -> "NATIVE_PUBLISHER_START_FAILED"
         }
     }
@@ -171,11 +205,8 @@ object NativeStreamPublisher {
         peerConnection?.close()
         peerConnection = null
 
-        if (!MediaProjectionTokenStore.hasValidToken(context)) {
-            ScreenCaptureController.releaseProjection()
-        } else {
-            ScreenCaptureController.detachProjection()
-        }
+        // Keep the warm MediaProjection session for the next parent request — releasing it
+        // forces getMediaProjection on API 34+ which needs project_media we no longer hold.
     }
 
     private fun stopCaptureOnly() {
@@ -223,6 +254,18 @@ object NativeStreamPublisher {
                 candidate ?: return
                 val room = activeRoomId ?: return
                 val session = activeSessionId ?: return
+                val candType = when {
+                    candidate.sdp.contains("typ relay") -> "relay"
+                    candidate.sdp.contains("typ srflx") -> "srflx"
+                    candidate.sdp.contains("typ host") -> "host"
+                    else -> "unknown"
+                }
+                PcpFlowLogger.log(
+                    PcpFlowLogger.Category.WEBRTC_FLOW,
+                    "onIceCandidate",
+                    "Local ICE candidate generated type=$candType",
+                    candidate.sdp.take(80),
+                )
                 SignalingHttpClient.postMessage(
                     context,
                     room,
@@ -236,11 +279,15 @@ object NativeStreamPublisher {
                 )
             }
 
-            override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
+            override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {
+                PcpFlowLogger.log(PcpFlowLogger.Category.WEBRTC_FLOW, "onIceCandidatesRemoved", "ICE candidates removed", "count=${candidates?.size ?: 0}")
+            }
             override fun onSignalingChange(state: PeerConnection.SignalingState?) {
+                PcpFlowLogger.log(PcpFlowLogger.Category.WEBRTC_FLOW, "onSignalingChange", "Signaling state changed", "state=$state")
                 Log.i(TAG, "signalingState=$state")
             }
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
+                PcpFlowLogger.log(PcpFlowLogger.Category.WEBRTC_FLOW, "onIceConnectionChange", "ICE connection state changed", "state=$state room=$activeRoomId")
                 Log.i(TAG, "iceConnectionState=$state")
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED,
@@ -249,6 +296,8 @@ object NativeStreamPublisher {
                         iceRecoveryRunnable?.let { pollHandler?.removeCallbacks(it) }
                         iceRecoveryRunnable = null
                         StreamSessionRegistry.markActive()
+                        PcpFlowLogger.transitionState(StreamState.CONNECTED, "onIceConnectionChange",
+                            "state=$state room=$activeRoomId")
                         PcpFlowLogger.log(
                             PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
                             "ICE connected",
@@ -261,15 +310,28 @@ object NativeStreamPublisher {
                     else -> Unit
                 }
             }
-            override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+            override fun onIceConnectionReceivingChange(receiving: Boolean) {
+                PcpFlowLogger.log(PcpFlowLogger.Category.WEBRTC_FLOW, "onIceConnectionReceivingChange", "ICE receiving changed", "receiving=$receiving")
+            }
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
+                PcpFlowLogger.log(PcpFlowLogger.Category.WEBRTC_FLOW, "onIceGatheringChange", "ICE gathering state changed", "state=$state")
                 Log.i(TAG, "iceGatheringState=$state")
             }
-            override fun onAddStream(stream: org.webrtc.MediaStream?) {}
-            override fun onRemoveStream(stream: org.webrtc.MediaStream?) {}
-            override fun onDataChannel(channel: org.webrtc.DataChannel?) {}
-            override fun onRenegotiationNeeded() {}
-            override fun onAddTrack(receiver: org.webrtc.RtpReceiver?, streams: Array<out org.webrtc.MediaStream>?) {}
+            override fun onAddStream(stream: org.webrtc.MediaStream?) {
+                PcpFlowLogger.log(PcpFlowLogger.Category.WEBRTC_FLOW, "onAddStream", "Remote stream added", "streamId=${stream?.id}")
+            }
+            override fun onRemoveStream(stream: org.webrtc.MediaStream?) {
+                PcpFlowLogger.log(PcpFlowLogger.Category.WEBRTC_FLOW, "onRemoveStream", "Remote stream removed", "streamId=${stream?.id}")
+            }
+            override fun onDataChannel(channel: org.webrtc.DataChannel?) {
+                PcpFlowLogger.log(PcpFlowLogger.Category.WEBRTC_FLOW, "onDataChannel", "Data channel event", "label=${channel?.label()}")
+            }
+            override fun onRenegotiationNeeded() {
+                PcpFlowLogger.log(PcpFlowLogger.Category.WEBRTC_FLOW, "onRenegotiationNeeded", "Renegotiation needed")
+            }
+            override fun onAddTrack(receiver: org.webrtc.RtpReceiver?, streams: Array<out org.webrtc.MediaStream>?) {
+                PcpFlowLogger.log(PcpFlowLogger.Category.WEBRTC_FLOW, "onAddTrack", "Track added", "streams=${streams?.size ?: 0}")
+            }
         })
     }
 
@@ -304,6 +366,8 @@ object NativeStreamPublisher {
                             payload,
                             sessionId,
                         )
+                        PcpFlowLogger.transitionState(StreamState.LOCAL_DESCRIPTION_SET, "createAndSendOffer",
+                            "room=$roomId session=$sessionId")
                         PcpFlowLogger.log(
                             PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
                             "offer sent",

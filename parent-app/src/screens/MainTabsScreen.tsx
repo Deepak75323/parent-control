@@ -13,6 +13,7 @@ import {
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
+import {navigateToPairingFlow} from '../navigation/pairingNavigation';
 import {deviceApi, DeviceSummary} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {NoticeScreen} from './NoticeScreen';
@@ -164,7 +165,9 @@ function DeviceListTab({navigation}: Props) {
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const onlineCount = devices.filter(d => isOnline(deviceStatuses[d.id]?.status ?? d.status)).length;
-  const goToPairing = () => navigation.navigate('DeviceList');
+  const goToPairing = () => {
+    void navigateToPairingFlow(navigation);
+  };
 
   return (
     <FlatList

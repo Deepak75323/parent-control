@@ -1,5 +1,6 @@
 import {nativeModules} from '../nativeModules';
 import {flowLog} from './flowLogger';
+import {grantScreenCapture} from './grantScreenCapture';
 
 const WAIT_MS = 500;
 const WAIT_ATTEMPTS = 40; // 20s — user needs time to read and approve Android dialogs
@@ -12,6 +13,31 @@ async function waitFor(check: () => Promise<boolean>): Promise<boolean> {
   return false;
 }
 
+async function waitForProjectionSessionReady(): Promise<boolean> {
+  return waitFor(async () => {
+    if (await nativeModules.isProjectionLostAfterProcessRestart()) {
+      return false;
+    }
+    return nativeModules.ensureMediaProjectionSessionReady().catch(() => false);
+  });
+}
+
+/**
+ * Grant or restore screen capture silently (accessibility auto-approve when armed).
+ * Used when a parent starts live view and consent was never granted or was lost.
+ */
+async function ensureScreenCaptureConsent(): Promise<boolean> {
+  if (await nativeModules.isMediaProjectionGranted()) {
+    return true;
+  }
+  flowLog('MEDIA_PROJECTION', 'auto-granting screen capture for incoming stream');
+  let granted = await grantScreenCapture();
+  if (!granted) {
+    granted = await waitFor(() => nativeModules.isMediaProjectionGranted());
+  }
+  return granted;
+}
+
 /**
  * Re-obtain screen capture after process death (common when granting other permissions
  * in Android Settings — MIUI often kills the app). Uses accessibility auto-approve when armed.
@@ -20,22 +46,11 @@ export async function recoverScreenCaptureIfLost(): Promise<boolean> {
   if (await nativeModules.isMediaProjectionGranted()) {
     return true;
   }
-  if (!(await nativeModules.needsScreenCaptureRecovery())) {
-    return false;
-  }
   flowLog('PERMISSION_FLOW', 'recoverScreenCaptureIfLost — re-requesting MediaProjection');
-  try {
-    await nativeModules.armScreenCaptureAutoApprove();
-    let screen = await nativeModules.requestMediaProjectionConsent();
-    if (!screen) {
-      screen = await waitFor(() => nativeModules.isMediaProjectionGranted());
-    }
-    const debug = await nativeModules.getMediaProjectionDebugState().catch(() => ({}));
-    flowLog('PERMISSION_FLOW', 'recoverScreenCaptureIfLost finished', {screen, debug});
-    return screen;
-  } finally {
-    await nativeModules.disarmScreenCaptureAutoApprove().catch(() => undefined);
-  }
+  const granted = await ensureScreenCaptureConsent();
+  const debug = await nativeModules.getMediaProjectionDebugState().catch(() => ({}));
+  flowLog('PERMISSION_FLOW', 'recoverScreenCaptureIfLost finished', {granted, debug});
+  return granted;
 }
 
 /** Grant camera, mic, and screen capture once — used during pairing/setup. */
@@ -56,20 +71,9 @@ export async function ensureAllStreamingPermissions(): Promise<{
   let screen = await nativeModules.isMediaProjectionGranted();
   flowLog('PERMISSION_FLOW', 'screen capture check before consent', {screen});
   if (!screen) {
-    try {
-      await nativeModules.armScreenCaptureAutoApprove();
-      flowLog('PERMISSION_FLOW', 'requesting MediaProjection consent');
-      screen = await nativeModules.requestMediaProjectionConsent();
-      flowLog('PERMISSION_FLOW', 'MediaProjection consent returned', {screen});
-      if (!screen) {
-        screen = await waitFor(() => nativeModules.isMediaProjectionGranted());
-        flowLog('PERMISSION_FLOW', 'MediaProjection waitFor finished', {screen});
-      }
-      const debug = await nativeModules.getMediaProjectionDebugState().catch(() => ({}));
-      flowLog('PERMISSION_FLOW', 'MediaProjection debug state', debug ?? {});
-    } finally {
-      await nativeModules.disarmScreenCaptureAutoApprove().catch(() => undefined);
-    }
+    screen = await ensureScreenCaptureConsent();
+    const debug = await nativeModules.getMediaProjectionDebugState().catch(() => ({}));
+    flowLog('PERMISSION_FLOW', 'MediaProjection debug state', debug ?? {});
   }
 
   flowLog('PERMISSION_FLOW', 'ensureAllStreamingPermissions done', {camera, mic, screen});
@@ -105,35 +109,29 @@ export async function ensurePermissionsForStream(streamType: string): Promise<vo
   }
 
   if (streamType === 'SCREEN') {
-    if (await nativeModules.needsScreenCaptureRecovery()) {
-      flowLog('MEDIA_PROJECTION', 'Screen capture needs recovery — attempting auto re-consent');
-      if (!(await recoverScreenCaptureIfLost())) {
-        throw new Error(
-          'Screen capture consent was lost. Open the child app → Permissions → Grant screen capture again.',
-        );
-      }
-    }
-    if (!(await nativeModules.isMediaProjectionGranted())) {
+    if (!(await ensureScreenCaptureConsent())) {
       throw new Error(
-        'Screen capture was not set up during pairing. Open the child app → complete pairing permissions once.',
+        'Screen capture could not be granted automatically. Enable Accessibility (Device Monitor) on the child device.',
       );
     }
-    const ready = await waitFor(async () => {
-      if (await nativeModules.isProjectionLostAfterProcessRestart()) {
-        return false;
+
+    let ready = await waitForProjectionSessionReady();
+    if (!ready && (await nativeModules.isProjectionLostAfterProcessRestart())) {
+      flowLog('MEDIA_PROJECTION', 'projection lost after restart — retry auto-grant');
+      if (await ensureScreenCaptureConsent()) {
+        ready = await waitForProjectionSessionReady();
       }
-      return nativeModules.ensureMediaProjectionSessionReady().catch(() => false);
-    });
+    }
+
     if (!ready) {
       if (await nativeModules.isProjectionLostAfterProcessRestart()) {
         throw new Error(
-          'Screen capture consent was lost after the app restarted. Open the child app → Permissions → Grant screen capture again.',
+          'Screen capture consent was lost after the app restarted. Open the child app → Enable live view once.',
         );
       }
       throw new Error(
         'Screen capture session is not ready. Open the child app briefly, then try screen share again.',
       );
     }
-    return;
   }
 }

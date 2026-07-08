@@ -13,6 +13,8 @@ import com.parentalcontrol.monitoring.repository.ScreenSessionRepository;
 import com.parentalcontrol.monitoring.repository.SignalingMessageRepository;
 import com.parentalcontrol.user.repository.ParentProfileRepository;
 import com.parentalcontrol.observability.StreamObservabilityService;
+import com.parentalcontrol.observability.StreamTraceLogger;
+import com.parentalcontrol.observability.StreamState;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +39,9 @@ public class SignalingService {
     @Transactional
     public SignalingMessageResponse postMessage(String roomId, SignalingMessageRequest request) {
         String senderRole = resolveSenderRole();
+        StreamTraceLogger.info("Backend", "SIGNALING", "postMessage", "incoming signaling API",
+                Map.of("roomId", roomId, "messageType", request.getMessageType(), "senderRole", senderRole,
+                        "sessionId", request.getSessionId()));
         validateRoomAccess(roomId, senderRole);
         requireSessionId(request.getSessionId());
         validateSessionMatchesRoom(request.getSessionId(), roomId);
@@ -58,10 +63,26 @@ public class SignalingService {
         wsPayload.put("senderRole", senderRole);
         wsPayload.put("sessionId", request.getSessionId() != null ? request.getSessionId().toString() : null);
         wsPayload.put("id", entity.getId().toString());
+        String trace = StreamTraceLogger.traceId();
+        if (trace != null && !trace.isBlank()) {
+            wsPayload.put("traceId", trace);
+        }
         realtimeEventService.publishSignalingMessage(roomId, wsPayload);
+        StreamTraceLogger.info("Backend", "SOCKET", "postMessage", "STOMP signaling emitted",
+                Map.of("roomId", roomId, "messageType", request.getMessageType(), "id", entity.getId()));
 
         if ("CHILD".equals(senderRole) && "offer".equals(request.getMessageType())) {
+            StreamTraceLogger.transitionState("Backend", StreamState.LOCAL_DESCRIPTION_SET, "postMessage",
+                    Map.of("roomId", roomId, "sessionId", request.getSessionId()));
             markSessionActive(request.getSessionId(), roomId);
+        }
+        if ("PARENT".equals(senderRole) && "answer".equals(request.getMessageType())) {
+            StreamTraceLogger.transitionState("Backend", StreamState.REMOTE_DESCRIPTION_SET, "postMessage",
+                    Map.of("roomId", roomId, "sessionId", request.getSessionId()));
+        }
+        if ("ice".equals(request.getMessageType())) {
+            StreamTraceLogger.transitionState("Backend", StreamState.ICE_CONNECTING, "postMessage",
+                    Map.of("roomId", roomId, "messageType", "ice"));
         }
 
         return SignalingMessageResponse.builder()
@@ -216,6 +237,8 @@ public class SignalingService {
             session.setStatus(ScreenSessionStatus.ACTIVE);
             screenSessionRepository.save(session);
             streamObservabilityService.recordStreamActive(session);
+            StreamTraceLogger.transitionState("Backend", StreamState.STREAMING, "markSessionActive",
+                    Map.of("sessionId", sessionId, "roomId", roomId));
             Device device = deviceAccessService.requireAuthenticatedDevice();
             parentProfileRepository.findUserIdByProfileId(device.getParentProfileId())
                     .ifPresent(parentUserId -> realtimeEventService.publishStreamingState(

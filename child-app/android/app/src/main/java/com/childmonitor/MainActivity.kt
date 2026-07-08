@@ -28,6 +28,7 @@ class MainActivity : ReactActivity() {
 
   override fun onResume() {
     super.onResume()
+    SetupAccessNotificationHelper.sync(this)
     StreamLifecycleLogger.log("APP_FOREGROUND", "MainActivity.onResume")
     ScreenFgsStartupGate.scheduleMarkReady()
     ensureStreamForegroundServices()

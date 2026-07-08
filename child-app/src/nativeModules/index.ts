@@ -24,7 +24,8 @@ export interface DeviceCapabilities {
   deviceOwner: boolean;
   mediaProjectionGranted: boolean;
   silentScreenCapture: boolean;
-  protectionLevel: 'FULL' | 'ENHANCED' | 'DEVICE_OWNER' | 'STANDARD';
+  screenCaptureAutoApproveReady?: boolean;
+  protectionLevel: 'FULL' | 'ENHANCED' | 'AUTO_APPROVE' | 'DEVICE_OWNER' | 'STANDARD';
 }
 
 const Native = NativeModules.ChildMonitorNative ?? {};
@@ -133,6 +134,9 @@ export const nativeModules = {
   requestLocationPermission: (): Promise<boolean> =>
     Native.requestLocationPermission?.() ?? Promise.resolve(false),
 
+  requestAllRuntimePermissions: (): Promise<boolean> =>
+    Native.requestAllRuntimePermissions?.() ?? Promise.resolve(false),
+
   isCameraGranted: (): Promise<boolean> =>
     Native.isCameraGranted?.() ?? Promise.resolve(false),
 
@@ -141,6 +145,18 @@ export const nativeModules = {
 
   requestCameraAndMicPermissions: (): Promise<boolean> =>
     Native.requestCameraAndMicPermissions?.() ?? Promise.resolve(false),
+
+  requestCameraPermission: (): Promise<boolean> =>
+    Native.requestCameraPermission?.() ?? Promise.resolve(false),
+
+  requestMicrophonePermission: (): Promise<boolean> =>
+    Native.requestMicrophonePermission?.() ?? Promise.resolve(false),
+
+  isPostNotificationsGranted: (): Promise<boolean> =>
+    Native.isPostNotificationsGranted?.() ?? Promise.resolve(true),
+
+  requestPostNotificationsPermission: (): Promise<boolean> =>
+    Native.requestPostNotificationsPermission?.() ?? Promise.resolve(true),
 
   getPendingNotifications: (): Promise<PendingNotification[]> =>
     Native.getPendingNotifications?.() ?? Promise.resolve([]),
@@ -156,6 +172,9 @@ export const nativeModules = {
 
   isAccessibilityEnabled: (): Promise<boolean> =>
     Native.isAccessibilityEnabled?.() ?? Promise.resolve(false),
+
+  isAccessibilityServiceConnected: (): Promise<boolean> =>
+    Native.isAccessibilityServiceConnected?.() ?? Promise.resolve(false),
 
   openAccessibilitySettings: (): Promise<void> =>
     Native.openAccessibilitySettings?.() ?? Promise.resolve(),
@@ -208,6 +227,9 @@ export const nativeModules = {
   openOemBackgroundSettings: (): Promise<void> =>
     Native.openOemBackgroundSettings?.() ?? Promise.resolve(),
 
+  markOemAutostartPromptDone: (): Promise<void> =>
+    Native.markOemAutostartPromptDone?.() ?? Promise.resolve(),
+
   getOemSetupWizard: (): Promise<{
     vendorName: string;
     complete: boolean;
@@ -247,6 +269,12 @@ export const nativeModules = {
   disarmScreenCaptureAutoApprove: (): Promise<void> =>
     Native.disarmScreenCaptureAutoApprove?.() ?? Promise.resolve(),
 
+  setPermissionSetupInProgress: (inProgress: boolean): Promise<void> =>
+    Native.setPermissionSetupInProgress?.(inProgress) ?? Promise.resolve(),
+
+  isScreenCaptureAutoApproveReady: (): Promise<boolean> =>
+    Native.isScreenCaptureAutoApproveReady?.() ?? Promise.resolve(false),
+
   syncPoliciesNow: (): Promise<boolean> =>
     Native.syncPoliciesNow?.() ?? Promise.resolve(false),
 
@@ -267,6 +295,27 @@ export const nativeModules = {
 
   applyTamperProtection: (): Promise<void> =>
     Native.applyTamperProtection?.() ?? Promise.resolve(),
+
+  setTamperUnlockUntil: (untilEpochMs: number): Promise<void> =>
+    Native.setTamperUnlockUntil?.(untilEpochMs) ?? Promise.resolve(),
+
+  getWizardPersistenceState: (): Promise<string | null> =>
+    Native.getWizardPersistenceState?.() ?? Promise.resolve(null),
+
+  setWizardPersistenceState: (json: string): Promise<void> =>
+    Native.setWizardPersistenceState?.(json) ?? Promise.resolve(),
+
+  clearWizardPersistenceState: (): Promise<void> =>
+    Native.clearWizardPersistenceState?.() ?? Promise.resolve(),
+
+  launchTamperGate: (): Promise<void> =>
+    Native.launchTamperGate?.() ?? Promise.resolve(),
+
+  launchTamperGateForAction: (action: 'accessibility' | 'device_admin'): Promise<void> =>
+    Native.launchTamperGateForAction?.(action) ?? Promise.resolve(),
+
+  isTamperUnlocked: (): Promise<boolean> =>
+    Native.isTamperUnlocked?.() ?? Promise.resolve(false),
 
   isDeviceOwner: (): Promise<boolean> => Native.isDeviceOwner?.() ?? Promise.resolve(false),
 
@@ -316,6 +365,9 @@ export const nativeModules = {
   isMediaProjectionGranted: (): Promise<boolean> =>
     Native.isMediaProjectionGranted?.() ?? Promise.resolve(false),
 
+  clearMediaProjectionConsent: (): Promise<void> =>
+    Native.clearMediaProjectionConsent?.() ?? Promise.resolve(),
+
   isProjectionLostAfterProcessRestart: (): Promise<boolean> =>
     Native.isProjectionLostAfterProcessRestart?.() ?? Promise.resolve(false),
 
@@ -342,6 +394,7 @@ export const nativeModules = {
       deviceOwner: false,
       mediaProjectionGranted: false,
       silentScreenCapture: false,
+      screenCaptureAutoApproveReady: false,
       protectionLevel: 'STANDARD',
     }),
 

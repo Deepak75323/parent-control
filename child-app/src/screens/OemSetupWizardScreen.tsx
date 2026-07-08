@@ -158,12 +158,13 @@ export function OemSetupWizardScreen({navigation}: Props) {
               </>
             ) : null}
             <PrimaryBtn
-              title={allComplete ? 'Continue setup' : 'Skip for now'}
+              title={allComplete ? 'Continue setup' : `Complete all steps (${completedCount}/${steps.length})`}
+              disabled={!allComplete}
               onPress={() => navigation.navigate('DeviceOwnerSetup')}
             />
             {!allComplete ? (
               <Text style={styles.skipWarn}>
-                Skipping may cause screen share and commands to stop on this phone after a few minutes.
+                Finish every step above before continuing. Skipping may cause monitoring to stop on this phone.
               </Text>
             ) : null}
           </View>

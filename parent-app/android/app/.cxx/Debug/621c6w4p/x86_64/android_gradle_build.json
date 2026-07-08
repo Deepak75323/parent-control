@@ -28,9 +28,9 @@
       "runtimeFiles": [
         "/Users/B0295882_1/Desktop/parentalControlApp/parent-app/android/app/build/intermediates/cxx/Debug/621c6w4p/obj/x86_64/libreact_codegen_safeareacontext.so",
         "/Users/B0295882_1/Desktop/parentalControlApp/parent-app/android/app/build/intermediates/cxx/Debug/621c6w4p/obj/x86_64/libreact_codegen_rnscreens.so",
-        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/81599fd14b02337234a6c00fa38a1763/gradle/caches/8.10.2/transforms/8b60b4f75564ac53567672df7a1c9a73/transformed/fbjni-0.6.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so",
-        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/81599fd14b02337234a6c00fa38a1763/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
-        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/81599fd14b02337234a6c00fa38a1763/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so"
+        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/43477ead03bd91f30e48c92b6ddf4e58/gradle/caches/8.10.2/transforms/8b60b4f75564ac53567672df7a1c9a73/transformed/fbjni-0.6.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so",
+        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/43477ead03bd91f30e48c92b6ddf4e58/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
+        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/43477ead03bd91f30e48c92b6ddf4e58/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so"
       ]
     },
     "react_codegen_rnasyncstorage::@1596841e19ec5b9eeffe": {
@@ -44,9 +44,9 @@
       "artifactName": "react_codegen_rnscreens",
       "output": "/Users/B0295882_1/Desktop/parentalControlApp/parent-app/android/app/build/intermediates/cxx/Debug/621c6w4p/obj/x86_64/libreact_codegen_rnscreens.so",
       "runtimeFiles": [
-        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/81599fd14b02337234a6c00fa38a1763/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so",
-        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/81599fd14b02337234a6c00fa38a1763/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
-        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/81599fd14b02337234a6c00fa38a1763/gradle/caches/8.10.2/transforms/8b60b4f75564ac53567672df7a1c9a73/transformed/fbjni-0.6.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so"
+        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/43477ead03bd91f30e48c92b6ddf4e58/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so",
+        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/43477ead03bd91f30e48c92b6ddf4e58/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
+        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/43477ead03bd91f30e48c92b6ddf4e58/gradle/caches/8.10.2/transforms/8b60b4f75564ac53567672df7a1c9a73/transformed/fbjni-0.6.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so"
       ]
     },
     "react_codegen_safeareacontext::@7984cd80db47aa7b952a": {
@@ -55,9 +55,9 @@
       "artifactName": "react_codegen_safeareacontext",
       "output": "/Users/B0295882_1/Desktop/parentalControlApp/parent-app/android/app/build/intermediates/cxx/Debug/621c6w4p/obj/x86_64/libreact_codegen_safeareacontext.so",
       "runtimeFiles": [
-        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/81599fd14b02337234a6c00fa38a1763/gradle/caches/8.10.2/transforms/8b60b4f75564ac53567672df7a1c9a73/transformed/fbjni-0.6.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so",
-        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/81599fd14b02337234a6c00fa38a1763/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
-        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/81599fd14b02337234a6c00fa38a1763/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so"
+        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/43477ead03bd91f30e48c92b6ddf4e58/gradle/caches/8.10.2/transforms/8b60b4f75564ac53567672df7a1c9a73/transformed/fbjni-0.6.0/prefab/modules/fbjni/libs/android.x86_64/libfbjni.so",
+        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/43477ead03bd91f30e48c92b6ddf4e58/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/jsi/libs/android.x86_64/libjsi.so",
+        "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/43477ead03bd91f30e48c92b6ddf4e58/gradle/caches/8.10.2/transforms/1ae2c2bcce3cae52224b57e1fa01bdc7/transformed/react-android-0.76.5-debug/prefab/modules/reactnative/libs/android.x86_64/libreactnative.so"
       ]
     }
   },

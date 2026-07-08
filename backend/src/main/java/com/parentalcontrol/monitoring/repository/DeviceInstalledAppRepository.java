@@ -16,4 +16,9 @@ public interface DeviceInstalledAppRepository extends JpaRepository<DeviceInstal
     @Modifying
     @Query("UPDATE DeviceInstalledApp d SET d.deletedAt = CURRENT_TIMESTAMP WHERE d.deviceId = :deviceId AND d.deletedAt IS NULL")
     void softDeleteAllByDeviceId(@Param("deviceId") UUID deviceId);
+
+    /** Full resync replaces the installed-app list; hard delete avoids UNIQUE(device_id, package_name) conflicts. */
+    @Modifying
+    @Query("DELETE FROM DeviceInstalledApp d WHERE d.deviceId = :deviceId")
+    void deleteAllByDeviceId(@Param("deviceId") UUID deviceId);
 }

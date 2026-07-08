@@ -61,6 +61,6 @@ object MonitoringBurstEngine {
 
     fun teardownIfIdle(context: Context) {
         if (shouldKeepCoordinatorAlive()) return
-        NativeStreamingCoordinator.stop(context.applicationContext)
+        NativeStreamingCoordinator.pauseAfterBurst(context.applicationContext)
     }
 }

@@ -2,6 +2,8 @@ package com.childmonitor
 
 import android.content.Context
 import android.content.Intent
+import android.util.Log
+import androidx.annotation.VisibleForTesting
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.DayOfWeek
@@ -12,10 +14,26 @@ import java.util.concurrent.ConcurrentHashMap
 
 object PolicyEnforcementEngine {
 
+    private const val TAG = "PolicyEnforcement"
+
     private var bundle: JSONObject? = null
     private val usageMsToday = ConcurrentHashMap<String, Long>()
     private val warnedPackages = ConcurrentHashMap.newKeySet<String>()
     private val tempUnlockUntil = ConcurrentHashMap<String, Long>()
+    private var usageDay: LocalDate = LocalDate.now()
+
+    /** Reset in-memory usage when the calendar day changes (midnight rollover). */
+    private fun ensureUsageDayCurrent() {
+        val today = LocalDate.now()
+        if (today == usageDay) return
+        Log.i(
+            TAG,
+            "P0_SCREEN_TIME_DAY_ROLLOVER previous=$usageDay today=$today clearedPackages=${usageMsToday.size}",
+        )
+        usageMsToday.clear()
+        warnedPackages.clear()
+        usageDay = today
+    }
 
     fun reload(context: Context) {
         bundle = PolicyStore.getBundle(context)
@@ -71,10 +89,12 @@ object PolicyEnforcementEngine {
     }
 
     fun recordUsage(packageName: String, usageMs: Long) {
+        ensureUsageDayCurrent()
         usageMsToday.merge(packageName, usageMs) { a, b -> a + b }
     }
 
     fun shouldWarnScreenTime(context: Context, packageName: String): Boolean {
+        ensureUsageDayCurrent()
         val b = bundle ?: PolicyStore.getBundle(context) ?: return false
         val category = AppCategoryResolver.resolve(context, packageName)
         val rules = b.optJSONArray("screenTime") ?: return false
@@ -123,6 +143,7 @@ object PolicyEnforcementEngine {
         packageName: String,
         category: String,
     ): Boolean {
+        ensureUsageDayCurrent()
         val rules = b.optJSONArray("screenTime") ?: return false
         for (i in 0 until rules.length()) {
             val rule = rules.getJSONObject(i)
@@ -209,4 +230,20 @@ object PolicyEnforcementEngine {
             !now.isBefore(start) || !now.isAfter(end)
         }
     }
+
+    @VisibleForTesting
+    internal fun resetUsageCountersForTests() {
+        usageMsToday.clear()
+        warnedPackages.clear()
+        usageDay = LocalDate.now()
+    }
+
+    @VisibleForTesting
+    internal fun setUsageDayAndMsForTests(day: LocalDate, packageName: String, usageMs: Long) {
+        usageDay = day
+        usageMsToday[packageName] = usageMs
+    }
+
+    @VisibleForTesting
+    internal fun usageMsTodayForTests(packageName: String): Long = usageMsToday[packageName] ?: 0L
 }

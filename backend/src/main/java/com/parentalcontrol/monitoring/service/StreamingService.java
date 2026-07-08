@@ -23,11 +23,16 @@ import com.parentalcontrol.policy.repository.StreamingPolicyRuleRepository;
 import com.parentalcontrol.user.repository.ParentProfileRepository;
 import com.parentalcontrol.observability.StreamObservabilityService;
 import com.parentalcontrol.observability.CorrelationContext;
+import com.parentalcontrol.observability.StreamTraceLogger;
+import com.parentalcontrol.observability.StreamState;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -82,7 +87,16 @@ public class StreamingService {
             String streamType,
             String parentPin,
             String cameraFacing) {
+        String traceId = StreamTraceLogger.resolveOrCreateTraceId();
+        StreamTraceLogger.transitionState("Backend", StreamState.REQUEST_SENT, "startStream",
+                Map.of("deviceId", deviceId, "streamType", streamType, "traceId", traceId));
+        StreamTraceLogger.info("Backend", "START", "startStream", "incoming API",
+                Map.of("deviceId", deviceId, "streamType", streamType, "traceId", traceId));
+
         Device device = deviceAccessService.requireOwnedDevice(deviceId);
+        deviceAccessService.requireMonitoringActive(device);
+        StreamTraceLogger.info("Backend", "LOOKUP", "startStream", "device lookup success",
+                Map.of("deviceId", device.getId(), "fcmTokenPresent", device.getFcmToken() != null && !device.getFcmToken().isBlank()));
         featureGateService.requireLiveStreaming(device.getParentProfileId());
         assertStreamingAllowed(device.getId(), streamType);
         assertScreenCaptureAvailable(device, streamType);
@@ -108,16 +122,39 @@ public class StreamingService {
         session.setSignalingRoomId(roomId);
         final ScreenSession activeSession = screenSessionRepository.save(session);
         final UUID sessionId = activeSession.getId();
+        final UUID notifyDeviceId = device.getId();
+        final UUID parentProfileId = device.getParentProfileId();
+        final String notifyStreamType = streamType;
+        final String notifyFacing = normalizedFacing;
+        final String notifyTraceId = traceId;
 
-        parentProfileRepository.findUserIdByProfileId(device.getParentProfileId())
-                .ifPresent(parentUserId -> realtimeEventService.publishStreamingState(
-                        parentUserId, device.getId(), roomId, "PENDING", streamType));
-        realtimeEventService.publishDeviceStreamRequest(
-                device.getId(), roomId, streamType, sessionId, normalizedFacing);
-        fcmWakeService.wakeDevice(device, "STREAM_REQUEST", Map.of(
-                "roomId", roomId,
-                "streamType", streamType,
-                "sessionId", sessionId.toString()));
+        // Notify child only after commit — STOMP/FCM can wake the child in <200 ms while this
+        // transaction is still open; signaling then returns 404 "Streaming session not found".
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                parentProfileRepository.findUserIdByProfileId(parentProfileId)
+                        .ifPresent(parentUserId -> realtimeEventService.publishStreamingState(
+                                parentUserId, notifyDeviceId, roomId, "PENDING", notifyStreamType, null, notifyTraceId));
+                realtimeEventService.publishDeviceStreamRequest(
+                        notifyDeviceId, roomId, notifyStreamType, sessionId, notifyFacing, notifyTraceId);
+                Map<String, String> wakeData = new HashMap<>();
+                wakeData.put("roomId", roomId);
+                wakeData.put("streamType", notifyStreamType);
+                wakeData.put("sessionId", sessionId.toString());
+                wakeData.put("traceId", notifyTraceId);
+                if (notifyFacing != null) {
+                    wakeData.put("cameraFacing", notifyFacing);
+                }
+                fcmWakeService.wakeDevice(device, "STREAM_REQUEST", wakeData);
+                StreamTraceLogger.info("Backend", "NOTIFY", "startStream", "FCM wake dispatched",
+                        Map.of("deviceId", notifyDeviceId, "action", "STREAM_REQUEST", "traceId", notifyTraceId));
+                StreamTraceLogger.info("Backend", "SOCKET", "startStream", "STOMP stream-request emitted",
+                        Map.of("roomId", roomId, "sessionId", sessionId, "traceId", notifyTraceId));
+                StreamTraceLogger.transitionState("Backend", StreamState.REQUEST_RECEIVED, "startStream",
+                        Map.of("roomId", roomId, "sessionId", sessionId));
+            }
+        });
 
         UUID parentUserId = SecurityUtils.currentUser().map(u -> u.getId()).orElse(null);
         screenCaptureAuditLogRepository.save(ScreenCaptureAuditLog.builder()
@@ -143,12 +180,15 @@ public class StreamingService {
                 .status(activeSession.getStatus())
                 .startedAt(activeSession.getStartedAt())
                 .captureMode(captureMode)
+                .traceId(traceId)
                 .message("WebRTC signaling room ready. Connect via /api/v1/monitoring/signaling/" + roomId)
                 .build();
     }
 
     @Transactional
     public ScreenShareSessionResponse stopScreenShare(UUID sessionId) {
+        StreamTraceLogger.transitionState("Backend", StreamState.STOPPING, "stopScreenShare",
+                Map.of("sessionId", sessionId));
         ScreenSession session = screenSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Session not found"));
 
@@ -185,6 +225,9 @@ public class StreamingService {
                 endedSession.getSignalingRoomId());
 
         signalingCleanupScheduler.purgeRoom(endedSession.getSignalingRoomId());
+
+        StreamTraceLogger.transitionState("Backend", StreamState.STOPPED, "stopScreenShare",
+                Map.of("sessionId", sessionId));
 
         return ScreenShareSessionResponse.builder()
                 .sessionId(endedSession.getId())
@@ -231,6 +274,8 @@ public class StreamingService {
 
     @Transactional
     public void reportStreamFailure(UUID sessionId, String reason) {
+        StreamTraceLogger.transitionState("Backend", StreamState.FAILED, "reportStreamFailure",
+                Map.of("sessionId", sessionId, "reason", reason != null ? reason : "unknown"));
         ScreenSession session = screenSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Session not found"));
         Device device = deviceAccessService.requireAuthenticatedDevice();
@@ -373,11 +418,14 @@ public class StreamingService {
         if (!"SCREEN".equals(streamType)) {
             return;
         }
-        if (device.isMediaProjectionGranted()) {
+        String state = device.getMediaProjectionConsentState();
+        // Only allow when consent is explicitly active — blocks stale granted=true after process death
+        // and rows where heartbeat has not yet synced consent state (null state is not trusted).
+        if ("GRANTED_ACTIVE".equals(state) && device.isMediaProjectionGranted()) {
             return;
         }
-        String state = device.getMediaProjectionConsentState();
-        String message = switch (state != null ? state : "NEVER_GRANTED") {
+        String resolvedState = state != null ? state : "NEVER_GRANTED";
+        String message = switch (resolvedState) {
             case "LOST_AFTER_PROCESS_DEATH" ->
                     "Screen capture permission was lost after the child phone restarted. " +
                             "The child must re-approve screen sharing — open the child app → Permissions → Grant screen capture.";

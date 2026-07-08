@@ -97,8 +97,8 @@ public final class HiddenScreenBridge {
                     return;
                 }
 
-                MediaProjection projection = ScreenCaptureController.INSTANCE.obtainProjection(reactContext);
-                Log.i(TAG, "[PCP:MEDIA_PROJECTION] step 3 obtainProjection="
+                MediaProjection projection = ScreenCaptureController.INSTANCE.acquireProjectionForCapture(reactContext);
+                Log.i(TAG, "[PCP:MEDIA_PROJECTION] step 3 acquireProjectionForCapture="
                         + (projection != null ? "OK" : "NULL"));
                 if (projection == null) {
                     Log.e(TAG, "[PCP:MEDIA_PROJECTION] ABORT step 3 — projection expired");
@@ -195,6 +195,13 @@ public final class HiddenScreenBridge {
                 Log.e(TAG, "Hidden screen capture failed", e);
                 StreamSessionRegistry.INSTANCE.release(StreamSessionRegistry.Owner.JS_HIDDEN);
                 onStopForeground.run();
+                if (e instanceof SecurityException
+                        || (e.getCause() != null && e.getCause() instanceof SecurityException)) {
+                    ScreenCaptureController.INSTANCE.onConsentInvalidated();
+                    MediaProjectionTokenStore.INSTANCE.markRequiresReconsent(
+                            reactContext,
+                            "virtual_display_rejected");
+                }
                 promise.reject("HIDDEN_SCREEN_ERROR", e);
             }
         }).start();

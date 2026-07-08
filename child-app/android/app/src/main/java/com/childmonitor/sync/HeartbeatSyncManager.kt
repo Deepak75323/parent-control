@@ -16,6 +16,7 @@ import com.childmonitor.oem.OemSetupValidator
 import com.childmonitor.platform.AndroidPlatform
 import com.childmonitor.security.DeviceTrustSignalsCollector
 import com.childmonitor.telemetry.MobileTelemetryReporter
+import com.childmonitor.TamperProtectionManager
 import org.json.JSONObject
 
 /**
@@ -31,6 +32,7 @@ object HeartbeatSyncManager {
         accessibilityServiceConnectedOverride: Boolean? = null,
     ): JSONObject {
         val deviceOwner = DeviceOwnerManager.isDeviceOwner(context)
+        val deviceAdminActive = TamperProtectionManager.isDeviceAdminActive(context)
         val consentState = MediaProjectionTokenStore.getConsentState(context)
         val projectionGranted = consentState == MediaProjectionConsentState.GRANTED_ACTIVE
         val accessibilityEnabled = AccessibilityHealthChecker.isAccessibilityEnabled(context)
@@ -53,6 +55,7 @@ object HeartbeatSyncManager {
             .put("charging", telemetry.charging)
             .put("networkType", telemetry.networkType)
             .put("deviceOwnerActive", deviceOwner)
+            .put("deviceAdminActive", deviceAdminActive)
             .put("mediaProjectionGranted", projectionGranted)
             .put("mediaProjectionConsentState", consentState.name)
             .put("accessibilityEnabled", accessibilityEnabled)

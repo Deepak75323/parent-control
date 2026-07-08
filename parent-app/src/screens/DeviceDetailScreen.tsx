@@ -10,18 +10,25 @@ import {
   Text,
   View,
   Alert,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {SafeMapView} from '../components/SafeMapView';
-import {deviceApi, DeviceSummary, monitoringApi, UsageStatEntry} from '../services/api';
+import {deviceApi, DeviceSummary, monitoringApi, UsageStatEntry, childLoginPasswordApi} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {ConfirmModal, LoadingCenter} from '../components/AppScreen';
 import {Colors, Typography, Spacing, Radii, Elevation} from '../theme/design';
 import {useFadeSlideIn, usePressScale, usePulse, useOpacityPulse} from '../utils/animations';
 import {formatUsageMs} from '../utils/formatUsage';
-import {screenShareBlockedMessage} from '../utils/screenShareCapability';
+import {useFocusEffect} from '@react-navigation/native';
+import {
+  isScreenShareCapableMerged,
+  mergeScreenShareCapability,
+  screenShareBlockedMessage,
+} from '../utils/screenShareCapability';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DeviceDetail'>;
 
@@ -29,6 +36,7 @@ const {width: SW} = Dimensions.get('window');
 const MAP_W = SW - Spacing.base * 2 - Spacing.base * 2;
 
 function isOnline(s?: string) { return (s ?? '').toUpperCase() === 'ONLINE'; }
+function isRevoked(s?: string) { return (s ?? '').toUpperCase() === 'REVOKED'; }
 
 // ─── Sub-components ────────────────────────────────────────────────────────
 
@@ -175,9 +183,15 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const [commandLoading, setCommandLoading] = useState(false);
   const [revokeVisible, setRevokeVisible] = useState(false);
   const [blockAll, setBlockAll] = useState(false);
+  const [setupAgainVisible, setSetupAgainVisible] = useState(false);
+  const [setupGenerating, setSetupGenerating] = useState(false);
+  const [activePairingCode, setActivePairingCode] = useState<string | null>(null);
+  const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
 
   const live = useRealtimeStore(s => s.deviceStatuses[deviceId]);
   const liveLocation = useRealtimeStore(s => s.liveLocations[deviceId]);
+  const deviceListVersion = useRealtimeStore(s => s.deviceListVersion);
+  const setPendingPairingCode = useRealtimeStore(s => s.setPendingPairingCode);
 
   const headerAnim = useFadeSlideIn(0);
   const ringPulse = usePulse(0.88, 1.14, 1400);
@@ -189,13 +203,57 @@ export function DeviceDetailScreen({navigation, route}: Props) {
     finally { setLoading(false); }
   }, [deviceId]);
 
-  useEffect(() => { loadDevice(); }, [loadDevice]);
+  useEffect(() => { loadDevice(); }, [loadDevice, deviceListVersion]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadDevice();
+    }, [loadDevice]),
+  );
 
   const sendCommand = async (cmd: 'ENABLE_KIOSK' | 'DISABLE_KIOSK' | 'REVOKE_MONITORING', label: string) => {
     setCommandLoading(true);
     try { await deviceApi.sendCommand(deviceId, cmd); Alert.alert('Sent', `${label} command sent`); await loadDevice(); }
     catch { Alert.alert('Error', 'Command failed'); }
     finally { setCommandLoading(false); }
+  };
+
+  const generateSetupPairingCode = async () => {
+    setSetupGenerating(true);
+    try {
+      const statusResp = await childLoginPasswordApi.status();
+      if (!statusResp.data.data?.configured) {
+        setSetupAgainVisible(false);
+        Alert.alert(
+          'Set family password first',
+          'Go to Settings → Child login password, then generate a pairing code.',
+          [
+            {text: 'Cancel', style: 'cancel'},
+            {text: 'Open settings', onPress: () => navigation.navigate('ChildLoginPassword')},
+          ],
+        );
+        return;
+      }
+      const {data: devicesBefore} = await deviceApi.list();
+      const baseline = devicesBefore.data ?? [];
+      const {data} = await deviceApi.createPairingCode();
+      const code = data.data?.code?.trim();
+      if (!code) {
+        throw new Error('Server returned an empty pairing code');
+      }
+      setActivePairingCode(code);
+      setPairingExpiresAt(data.data.expiresAt ?? null);
+      setPendingPairingCode(code, baseline, data.data.expiresAt ?? null);
+      setSetupAgainVisible(false);
+      Alert.alert(
+        'Pairing code ready',
+        'Share your family child login password and this pairing code with your child.',
+      );
+    } catch {
+      Alert.alert('Error', 'Could not create pairing code');
+    } finally {
+      setSetupGenerating(false);
+    }
   };
 
   if (loading) return <LoadingCenter />;
@@ -205,23 +263,17 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const network = live?.networkType ?? device?.networkType;
   const lastSeen = live?.lastSeenAt ?? device?.lastSeenAt;
   const online = isOnline(status);
+  const revoked = isRevoked(status);
   const locLat = liveLocation?.latitude ?? live?.latitude;
   const locLon = liveLocation?.longitude ?? live?.longitude;
   const hasLoc = locLat != null && locLon != null;
   const deviceName = device?.deviceName ?? 'Child Device';
   const initials = deviceName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
-  const liveProjectionGranted =
-    live?.mediaProjectionGranted !== undefined
-      ? live.mediaProjectionGranted === true
-      : device?.mediaProjectionGranted === true;
-  const screenShareCapable = liveProjectionGranted;
+  const projectionDevice = mergeScreenShareCapability(live, device);
+  const screenShareCapable = isScreenShareCapableMerged(live, device);
   const screenShareBlockedReason = screenShareCapable
     ? undefined
-    : screenShareBlockedMessage({
-        mediaProjectionGranted: liveProjectionGranted,
-        mediaProjectionConsentState:
-          live?.mediaProjectionConsentState ?? device?.mediaProjectionConsentState,
-      });
+    : screenShareBlockedMessage(projectionDevice);
   const showProjectionAlert =
     device?.deviceOwnerActive === true && !screenShareCapable && online;
 
@@ -251,19 +303,25 @@ export function DeviceDetailScreen({navigation, route}: Props) {
         <View style={sc.heroBody}>
           <View style={sc.avatarWrap}>
             {online && <Animated.View style={[sc.avatarRing, {transform: ringPulse, opacity: 0.35}]} />}
-            <View style={[sc.avatar, {backgroundColor: online ? Colors.primary : Colors.offline}]}>
+            <View style={[sc.avatar, {backgroundColor: revoked ? '#DC2626' : online ? Colors.primary : Colors.offline}]}>
               <Text style={sc.avatarText}>{initials}</Text>
             </View>
-            <View style={[sc.statusOrb, {backgroundColor: online ? Colors.online : Colors.offline}]} />
+            <View style={[sc.statusOrb, {backgroundColor: revoked ? '#DC2626' : online ? Colors.online : Colors.offline}]} />
           </View>
 
           <View style={sc.heroMeta}>
             <Text style={sc.heroDeviceName}>{deviceName}</Text>
             <View style={sc.heroStatusRow}>
-              <Animated.View style={[sc.statusPill, {backgroundColor: online ? '#DCFCE7' : '#F1F5F9'}, {opacity: online ? dotBlink : 1}]}>
-                <View style={[sc.statusPillDot, {backgroundColor: online ? Colors.online : Colors.offline}]} />
-                <Text style={[sc.statusPillText, {color: online ? Colors.success : Colors.textTertiary}]}>
-                  {online ? 'Online' : 'Offline'}
+              <Animated.View style={[sc.statusPill, {
+                backgroundColor: revoked ? '#FEE2E2' : online ? '#DCFCE7' : '#F1F5F9',
+              }, {opacity: revoked || !online ? 1 : dotBlink}]}>
+                <View style={[sc.statusPillDot, {
+                  backgroundColor: revoked ? '#DC2626' : online ? Colors.online : Colors.offline,
+                }]} />
+                <Text style={[sc.statusPillText, {
+                  color: revoked ? '#DC2626' : online ? Colors.success : Colors.textTertiary,
+                }]}>
+                  {revoked ? 'Revoked' : online ? 'Online' : 'Offline'}
                 </Text>
               </Animated.View>
               {battery != null ? (
@@ -284,6 +342,57 @@ export function DeviceDetailScreen({navigation, route}: Props) {
 
       <ScrollView contentContainerStyle={sc.scroll} showsVerticalScrollIndicator={false}>
 
+        {revoked ? (
+          <>
+            <View style={sc.revokedBanner}>
+              <Text style={sc.revokedBannerTitle}>Monitoring revoked</Text>
+              <Text style={sc.revokedBannerBody}>
+                Monitoring has stopped on this device. Generate a new pairing code so your child can set up again.
+              </Text>
+            </View>
+
+            {activePairingCode ? (
+              <View style={sc.pairingCard}>
+                <Text style={sc.pairingLabel}>Active pairing code</Text>
+                <Text style={sc.pairingCode}>{activePairingCode}</Text>
+                <Text style={sc.pairingHint}>
+                  Child steps: open Device Monitor → enter parent password → complete permissions → enter this code.
+                  {pairingExpiresAt
+                    ? ` Expires ${new Date(pairingExpiresAt).toLocaleTimeString()}.`
+                    : ' Expires in 15 minutes.'}
+                </Text>
+              </View>
+            ) : (
+              <Pressable style={sc.setupAgainBtn} onPress={() => setSetupAgainVisible(true)}>
+                <Text style={sc.setupAgainTitle}>Set up again</Text>
+                <Text style={sc.setupAgainSub}>Generate pairing code and child password</Text>
+              </Pressable>
+            )}
+
+            <View style={sc.section}>
+              <SectionHeader eyebrow="DEVICE" title="Device Details" />
+              <View style={sc.infoCard}>
+                {[
+                  {icon: '📶', label: 'Network', value: network ?? '—'},
+                  {icon: '🛡️', label: 'Protection', value: device?.protectionLevel ?? 'Standard'},
+                  ...(lastSeen ? [{icon: '🕐', label: 'Last Seen', value: new Date(lastSeen).toLocaleString()}] : []),
+                ].map((row, i, arr) => (
+                  <View key={row.label} style={[sc.infoRow, i === arr.length - 1 && {borderBottomWidth: 0}]}>
+                    <Text style={{fontSize: 16, width: 26}}>{row.icon}</Text>
+                    <Text style={sc.infoLabel}>{row.label}</Text>
+                    <Text style={sc.infoValue}>{row.value}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <Pressable style={sc.passwordBtn} onPress={() => navigation.navigate('ChildLoginPassword')}>
+              <Text style={sc.passwordText}>🔑  Family child login password</Text>
+              <Text style={sc.passwordSub}>Same password on every child phone — change in Settings</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
         {showProjectionAlert ? (
           <PermissionsAlert
             title="Screen capture needs setup"
@@ -453,15 +562,48 @@ export function DeviceDetailScreen({navigation, route}: Props) {
           </View>
         </View>
 
+        <Pressable style={sc.passwordBtn} onPress={() => navigation.navigate('ChildLoginPassword')}>
+          <Text style={sc.passwordText}>🔑  Family child login password</Text>
+          <Text style={sc.passwordSub}>Same password on every child phone — change in Settings</Text>
+        </Pressable>
+
         {/* ── Revoke ── */}
         <Pressable style={sc.revokeBtn} onPress={() => setRevokeVisible(true)} disabled={commandLoading}>
           <Text style={sc.revokeText}>⛔  Revoke Monitoring</Text>
           <Text style={sc.revokeSub}>Stops all monitoring on this device</Text>
         </Pressable>
+          </>
+        )}
 
         <View style={{height: 16}} />
       </ScrollView>
 
+      <Modal visible={setupAgainVisible} transparent animationType="fade">
+        <View style={sc.modalBackdrop}>
+          <View style={sc.modalCard}>
+            <Text style={sc.modalTitle}>Set up again</Text>
+            <Text style={sc.modalBody}>
+              Generate a new pairing code. Your child uses your family child login password first, then this code.
+            </Text>
+            <Pressable
+              style={[sc.modalPrimary, setupGenerating && {opacity: 0.7}]}
+              onPress={() => void generateSetupPairingCode()}
+              disabled={setupGenerating}>
+              {setupGenerating ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={sc.modalPrimaryText}>Generate pairing code</Text>
+              )}
+            </Pressable>
+            <Pressable onPress={() => navigation.navigate('ChildLoginPassword')}>
+              <Text style={sc.modalLink}>Change family password</Text>
+            </Pressable>
+            <Pressable onPress={() => setSetupAgainVisible(false)}>
+              <Text style={sc.modalCancel}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
       <ConfirmModal
         visible={revokeVisible}
         title="Revoke monitoring"
@@ -642,7 +784,62 @@ const sc = StyleSheet.create({
   infoLabel: {flex: 1, fontSize: 14, color: Colors.textSecondary, fontWeight: '500', marginLeft: Spacing.sm},
   infoValue: {fontSize: 14, fontWeight: '700', color: Colors.textPrimary},
 
-  // Revoke
+  // Revoke / re-setup
+  revokedBanner: {
+    marginHorizontal: Spacing.base,
+    marginTop: Spacing.base,
+    backgroundColor: '#FEF2F2',
+    borderRadius: Radii.md,
+    padding: Spacing.base,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  revokedBannerTitle: {fontSize: 16, fontWeight: '800', color: '#B91C1C', marginBottom: 4},
+  revokedBannerBody: {fontSize: 13, color: '#7F1D1D', lineHeight: 18},
+  setupAgainBtn: {
+    marginHorizontal: Spacing.base,
+    marginTop: Spacing.lg,
+    backgroundColor: Colors.primary,
+    borderRadius: Radii.xl,
+    padding: Spacing.base,
+    alignItems: 'center',
+    ...Elevation.card,
+  },
+  setupAgainTitle: {fontSize: 16, fontWeight: '800', color: '#fff'},
+  setupAgainSub: {fontSize: 12, color: 'rgba(255,255,255,0.85)', marginTop: 4},
+  pairingCard: {
+    marginHorizontal: Spacing.base,
+    marginTop: Spacing.lg,
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.xl,
+    padding: Spacing.base,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    ...Elevation.card,
+  },
+  pairingLabel: {fontSize: 12, fontWeight: '700', color: Colors.textTertiary, marginBottom: 8},
+  pairingCode: {
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: 4,
+    color: Colors.primary,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  pairingHint: {fontSize: 12, color: Colors.textSecondary, lineHeight: 17},
+  passwordBtn: {
+    marginHorizontal: Spacing.base,
+    marginTop: Spacing.lg,
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.xl,
+    padding: Spacing.base,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    ...Elevation.card,
+  },
+  passwordText: {fontSize: 15, fontWeight: '700', color: Colors.textPrimary},
+  passwordSub: {fontSize: 12, color: Colors.textTertiary, marginTop: 3, textAlign: 'center'},
   revokeBtn: {
     marginHorizontal: Spacing.base,
     marginTop: Spacing.lg,
@@ -656,6 +853,36 @@ const sc = StyleSheet.create({
   },
   revokeText: {fontSize: 15, fontWeight: '700', color: Colors.danger},
   revokeSub: {fontSize: 12, color: '#F87171', marginTop: 3},
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {backgroundColor: '#fff', borderRadius: 16, padding: 20},
+  modalTitle: {fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 8},
+  modalBody: {fontSize: 13, color: '#64748b', lineHeight: 19, marginBottom: 16},
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+    fontSize: 15,
+    color: '#0f172a',
+  },
+  modalPrimary: {
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  modalPrimaryText: {color: '#fff', fontWeight: '700', fontSize: 15},
+  modalCancel: {textAlign: 'center', color: '#64748b', fontWeight: '600', marginTop: 12},
+  modalLink: {textAlign: 'center', color: '#2563eb', fontWeight: '600', marginTop: 12},
 
   scroll: {paddingBottom: Spacing.xxl},
 });

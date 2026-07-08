@@ -21,6 +21,9 @@ object MonitoringPrefs {
     private const val KEY_FCM_TOKEN = "fcm_token"
     private const val KEY_INTEGRITY_TOKEN = "integrity_token_cached"
     private const val KEY_INTEGRITY_TOKEN_MS = "integrity_token_ms"
+    private const val KEY_TAMPER_UNLOCK_UNTIL = "tamper_unlock_until_ms"
+    private const val KEY_WIZARD_PERSISTENCE_JSON = "wizard_persistence_json_v2"
+    private const val KEY_PERMISSION_SETUP_IN_PROGRESS = "permission_setup_in_progress"
 
     /** Arm Accessibility auto-tap for MediaProjection dialog (sideload child APK). */
     fun armScreenCaptureAutoApprove(context: Context, windowMs: Long = 45_000L) {
@@ -103,6 +106,17 @@ object MonitoringPrefs {
     fun isPaired(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_PAIRED, false)
 
+    /** True while the JS permission wizard is on screen — blocks background screen-capture recovery. */
+    fun isPermissionSetupInProgress(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_PERMISSION_SETUP_IN_PROGRESS, false)
+
+    fun setPermissionSetupInProgress(context: Context, inProgress: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_PERMISSION_SETUP_IN_PROGRESS, inProgress)
+            .apply()
+    }
+
     fun apiBaseUrl(context: Context): String? =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_API_BASE, null)
 
@@ -143,6 +157,25 @@ object MonitoringPrefs {
     fun isTamperProtectionEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_TAMPER_PROTECTION, false)
+
+    fun setTamperUnlockUntilMs(context: Context, untilMs: Long) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putLong(KEY_TAMPER_UNLOCK_UNTIL, untilMs)
+            .apply()
+    }
+
+    fun tamperUnlockUntilMs(context: Context): Long =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getLong(KEY_TAMPER_UNLOCK_UNTIL, 0L)
+
+    fun clearTamperUnlock(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_TAMPER_UNLOCK_UNTIL)
+            .apply()
+    }
+
+    fun isTamperUnlocked(context: Context): Boolean =
+        tamperUnlockUntilMs(context) > System.currentTimeMillis()
 
     fun setHideLauncherEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -214,5 +247,19 @@ object MonitoringPrefs {
             .putLong(cacheMsKey, System.currentTimeMillis())
             .apply()
         return fresh
+    }
+
+    fun getWizardPersistenceJson(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_WIZARD_PERSISTENCE_JSON, null)
+
+    fun setWizardPersistenceJson(context: Context, json: String?) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
+            if (json.isNullOrBlank()) {
+                remove(KEY_WIZARD_PERSISTENCE_JSON)
+            } else {
+                putString(KEY_WIZARD_PERSISTENCE_JSON, json)
+            }
+        }.commit()
     }
 }

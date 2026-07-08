@@ -7,23 +7,30 @@ type ChildRoute = keyof ChildStackParamList;
 
 let pendingRoute: ChildRoute | null = null;
 
-export function resetChildNavigation(route: ChildRoute): void {
+export function resetChildNavigation(
+  route: ChildRoute,
+  params?: ChildStackParamList[ChildRoute],
+): void {
   if (!navigationRef.isReady()) {
     pendingRoute = route;
+    pendingParams = params;
     return;
   }
   pendingRoute = null;
+  pendingParams = undefined;
   navigationRef.dispatch(
     CommonActions.reset({
       index: 0,
-      routes: [{name: route}],
+      routes: [{name: route, params}],
     }),
   );
 }
 
+let pendingParams: ChildStackParamList[ChildRoute] | undefined;
+
 export function flushPendingChildNavigation(): void {
   if (pendingRoute) {
-    resetChildNavigation(pendingRoute);
+    resetChildNavigation(pendingRoute, pendingParams);
   }
 }
 
@@ -45,8 +52,10 @@ export function getCurrentChildRoute(): ChildRoute | undefined {
 /** Routes where auto-resume to ServiceStatus would interrupt first-time setup or pairing. */
 export function isSetupOrPairingRoute(route: ChildRoute | undefined): boolean {
   return (
-    route === 'SetupWizard' ||
-    route === 'PermissionSetup' ||
+    route === 'ChildLogin' ||
+    route === 'ChildRecovery' ||
+    route === 'PermissionWizard' ||
+    route === 'PermissionDashboard' ||
     route === 'OemSetupWizard' ||
     route === 'DeviceOwnerSetup' ||
     route === 'Pairing'

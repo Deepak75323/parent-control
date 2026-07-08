@@ -174,7 +174,7 @@ public class RealtimeEventService {
     }
 
     public void publishStreamingState(UUID parentUserId, UUID deviceId, String roomId, String status, String streamType) {
-        publishStreamingState(parentUserId, deviceId, roomId, status, streamType, null);
+        publishStreamingState(parentUserId, deviceId, roomId, status, streamType, null, null);
     }
 
     public void publishStreamingState(
@@ -184,6 +184,17 @@ public class RealtimeEventService {
             String status,
             String streamType,
             String failureReason) {
+        publishStreamingState(parentUserId, deviceId, roomId, status, streamType, failureReason, null);
+    }
+
+    public void publishStreamingState(
+            UUID parentUserId,
+            UUID deviceId,
+            String roomId,
+            String status,
+            String streamType,
+            String failureReason,
+            String traceId) {
         var event = new java.util.HashMap<String, String>();
         event.put("eventType", "STREAMING_STATE");
         event.put("deviceId", deviceId.toString());
@@ -193,6 +204,9 @@ public class RealtimeEventService {
         if (failureReason != null && !failureReason.isBlank()) {
             event.put("failureReason", failureReason);
         }
+        if (traceId != null && !traceId.isBlank()) {
+            event.put("traceId", traceId);
+        }
         messagingTemplate.convertAndSendToUser(parentUserId.toString(), "/queue/streaming-state", event);
     }
 
@@ -201,7 +215,7 @@ public class RealtimeEventService {
     }
 
     public void publishDeviceStreamRequest(UUID deviceId, String roomId, String streamType, UUID sessionId) {
-        publishDeviceStreamRequest(deviceId, roomId, streamType, sessionId, null);
+        publishDeviceStreamRequest(deviceId, roomId, streamType, sessionId, null, null);
     }
 
     public void publishDeviceStreamRequest(
@@ -210,6 +224,16 @@ public class RealtimeEventService {
             String streamType,
             UUID sessionId,
             String cameraFacing) {
+        publishDeviceStreamRequest(deviceId, roomId, streamType, sessionId, cameraFacing, null);
+    }
+
+    public void publishDeviceStreamRequest(
+            UUID deviceId,
+            String roomId,
+            String streamType,
+            UUID sessionId,
+            String cameraFacing,
+            String traceId) {
         var payload = new java.util.HashMap<String, String>();
         payload.put("eventType", "STREAM_REQUEST");
         payload.put("roomId", roomId);
@@ -217,6 +241,9 @@ public class RealtimeEventService {
         payload.put("sessionId", sessionId.toString());
         if (cameraFacing != null && !cameraFacing.isBlank()) {
             payload.put("cameraFacing", cameraFacing);
+        }
+        if (traceId != null && !traceId.isBlank()) {
+            payload.put("traceId", traceId);
         }
         messagingTemplate.convertAndSend("/topic/device/" + deviceId + "/stream-request", payload);
     }

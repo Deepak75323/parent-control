@@ -3,14 +3,15 @@ package com.childmonitor.deviceowner
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import com.childmonitor.capture.MediaProjectionConsentHelper
+import com.childmonitor.capture.ScreenCaptureController
 import com.childmonitor.capture.MediaProjectionLossHandler
 import com.childmonitor.capture.MediaProjectionRecoveryManager
 import com.childmonitor.capture.MediaProjectionSessionKeeper
 import com.childmonitor.capture.MediaProjectionTokenStore
+import com.childmonitor.capture.ScreenCaptureForegroundService
 import com.childmonitor.debug.PcpFlowLogger
 import com.childmonitor.debug.PermissionDebugLogger
 import com.childmonitor.deviceowner.DeviceOwnerManager
@@ -26,9 +27,8 @@ class MediaProjectionConsentActivity : Activity() {
         overridePendingTransition(0, 0)
         super.onCreate(savedInstanceState)
         PcpFlowLogger.log(PcpFlowLogger.Category.MEDIA_PROJECTION, "MediaProjectionConsentActivity onCreate")
-        val mgr = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         @Suppress("DEPRECATION")
-        startActivityForResult(mgr.createScreenCaptureIntent(), REQUEST_CODE)
+        startActivityForResult(ScreenCaptureController.buildConsentIntent(this), REQUEST_CODE)
         PermissionDebugLogger.exit("MediaProjectionConsentActivity.onCreate")
     }
 
@@ -54,18 +54,19 @@ class MediaProjectionConsentActivity : Activity() {
             val consentData = data
             Thread {
                 PermissionDebugLogger.enter("MediaProjectionConsentActivity.consentWorker")
-                var fgsReady = false
+                MediaProjectionTokenStore.save(app, consentResultCode, consentData)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    fgsReady = com.childmonitor.capture.ScreenCaptureForegroundService
-                        .prepareForegroundForConsent(app)
+                    val warmed = ScreenCaptureForegroundService.warmWithFreshConsent(
+                        app,
+                        consentResultCode,
+                        consentData,
+                    )
                     PcpFlowLogger.log(
                         PcpFlowLogger.Category.MEDIA_PROJECTION,
-                        "prepareForegroundForConsent",
-                        "ok=$fgsReady",
+                        "warmWithFreshConsent after consent",
+                        "warmed=$warmed validToken=${MediaProjectionTokenStore.hasValidToken(app)}",
                     )
-                }
-                MediaProjectionTokenStore.save(app, consentResultCode, consentData)
-                if (fgsReady || Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                } else {
                     val projection = com.childmonitor.capture.ScreenCaptureController.obtainProjection(
                         app,
                         consentResultCode,
@@ -74,17 +75,8 @@ class MediaProjectionConsentActivity : Activity() {
                     PcpFlowLogger.log(
                         PcpFlowLogger.Category.MEDIA_PROJECTION,
                         "obtainProjection after consent",
-                        "projection=${projection != null} fgsReady=$fgsReady validToken=${MediaProjectionTokenStore.hasValidToken(app)}",
+                        "projection=${projection != null} validToken=${MediaProjectionTokenStore.hasValidToken(app)}",
                     )
-                } else {
-                    com.childmonitor.capture.ScreenCaptureController.detachProjection()
-                    com.childmonitor.capture.CaptureFrameLogger.warn(
-                        "OBTAIN_PROJECTION_DEFERRED",
-                        "consent saved but FGS not ready — warmSession will obtain after FGS starts",
-                    )
-                }
-                if (com.childmonitor.capture.ScreenCaptureController.activeProjection() == null) {
-                    MediaProjectionSessionKeeper.warmSessionAsync(app)
                 }
                 MediaProjectionConsentHelper.signalConsentComplete()
                 val granted = MediaProjectionTokenStore.hasValidToken(app)
@@ -96,7 +88,7 @@ class MediaProjectionConsentActivity : Activity() {
                 }
                 PermissionDebugLogger.exit(
                     "MediaProjectionConsentActivity.consentWorker",
-                    "granted=$granted fgsReady=$fgsReady",
+                    "granted=$granted",
                 )
                 runOnUiThread {
                     setResult(if (granted) RESULT_OK else RESULT_CANCELED)

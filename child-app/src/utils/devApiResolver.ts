@@ -3,7 +3,7 @@ import {nativeModules} from '../nativeModules';
 import {slog} from '../services/streamDebug';
 
 /** Fallback when DEV_LAN_HOST is unset — override in child-app/.env for Wi‑Fi-only dev. */
-const DEFAULT_LAN_HOST = process.env.DEV_LAN_HOST?.trim() || '192.168.1.8';
+const DEFAULT_LAN_HOST = process.env.DEV_LAN_HOST?.trim() || '192.168.1.2';
 
 /** Candidate dev API bases — tried in order until /actuator/health succeeds. */
 function buildCandidates(): string[] {

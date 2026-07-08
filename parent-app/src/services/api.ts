@@ -282,6 +282,7 @@ export interface AlertItem {
   severity: string;
   title: string;
   message?: string;
+  payloadJson?: Record<string, unknown>;
   createdAt: string;
 }
 
@@ -294,6 +295,7 @@ export interface ScreenShareSession {
   startedAt: string;
   message?: string;
   captureMode?: 'NATIVE' | 'RN_DISPLAY_MEDIA';
+  traceId?: string;
 }
 
 export const deviceApi = {
@@ -305,6 +307,16 @@ export const deviceApi = {
       '/api/v1/devices/pairing-code',
       {},
     ),
+  getPairingCodeStatus: (code: string) =>
+    api.get<
+      ApiResponse<{
+        code: string;
+        used: boolean;
+        expired: boolean;
+        deviceId?: string;
+        deviceName?: string;
+      }>
+    >(`/api/v1/devices/pairing-code/${encodeURIComponent(code)}/status`),
   sendCommand: (
     deviceId: string,
     commandType: DeviceCommandType,
@@ -319,6 +331,10 @@ export const deviceApi = {
         ...(parentPin ? {parentPin} : {}),
       },
     ),
+  getTamperCode: (deviceId: string) =>
+    api.get<
+      ApiResponse<{active: boolean; code?: string; expiresAt?: string}>
+    >(`/api/v1/devices/${deviceId}/tamper-code`),
 };
 
 export interface SubscriptionInfo {
@@ -498,6 +514,15 @@ export const parentPinApi = {
   status: () =>
     api.get<ApiResponse<{pinConfigured: boolean; silentStreamUnlocked: boolean}>>(
       '/api/v1/parent/pin/status',
+    ),
+};
+
+export const childLoginPasswordApi = {
+  setPassword: (childLoginPassword: string) =>
+    api.post('/api/v1/parent/child-login-password', {childLoginPassword}),
+  status: () =>
+    api.get<ApiResponse<{configured: boolean; linkedDeviceCount: number}>>(
+      '/api/v1/parent/child-login-password/status',
     ),
 };
 

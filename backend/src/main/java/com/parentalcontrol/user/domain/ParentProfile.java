@@ -41,6 +41,10 @@ public class ParentProfile extends BaseEntity {
     @Builder.Default
     private String timezone = "UTC";
 
+    /** Bcrypt hash — same password every child uses to open the child app. */
+    @Column(name = "default_child_login_password_hash")
+    private String defaultChildLoginPasswordHash;
+
     public UUID getUserId() {
         return user != null ? user.getId() : null;
     }

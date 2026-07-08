@@ -1,12 +1,21 @@
 package com.parentalcontrol;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Uses the local Podman compose Postgres/Redis stack instead of Testcontainers Ryuk
  * (Ryuk is unreliable on Podman-only macOS setups).
  */
 public final class IntegrationTestSupport {
+
+    public static final String DEFAULT_FAMILY_CHILD_PASSWORD = "TestChild1234";
 
     private static final String JDBC_PREFIX = "jdbc:postgresql://localhost:5432/";
     private static final String DB_USER = "pcp";
@@ -42,5 +51,31 @@ public final class IntegrationTestSupport {
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    public static void setFamilyChildLoginPassword(MockMvc mockMvc, String accessToken) throws Exception {
+        setFamilyChildLoginPassword(mockMvc, accessToken, DEFAULT_FAMILY_CHILD_PASSWORD);
+    }
+
+    public static void setFamilyChildLoginPassword(MockMvc mockMvc, String accessToken, String password)
+            throws Exception {
+        mockMvc.perform(post("/api/v1/parent/child-login-password")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"childLoginPassword\":\"" + password + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    public static String createPairingCode(MockMvc mockMvc, ObjectMapper objectMapper, String accessToken)
+            throws Exception {
+        setFamilyChildLoginPassword(mockMvc, accessToken);
+        MvcResult code = mockMvc.perform(post("/api/v1/devices/pairing-code")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        return objectMapper.readTree(code.getResponse().getContentAsString())
+                .get("data").get("code").asText();
     }
 }

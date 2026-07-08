@@ -15,17 +15,19 @@ class BootReceiver : BroadcastReceiver() {
             action == "android.intent.action.QUICKBOOT_POWERON" ||    // Xiaomi quick-boot
             action == "com.htc.intent.action.QUICKBOOT_POWERON"       // HTC quick-boot
         if (!isBoot) return
-        if (!MonitoringPrefs.isPaired(context)) return
 
-        BootWakeChain.schedule(context.applicationContext, BootWakeChain.Trigger.BOOT)
-
-        TamperProtectionManager.applyStoredTamperSettings(context)
-        Thread {
-            com.childmonitor.oem.OemPowerWhitelistHelper
-                .ensureBatteryOptimizationExemption(context.applicationContext)
-            com.childmonitor.oem.OemPowerWhitelistHelper
-                .promptOemBackgroundSettingsIfNeeded(context.applicationContext)
-            AccessibilityHealthChecker.reportIfDisabled(context.applicationContext)
-        }.start()
+        if (MonitoringPrefs.isPaired(context)) {
+            BootWakeChain.schedule(context.applicationContext, BootWakeChain.Trigger.BOOT)
+            TamperProtectionManager.applyStoredTamperSettings(context)
+            Thread {
+                com.childmonitor.oem.OemPowerWhitelistHelper
+                    .ensureBatteryOptimizationExemption(context.applicationContext)
+                com.childmonitor.oem.OemPowerWhitelistHelper
+                    .promptOemBackgroundSettingsIfNeeded(context.applicationContext)
+                AccessibilityHealthChecker.reportIfDisabled(context.applicationContext)
+            }.start()
+        } else {
+            SetupAccessNotificationHelper.sync(context.applicationContext)
+        }
     }
 }

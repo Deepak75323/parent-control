@@ -3,6 +3,7 @@ package com.childmonitor.sync
 import android.content.Context
 import android.util.Log
 import com.childmonitor.MonitoringPrefs
+import com.childmonitor.debug.PcpFlowLogger
 import com.childmonitor.native.ChildMonitorNativeModule
 import com.childmonitor.telemetry.StompOwnershipTelemetry
 import org.json.JSONObject
@@ -143,11 +144,13 @@ object NativeStompOwner {
             onConnected = {
                 state.set(OwnershipState.NATIVE_AUTHORITATIVE)
                 StompOwnershipTelemetry.recordState(OwnershipState.NATIVE_AUTHORITATIVE.name, true)
+                PcpFlowLogger.log(PcpFlowLogger.Category.SOCKET_SIGNALING, "onConnected", "STOMP connected", "url=$wsUrl")
                 Log.i(TAG, "Authoritative STOMP connected")
             },
             onDisconnected = {
                 state.set(OwnershipState.RECONNECTING)
                 StompOwnershipTelemetry.recordState(OwnershipState.RECONNECTING.name, false)
+                PcpFlowLogger.warn(PcpFlowLogger.Category.SOCKET_SIGNALING, "onDisconnected", "STOMP disconnected — reconnect scheduled")
                 Log.w(TAG, "Authoritative STOMP disconnected — reconnect scheduled")
             },
         ).also { it.connect(deviceSubs + signalingSubs) }
@@ -156,9 +159,11 @@ object NativeStompOwner {
     private fun dispatchMessage(context: Context, destination: String, body: String) {
         if (isDuplicate(destination, body)) {
             StompOwnershipTelemetry.recordDedup(destination)
+            PcpFlowLogger.log(PcpFlowLogger.Category.SOCKET_SIGNALING, "dispatchMessage", "Deduplicated STOMP message", "destination=$destination")
             Log.d(TAG, "Deduplicated STOMP message destination=$destination")
             return
         }
+        PcpFlowLogger.log(PcpFlowLogger.Category.SOCKET_SIGNALING, "dispatchMessage", "STOMP message dispatch", "destination=$destination bodyLen=${body.length}")
         when {
             destination.contains("/signaling/") -> {
                 val roomId = destination.substringAfterLast('/')

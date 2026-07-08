@@ -15,7 +15,8 @@ sleep 1
 # relay-ip=0.0.0.0 binds relay sockets on all interfaces — avoids EADDRNOTAVAIL when
 # the Mac's LAN IP changes (e.g. 192.168.1.4 → 192.168.1.8) while coturn is running.
 # external-ip is what goes in ICE relay candidates (phone on Wi-Fi needs a reachable LAN IP).
-echo "Starting coturn on 0.0.0.0:3478 (external IP: ${LAN_IP}, relay: all interfaces)"
+# LAN IP for physical phones; 10.0.2.2 for Android emulator (maps to host loopback).
+echo "Starting coturn on 0.0.0.0:3478 (external: ${LAN_IP}/10.0.2.2, relay: all interfaces)"
 exec turnserver \
   -n \
   --log-file=/tmp/pcp-coturn.log \
@@ -24,7 +25,7 @@ exec turnserver \
   --static-auth-secret="${TURN_SECRET}" \
   --listening-ip=0.0.0.0 \
   --relay-ip=0.0.0.0 \
-  --external-ip="${LAN_IP}" \
+  --external-ip="${LAN_IP}/10.0.2.2" \
   --listening-port=3478 \
   --min-port="${MIN_PORT}" \
   --max-port="${MAX_PORT}"

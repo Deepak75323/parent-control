@@ -1,8 +1,8 @@
 if(NOT TARGET hermes-engine::libhermes)
 add_library(hermes-engine::libhermes SHARED IMPORTED)
 set_target_properties(hermes-engine::libhermes PROPERTIES
-    IMPORTED_LOCATION "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/81599fd14b02337234a6c00fa38a1763/gradle/caches/8.10.2/transforms/6aa0db68c9b94695dedf8097d9ad5943/transformed/hermes-android-0.76.5-debug/prefab/modules/libhermes/libs/android.x86_64/libhermes.so"
-    INTERFACE_INCLUDE_DIRECTORIES "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/81599fd14b02337234a6c00fa38a1763/gradle/caches/8.10.2/transforms/6aa0db68c9b94695dedf8097d9ad5943/transformed/hermes-android-0.76.5-debug/prefab/modules/libhermes/include"
+    IMPORTED_LOCATION "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/43477ead03bd91f30e48c92b6ddf4e58/gradle/caches/8.10.2/transforms/6aa0db68c9b94695dedf8097d9ad5943/transformed/hermes-android-0.76.5-debug/prefab/modules/libhermes/libs/android.x86_64/libhermes.so"
+    INTERFACE_INCLUDE_DIRECTORIES "/private/var/folders/g4/_7cvdlvs0nd_31c4dgz65dpr0000gn/T/cursor-sandbox-cache/43477ead03bd91f30e48c92b6ddf4e58/gradle/caches/8.10.2/transforms/6aa0db68c9b94695dedf8097d9ad5943/transformed/hermes-android-0.76.5-debug/prefab/modules/libhermes/include"
     INTERFACE_LINK_LIBRARIES ""
 )
 endif()

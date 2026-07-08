@@ -76,6 +76,7 @@ public final class CorrelationContext {
         MDC.remove(USER_ID);
         MDC.remove(COMMAND_ID);
         MDC.remove(SESSION_ID);
+        MDC.remove(StreamTraceLogger.MDC_STREAM_TRACE_ID);
     }
 
     public static String newCorrelationId() {

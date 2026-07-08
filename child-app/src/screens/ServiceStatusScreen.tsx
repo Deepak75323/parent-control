@@ -15,6 +15,7 @@ import {ChildStackParamList, usePairingComplete} from './RootNavigator';
 import {runSyncCycle} from '../services/syncService';
 import {slog} from '../services/streamDebug';
 import {nativeModules} from '../nativeModules';
+import {grantScreenCaptureWithAlerts} from '../services/grantScreenCapture';
 import {ConfirmModal} from '../components/AppScreen';
 import {useFadeSlideIn, usePulse, useOpacityPulse, usePressScale} from '../utils/animations';
 
@@ -79,7 +80,20 @@ export function ServiceStatusScreen({navigation}: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      nativeModules.isMediaProjectionGranted().then(setScreenCaptureOk).catch(() => setScreenCaptureOk(false));
+      const refreshScreenCapture = async () => {
+        try {
+          const [projection, accessibility] = await Promise.all([
+            nativeModules.isMediaProjectionGranted(),
+            nativeModules.isAccessibilityEnabled(),
+          ]);
+          setScreenCaptureOk(projection && accessibility);
+        } catch {
+          setScreenCaptureOk(false);
+        }
+      };
+      void refreshScreenCapture();
+      const poll = setInterval(() => void refreshScreenCapture(), 1500);
+      return () => clearInterval(poll);
     }, []),
   );
 
@@ -87,7 +101,10 @@ export function ServiceStatusScreen({navigation}: Props) {
     if (grantBusy) return;
     setGrantBusy(true);
     try {
-      navigation.navigate('PermissionSetup');
+      const granted = await grantScreenCaptureWithAlerts();
+      if (granted) {
+        setScreenCaptureOk(true);
+      }
     } finally {
       setGrantBusy(false);
     }
@@ -160,13 +177,15 @@ export function ServiceStatusScreen({navigation}: Props) {
           <AnimCard delay={80} style={styles.alertCard}>
             <Text style={styles.alertTitle}>Screen capture required</Text>
             <Text style={styles.alertBody}>
-              Live screen sharing needs a one-time grant during setup. Tap below, then approve Screen capture on the permissions screen.
+              Live screen sharing needs a one-time grant. Tap below — we open Accessibility first, then Share screen is approved automatically.
             </Text>
             <Pressable
               style={({pressed}) => [styles.alertBtn, pressed && {opacity: 0.9}, grantBusy && {opacity: 0.6}]}
               onPress={() => void grantLiveView()}
               disabled={grantBusy}>
-              <Text style={styles.alertBtnText}>{grantBusy ? 'Opening…' : 'Open screen capture setup'}</Text>
+              <Text style={styles.alertBtnText}>
+                {grantBusy ? 'Waiting…' : 'Enable live view'}
+              </Text>
             </Pressable>
           </AnimCard>
         ) : null}
@@ -209,17 +228,10 @@ export function ServiceStatusScreen({navigation}: Props) {
         <AnimCard delay={200}>
           <Text style={styles.sectionLabel}>Settings</Text>
           <MenuButton
-            icon="✅"
-            label="Check Permissions"
-            subtitle="View all permission statuses and fix issues"
-            onPress={() => navigation.navigate('CheckPermissions')}
-          />
-          <View style={styles.menuDivider} />
-          <MenuButton
             icon="🔐"
             label="Grant Permissions"
-            subtitle="Camera, microphone, screen capture for live view"
-            onPress={() => navigation.navigate('PermissionSetup')}
+            subtitle="See which permissions are on and grant any that are missing"
+            onPress={() => navigation.navigate('CheckPermissions')}
           />
           <View style={styles.menuDivider} />
           <MenuButton

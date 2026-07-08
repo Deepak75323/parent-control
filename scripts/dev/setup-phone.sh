@@ -18,7 +18,20 @@ fi
 
 "$ADB" -s "$PHONE" reverse tcp:8080 tcp:8080
 "$ADB" -s "$PHONE" reverse tcp:8082 tcp:8082
+"$ADB" -s "$PHONE" reverse tcp:3478 tcp:3478
 
-echo "OK — phone localhost:8080 now points to your Mac backend."
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+if ! pgrep -f "turnserver.*realm=pcp" >/dev/null 2>&1; then
+  nohup "$ROOT/scripts/dev/start-coturn.sh" >/tmp/pcp-coturn-nohup.log 2>&1 &
+  for _ in 1 2 3 4 5; do
+    sleep 1
+    pgrep -f "turnserver.*realm=pcp" >/dev/null 2>&1 && break
+  done
+fi
+if ! pgrep -f "turnserver.*realm=pcp" >/dev/null 2>&1; then
+  echo "WARN — coturn did not start. Run: nohup ./scripts/dev/start-coturn.sh &" >&2
+fi
+
+echo "OK — phone localhost:8080 now points to your Mac backend (TURN on :3478 if coturn started)."
 echo "Reverse tunnels:"
 "$ADB" -s "$PHONE" reverse --list

@@ -137,7 +137,8 @@ export function LoginScreen({navigation}: Props) {
       }
       if (!silent) setError(data.message ?? 'Check your credentials and try again.');
     } catch (err) {
-      if (!silent) setError(getApiErrorMessage(err, 'Check your credentials and try again.'));
+      const message = getApiErrorMessage(err, 'Check your credentials and try again.');
+      if (!silent || __DEV__) setError(message);
     } finally {
       setLoading(false);
     }

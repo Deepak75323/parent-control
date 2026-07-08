@@ -85,14 +85,7 @@ class MediaProjectionCapabilityIntegrationTest {
         parentToken = objectMapper.readTree(login.getResponse().getContentAsString())
                 .get("data").get("accessToken").asText();
 
-        MvcResult code = mockMvc.perform(post("/api/v1/devices/pairing-code")
-                        .header("Authorization", "Bearer " + parentToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isOk())
-                .andReturn();
-        String pairingCode = objectMapper.readTree(code.getResponse().getContentAsString())
-                .get("data").get("code").asText();
+        String pairingCode = IntegrationTestSupport.createPairingCode(mockMvc, objectMapper, parentToken);
 
         MvcResult pair = mockMvc.perform(post("/api/v1/device/pair")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -188,6 +181,44 @@ class MediaProjectionCapabilityIntegrationTest {
         device.setDeviceOwnerActive(false);
         device.setMediaProjectionGranted(false);
         device.setMediaProjectionConsentState("LOST_AFTER_PROCESS_DEATH");
+        deviceRepository.save(device);
+
+        mockMvc.perform(post("/api/v1/monitoring/start-stream")
+                        .header("Authorization", "Bearer " + parentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(String.format("""
+                                {"deviceId": "%s", "streamType": "SCREEN"}
+                                """, deviceId)))
+                .andExpect(status().isForbidden());
+    }
+
+    /** P0-4: stale mediaProjectionGranted=true must not bypass consent-state gate. */
+    @Test
+    @Order(5)
+    void startScreenShare_rejectedWhenStaleGrantedFlagWithLostConsentState() throws Exception {
+        Device device = deviceRepository.findById(deviceId).orElseThrow();
+        device.setMediaProjectionGranted(true);
+        device.setMediaProjectionConsentState("LOST_AFTER_PROCESS_DEATH");
+        device.setSilentScreenCapable(false);
+        deviceRepository.save(device);
+
+        mockMvc.perform(post("/api/v1/monitoring/start-stream")
+                        .header("Authorization", "Bearer " + parentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(String.format("""
+                                {"deviceId": "%s", "streamType": "SCREEN"}
+                                """, deviceId)))
+                .andExpect(status().isForbidden());
+    }
+
+    /** Stale granted=true with non-active consent state must not bypass gate. */
+    @Test
+    @Order(6)
+    void startScreenShare_rejectedWhenConsentNotGrantedActiveEvenIfGrantedFlagTrue() throws Exception {
+        Device device = deviceRepository.findById(deviceId).orElseThrow();
+        device.setMediaProjectionGranted(true);
+        device.setMediaProjectionConsentState("NEVER_GRANTED");
+        device.setSilentScreenCapable(true);
         deviceRepository.save(device);
 
         mockMvc.perform(post("/api/v1/monitoring/start-stream")

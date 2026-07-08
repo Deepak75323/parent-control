@@ -6,8 +6,11 @@ import com.parentalcontrol.device.dto.DeviceCommandRequest;
 import com.parentalcontrol.device.dto.DeviceCommandResponse;
 import com.parentalcontrol.device.dto.DeviceResponse;
 import com.parentalcontrol.device.dto.PairingCodeResponse;
+import com.parentalcontrol.device.dto.PairingCodeStatusResponse;
+import com.parentalcontrol.device.dto.TamperCodeResponse;
 import com.parentalcontrol.device.service.DeviceCommandService;
 import com.parentalcontrol.device.service.DeviceService;
+import com.parentalcontrol.device.service.TamperService;
 import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -32,6 +35,7 @@ public class ParentDeviceController {
 
     private final DeviceService deviceService;
     private final DeviceCommandService deviceCommandService;
+    private final TamperService tamperService;
 
     @PostMapping("/pairing-code")
     @Operation(summary = "Generate a pairing code for child device")
@@ -39,6 +43,12 @@ public class ParentDeviceController {
             @RequestBody(required = false) CreatePairingCodeRequest request) {
         return ApiResponse.ok(deviceService.createPairingCode(
                 request != null ? request : new CreatePairingCodeRequest()));
+    }
+
+    @GetMapping("/pairing-code/{code}/status")
+    @Operation(summary = "Check whether an active pairing code has been claimed")
+    public ApiResponse<PairingCodeStatusResponse> getPairingCodeStatus(@PathVariable String code) {
+        return ApiResponse.ok(deviceService.getPairingCodeStatus(code));
     }
 
     @GetMapping
@@ -59,5 +69,11 @@ public class ParentDeviceController {
             @PathVariable UUID deviceId,
             @Valid @RequestBody DeviceCommandRequest request) {
         return ApiResponse.ok(deviceCommandService.sendCommand(deviceId, request));
+    }
+
+    @GetMapping("/{deviceId}/tamper-code")
+    @Operation(summary = "Active verification code for device-admin removal attempt")
+    public ApiResponse<TamperCodeResponse> getTamperCode(@PathVariable UUID deviceId) {
+        return ApiResponse.ok(tamperService.getActiveCodeForParent(deviceId));
     }
 }

@@ -22,12 +22,9 @@ if ! pgrep -f "turnserver.*realm=pcp" >/dev/null 2>&1; then
   sleep 1
 fi
 
-echo "==> Backend health..."
-if ! curl -sf -m 3 "$API/actuator/health" >/dev/null; then
-  echo "Backend not running on :8080. Start it:"
-  echo "  cd backend && BILLING_ENFORCEMENT=false mvn spring-boot:run -DskipTests"
-  exit 1
-fi
+echo "==> Backend..."
+chmod +x ./scripts/dev/ensure-backend.sh
+./scripts/dev/ensure-backend.sh
 echo "    API OK"
 
 if [[ -n "$ADB" && -x "$ADB" ]]; then
@@ -69,7 +66,7 @@ ACCESS_TOKEN=$(printf '%s' "$LOGIN_JSON" | python3 -c "import json,sys; print(js
 CODE_JSON=$(curl -sf -m 20 -X POST "$API/api/v1/devices/pairing-code" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -d '{}')
+  -d '{"childLoginPassword":"DevChild1234"}')
 CODE=$(printf '%s' "$CODE_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['code'])")
 
 cat <<EOF

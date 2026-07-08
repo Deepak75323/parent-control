@@ -314,7 +314,10 @@ object DeviceCommandProcessor {
                 "ENABLE_KIOSK" -> DeviceOwnerManager.enableKiosk(context)
                 "DISABLE_KIOSK" -> DeviceOwnerManager.disableKiosk(context)
                 "REVOKE_MONITORING" -> {
-                    revokeMonitoring(context)
+                    com.childmonitor.monitoring.MonitoringRevokeManager.revokeMonitoringAndStop(
+                        context,
+                        source = "device_command",
+                    )
                     true
                 }
                 "SYNC_INSTALLED_APPS" -> {
@@ -333,14 +336,6 @@ object DeviceCommandProcessor {
         }
         PendingClaimStore.remove(context, id)
         CommandAckRetry.finalizeCommand(context, id, success, error)
-    }
-
-    private fun revokeMonitoring(context: Context) {
-        ScreenCaptureHelper.stopAll(context)
-        DeviceOwnerManager.disableKiosk(context)
-        com.childmonitor.capture.MediaProjectionTokenStore.clear(context)
-        com.childmonitor.MonitoringPrefs.clear(context)
-        context.stopService(android.content.Intent(context, com.childmonitor.MonitoringForegroundService::class.java))
     }
 
     private fun parsePayload(raw: Any?): JSONObject? {
@@ -375,16 +370,5 @@ object DeviceCommandProcessor {
             out.put("y2", (payload.optDouble("y2Norm", -1.0) * h).toInt())
         }
         return out
-    }
-}
-
-/** Avoid circular deps with capture package */
-private object ScreenCaptureHelper {
-    fun stopAll(context: Context) {
-        try {
-            com.childmonitor.capture.ScreenCaptureForegroundService.stopStream(context)
-            com.childmonitor.capture.NativeStreamPublisher.stop(context)
-        } catch (_: Exception) {
-        }
     }
 }

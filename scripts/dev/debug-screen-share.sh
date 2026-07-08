@@ -51,7 +51,15 @@ adb -s "$EMU" shell am force-stop com.parentscaffold
 sleep 2
 adb -s "$PHONE" shell am start -n com.childmonitor/.MainActivity
 adb -s "$EMU" shell am start -n com.parentscaffold/.MainActivity
-sleep 8
+sleep 5
+
+log "Re-apply pairing credentials after child restart (optional — skip if child already on Xiaomi device)..."
+if [[ "${SKIP_REPAIR:-}" != "1" ]]; then
+  "$ROOT/scripts/dev/auto-pair.sh" 2>&1 | tee "$LOG_DIR/auto-pair-post-restart-$TS.log" | tail -5
+  sleep 5
+else
+  log "SKIP_REPAIR=1 — keeping existing child credentials (avoids duplicate device confusion)"
+fi
 
 log "Parent login + list devices..."
 LOGIN=$(curl -sf -m 20 -X POST "$API/api/v1/auth/login" \
@@ -66,20 +74,44 @@ for d in json.load(sys.stdin).get('data', []):
     print(f\"  deviceId={d['id']} name={d.get('deviceName')} lastSeen={d.get('lastSeenAt')}\")
 "
 
+PHONE_MODEL=$("$ADB" -s "$PHONE" shell getprop ro.product.model 2>/dev/null | tr -d '\r\n' || true)
+
 DEVICE_ID=$(printf '%s' "$DEVICES" | python3 -c "
-import json, sys
+import json, sys, os
 devices = json.load(sys.stdin).get('data', [])
-# Prefer Dev Child Phone, else freshest lastSeen
-def key(d):
-    name = (d.get('deviceName') or '').lower()
-    bonus = 1 if 'dev child' in name else 0
-    seen = d.get('lastSeenAt') or ''
-    return (bonus, seen)
 if not devices:
     sys.exit(1)
-best = max(devices, key=key)
+phone_model = os.environ.get('PHONE_MODEL', '').strip()
+
+def score(d):
+    name = (d.get('deviceName') or '')
+    s = 0
+    if d.get('mediaProjectionGranted') and d.get('mediaProjectionConsentState') == 'GRANTED_ACTIVE':
+        s += 1000
+    if phone_model and phone_model in name:
+        s += 500
+    if 'xiaomi' in name.lower() or 'dev child' not in name.lower():
+        s += 50
+    s += hash(d.get('lastSeenAt') or '')  # tie-breaker via lastSeen string sort below
+    return s
+
+def last_seen(d):
+    return d.get('lastSeenAt') or ''
+
+# Prefer GRANTED_ACTIVE + phone model match; else freshest Xiaomi-like device
+active = [d for d in devices if d.get('mediaProjectionConsentState') == 'GRANTED_ACTIVE' and d.get('mediaProjectionGranted')]
+if active:
+    best = max(active, key=last_seen)
+else:
+    model_matches = [d for d in devices if phone_model and phone_model in (d.get('deviceName') or '')]
+    if model_matches:
+        best = max(model_matches, key=last_seen)
+    else:
+        non_dev = [d for d in devices if 'dev child phone' not in (d.get('deviceName') or '').lower()]
+        pool = non_dev if non_dev else devices
+        best = max(pool, key=last_seen)
 print(best['id'])
-")
+" PHONE_MODEL="$PHONE_MODEL")
 
 log "Trigger SCREEN stream on device $DEVICE_ID..."
 STREAM=$(curl -sf -m 30 -X POST "$API/api/v1/monitoring/start-stream" \

@@ -61,7 +61,7 @@ ACCESS_TOKEN=$(printf '%s' "$LOGIN_JSON" | json_get "data.accessToken")
 echo "    Parent logged in"
 
 echo "==> Create pairing code..."
-CODE_JSON=$(api_post "/api/v1/devices/pairing-code" "{}" "$ACCESS_TOKEN")
+CODE_JSON=$(api_post "/api/v1/devices/pairing-code" "{\"childLoginPassword\":\"DevChild1234\"}" "$ACCESS_TOKEN")
 PAIR_CODE=$(printf '%s' "$CODE_JSON" | json_get "data.code")
 echo "    Code: $PAIR_CODE"
 

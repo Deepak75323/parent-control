@@ -6,10 +6,15 @@ import {
 } from 'react-native-webrtc';
 import {monitoringApi, signalingApi} from './api';
 import {slog, flowLog} from './streamDebug';
+import {traceLog, traceError, traceFailure, setTraceState} from '../utils/traceLogger';
+import {streamStateTransition} from '../utils/streamStateMachine';
 import {subscribeSignalingRoom, unsubscribeSignalingRoom} from './signalingWebSocket';
+import {connectWebSocket} from './websocketService';
 import {
   adaptIceServersForDev,
+  adaptRelayCandidateForEmulator,
   defaultIceConfig,
+  describeIceFailure,
   isIceConfigStale,
   logIce,
   orderedSignalingMessages,
@@ -24,6 +29,7 @@ import {
   setSessionPhase,
 } from './streamSessionOwner';
 import {attachIceRecovery} from './iceRecovery';
+import {useRealtimeStore} from '../store/realtimeStore';
 
 export type SignalingPayload = {
   id?: string;
@@ -140,6 +146,10 @@ function reportIceTelemetry(
     .catch(() => undefined);
 }
 
+function adaptIncomingIceCandidate(candidate: RTCIceCandidateInit): RTCIceCandidateInit {
+  return adaptRelayCandidateForEmulator(candidate, config.apiBaseUrl);
+}
+
 async function flushPendingIceCandidates(): Promise<void> {
   if (!pc?.remoteDescription) return;
   slog('ICE', `flushing ${pendingIceCandidates.length} queued candidates`);
@@ -147,8 +157,9 @@ async function flushPendingIceCandidates(): Promise<void> {
     const candidate = pendingIceCandidates.shift();
     if (!candidate || !pc) continue;
     try {
-      await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      slog('ICE', 'queued candidate applied', candidate.candidate?.slice(0, 50));
+      const adapted = adaptIncomingIceCandidate(candidate);
+      await pc.addIceCandidate(new RTCIceCandidate(adapted));
+      slog('ICE', 'queued candidate applied', adapted.candidate?.slice(0, 50));
     } catch (err) {
       slog('ICE', 'queued candidate failed', String(err));
       pendingIceCandidates.unshift(candidate);
@@ -186,6 +197,7 @@ async function applyRemoteOffer(payload: string, messageId: string): Promise<boo
 
   try {
     await pc!.setRemoteDescription(new RTCSessionDescription(parseSessionDescription(payload)));
+    streamStateTransition('REMOTE_DESCRIPTION_SET', 'applyRemoteOffer', {messageId});
     seenIds.add(messageId);
     slog('SDP', 'remote OFFER applied', messageId);
     flowLog('WEBRTC_FLOW', sdpHasVideoMline(pc!.remoteDescription?.sdp) ? 'OFFER_CONTAINS_VIDEO' : 'OFFER_MISSING_VIDEO', {
@@ -197,6 +209,7 @@ async function applyRemoteOffer(payload: string, messageId: string): Promise<boo
 
     const answer = await pc!.createAnswer();
     await pc!.setLocalDescription(answer);
+    streamStateTransition('LOCAL_DESCRIPTION_SET', 'applyRemoteOffer', {messageId, roomId: activeRoomId});
     flowLog('WEBRTC_FLOW', sdpHasVideoMline(answer.sdp) ? 'ANSWER_CONTAINS_VIDEO' : 'ANSWER_MISSING_VIDEO', {
       roomId: activeRoomId,
     });
@@ -223,10 +236,11 @@ async function applyRemoteIce(payload: string, messageId: string): Promise<void>
     return;
   }
   try {
-    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    const adapted = adaptIncomingIceCandidate(candidate);
+    await pc.addIceCandidate(new RTCIceCandidate(adapted));
     seenIds.add(messageId);
-    slog('ICE', 'candidate applied', candidate.candidate?.slice(0, 50));
-    logIce('parent', 'ICE applied', candidate.candidate?.slice(0, 40));
+    slog('ICE', 'candidate applied', adapted.candidate?.slice(0, 50));
+    logIce('parent', 'ICE applied', adapted.candidate?.slice(0, 40));
   } catch (err) {
     slog('ICE', 'candidate failed', String(err));
     logIce('parent', 'ICE failed', String(err));
@@ -291,6 +305,13 @@ async function pollSignaling(): Promise<boolean> {
 async function waitForRemoteOffer(timeoutMs = 60000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline && pc && !pc.remoteDescription) {
+    if (shouldAbortOfferWait()) {
+      slog('SDP', 'offer wait aborted — child reported stream failure', {
+        roomId: activeRoomId,
+        sessionId: activeSessionId,
+      });
+      return false;
+    }
     const applied = await pollSignaling();
     if (applied || pc?.remoteDescription) {
       slog('SDP', 'offer received during wait');
@@ -303,6 +324,15 @@ async function waitForRemoteOffer(timeoutMs = 60000): Promise<boolean> {
     slog('SDP', 'offer wait timed out', {ice: pc?.iceConnectionState});
   }
   return ok;
+}
+
+/** Abort long offer wait when child reports FAILED for the active room (P0-4 UX). */
+function shouldAbortOfferWait(): boolean {
+  if (!activeRoomId) return false;
+  const streaming = useRealtimeStore.getState().streamingState;
+  if (!streaming || streaming.status !== 'FAILED') return false;
+  if (streaming.roomId && streaming.roomId !== activeRoomId) return false;
+  return true;
 }
 
 async function refreshIceAndRestart(): Promise<void> {
@@ -344,18 +374,39 @@ function attachConnectionHandlers(peer: RTCPeerConnection): void {
     emitConnectionState(state);
     if (state === 'connected' || state === 'completed') {
       setSessionPhase('ACTIVE');
+      streamStateTransition('CONNECTED', 'oniceconnectionstatechange', {state});
       reportIceTelemetry(state);
     } else if (state === 'disconnected' || state === 'failed') {
       setSessionPhase('RECONNECTING');
+      if (state === 'failed') {
+        streamStateTransition('FAILED', 'oniceconnectionstatechange', {state});
+      }
     }
   };
-  peer.oniceconnectionstatechange = emitIceState;
+  peer.oniceconnectionstatechange = () => {
+    const state = peer.iceConnectionState ?? 'unknown';
+    traceLog('WebRTC', 'oniceconnectionstatechange', 'ICE connection state changed', {state, roomId: activeRoomId});
+    emitIceState();
+  };
   peer.onconnectionstatechange = () => {
-    slog('PC', 'connectionState', peer.connectionState ?? 'unknown');
-    logIce('parent', 'connectionState', peer.connectionState ?? 'unknown');
+    const state = peer.connectionState ?? 'unknown';
+    traceLog('WebRTC', 'onconnectionstatechange', 'Connection state changed', {state, roomId: activeRoomId});
+    slog('PC', 'connectionState', state);
+    logIce('parent', 'connectionState', state);
+  };
+  peer.onsignalingstatechange = () => {
+    traceLog('WebRTC', 'onsignalingstatechange', 'Signaling state changed', {
+      state: peer.signalingState ?? 'unknown',
+      roomId: activeRoomId,
+    });
   };
   peer.onicegatheringstatechange = () => {
-    slog('PC', 'iceGatheringState', peer.iceGatheringState ?? 'unknown');
+    const state = peer.iceGatheringState ?? 'unknown';
+    if (state === 'gathering') {
+      streamStateTransition('ICE_CONNECTING', 'onicegatheringstatechange', {state});
+    }
+    traceLog('WebRTC', 'onicegatheringstatechange', 'ICE gathering state changed', {state});
+    slog('PC', 'iceGatheringState', state);
   };
   emitIceState();
 }
@@ -402,6 +453,7 @@ function createPeerConnection(
     iceTransportPolicy: ice.iceTransportPolicy,
     bundlePolicy: 'max-bundle',
   });
+  streamStateTransition('WEBRTC_CONNECTING', 'createPeerConnection', {roomId, sessionId});
   attachConnectionHandlers(pc);
 
   pc.ontrack = ev => {
@@ -422,6 +474,7 @@ function createPeerConnection(
       ev.track?.addEventListener('unmute', () => {
         slog('RENDER', 'track unmuted', ev.track?.kind);
         if (ev.track?.kind === 'video') {
+          streamStateTransition('FIRST_FRAME_RECEIVED', 'ontrack', {roomId: activeRoomId});
           flowLog('WEBRTC_FLOW', 'FIRST_REMOTE_FRAME', {roomId: activeRoomId});
         }
         if (ev.track?.kind === 'audio') {
@@ -455,13 +508,27 @@ function createPeerConnection(
 
   pc.onicecandidate = ev => {
     if (!ev.candidate) {
+      traceLog('WebRTC', 'onicecandidate', 'ICE gathering complete', {roomId: activeRoomId});
       slog('ICE', 'gathering complete');
       logIce('parent', 'ICE gathering complete');
       return;
     }
+    const candType = ev.candidate.candidate?.includes('typ relay')
+      ? 'relay'
+      : ev.candidate.candidate?.includes('typ srflx')
+        ? 'srflx'
+        : ev.candidate.candidate?.includes('typ host')
+          ? 'host'
+          : 'unknown';
+    traceLog('TURN', 'onicecandidate', 'Local ICE candidate generated', {
+      type: candType,
+      candidate: ev.candidate.candidate?.slice(0, 80),
+      roomId: activeRoomId,
+    });
     slog('ICE', 'local candidate', ev.candidate.candidate?.slice(0, 60));
     logIce('parent', 'local ICE', ev.candidate.candidate?.slice(0, 40));
     signalingApi.post(roomId, 'ice', JSON.stringify(ev.candidate.toJSON()), sessionId).catch(err => {
+      traceError('WebRTC', 'onicecandidate', 'ICE candidate post failed', err);
       slog('ICE', 'post failed', String(err));
     });
   };
@@ -469,6 +536,9 @@ function createPeerConnection(
 
 export async function connectParentViewer(roomId: string, sessionId?: string): Promise<void> {
   slog('FLOW', 'connectParentViewer START', {roomId, sessionId});
+  traceLog('WebRTC', 'connectParentViewer', 'START', {roomId, sessionId});
+  streamStateTransition('WEBRTC_CONNECTING', 'connectParentViewer', {roomId, sessionId});
+  setTraceState('WEBRTC_NEGOTIATING');
   await disconnectViewer();
   seenIds.clear();
   pendingIceCandidates.length = 0;
@@ -493,25 +563,41 @@ export async function connectParentViewer(roomId: string, sessionId?: string): P
       senderRole: String(payload.senderRole ?? ''),
     }).catch(err => slog('WS', 'handler error', String(err)));
   });
+  connectWebSocket();
 
   pollTimer = setInterval(() => {
     pollSignaling().catch(() => undefined);
   }, 500);
 
   const offerOk = await waitForRemoteOffer();
-  // W3 fix: stop the 500 ms poll once the remote offer is received.
-  // Continuing to poll throughout the session caused a DB read storm.
-  // ICE recovery phases restart a slow poll (5 s) via the recovery callbacks.
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  // HTTP poll fallback for ICE while negotiating — parent STOMP is often disconnected
+  // on emulator dev, and stopping poll after offer left child ICE candidates undelivered.
+  pollTimer = setInterval(() => {
+    pollSignaling().catch(() => undefined);
+  }, 2000);
   if (!offerOk) {
     const streamKind = roomId.startsWith('screen_')
       ? 'screen capture'
       : roomId.startsWith('audio_')
         ? 'microphone'
         : 'camera';
+    traceFailure({
+      component: 'WebRTC',
+      fn: 'connectParentViewer',
+      reason: 'No child offer received',
+      expected: 'Child SDP offer within timeout',
+      actual: `remoteDesc=${pc?.remoteDescription?.type ?? null} ice=${pc?.iceConnectionState}`,
+      nextCauses: [
+        'Child did not receive stream request',
+        'Child capture failed to start',
+        'FCM/STOMP delivery failed',
+        'MediaProjection or camera permission denied on child',
+      ],
+    });
     slog('SDP', 'FATAL no child offer', {
       roomId,
       sessionId,
@@ -523,9 +609,27 @@ export async function connectParentViewer(roomId: string, sessionId?: string): P
     );
   }
   const iceOk = await waitForIceConnected();
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
   if (!iceOk) {
+    const iceState = pc?.iceConnectionState;
+    const remoteDesc = pc?.remoteDescription?.type ?? null;
+    traceFailure({
+      component: 'WebRTC',
+      fn: 'connectParentViewer',
+      reason: 'ICE connectivity failed',
+      expected: 'iceConnectionState connected or completed',
+      actual: `ice=${iceState} remoteDesc=${remoteDesc} pendingIce=${pendingIceCandidates.length}`,
+      nextCauses: [
+        'Emulator cannot reach LAN TURN relay addresses (use TCP TURN + candidate rewrite)',
+        'Child ICE candidates not delivered (STOMP disconnected)',
+        'coturn not running or adb reverse tcp:3478 missing',
+      ],
+    });
     throw new Error(
-      'Media connection failed — run ./scripts/dev/dev-up.sh to start TURN, then retry',
+      describeIceFailure(iceState, remoteDesc, pendingIceCandidates.length),
     );
   }
   if (remoteStream?.getAudioTracks().length) {
@@ -549,6 +653,7 @@ export async function reconnectParentViewer(): Promise<void> {
 }
 
 export async function disconnectViewer(): Promise<void> {
+  streamStateTransition('STOPPING', 'disconnectViewer');
   await disableViewerAudioPlayback();
   detachIceRecovery?.();
   detachIceRecovery = null;
@@ -568,6 +673,7 @@ export async function disconnectViewer(): Promise<void> {
   remoteStream = null;
   pendingIceCandidates.length = 0;
   endSession();
+  streamStateTransition('STOPPED', 'disconnectViewer');
   slog('PC', 'disconnected');
 }
 

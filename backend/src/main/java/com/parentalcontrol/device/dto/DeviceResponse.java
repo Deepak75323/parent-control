@@ -24,6 +24,7 @@ public class DeviceResponse {
     private String foregroundApp;
     private UUID childProfileId;
     private boolean deviceOwnerActive;
+    private boolean deviceAdminActive;
     private boolean mediaProjectionGranted;
     private String mediaProjectionConsentState;
     private boolean silentScreenCapable;

@@ -183,16 +183,29 @@ class MonitoringForegroundService : Service() {
         promoteToForeground()
         handler.post(legacySyncRunnable)
         handler.post(legacyCommandPollRunnable)
+        reportProjectionLossIfNeeded("legacy_session_start")
         if (MonitoringPrefs.isPaired(this)) {
-            when (MediaProjectionTokenStore.getConsentState(this)) {
-                MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH,
-                MediaProjectionConsentState.REQUIRES_RECONSENT,
-                MediaProjectionConsentState.RECOVERY_FAILED,
-                -> MediaProjectionLossHandler.onProjectionUnavailable(applicationContext, "process_restart")
-                else -> { }
-            }
             ScreenFgsStartupGate.scheduleMarkReadyFromService()
             NativeStreamingCoordinator.start(this)
+        }
+    }
+
+    /**
+     * Android 14–16 (API 35+ burst path): same projection-loss heartbeat as legacy session.
+     * Preserves MIUI/Xiaomi recovery — does not change OEM-specific intents.
+     */
+    private fun reportProjectionLossIfNeeded(trigger: String) {
+        if (!MonitoringPrefs.isPaired(this)) return
+        if (MonitoringPrefs.isPermissionSetupInProgress(this)) return
+        when (MediaProjectionTokenStore.getConsentState(this)) {
+            MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH,
+            MediaProjectionConsentState.REQUIRES_RECONSENT,
+            MediaProjectionConsentState.RECOVERY_FAILED,
+            -> {
+                Log.i(TAG, "P0_PROJECTION_LOSS_CHECK trigger=$trigger state=${MediaProjectionTokenStore.getConsentState(this)}")
+                MediaProjectionLossHandler.onProjectionUnavailable(applicationContext, trigger)
+            }
+            else -> { }
         }
     }
 
@@ -203,6 +216,7 @@ class MonitoringForegroundService : Service() {
         handler.removeCallbacks(burstFinishRunnable)
         handler.removeCallbacks(burstCommandPollRunnable)
         Log.i(TAG, "Starting FGS burst reason=$reason durationMs=$BURST_DURATION_MS")
+        reportProjectionLossIfNeeded("burst_session_start:$reason")
         Thread { MonitoringBurstEngine.runCycle(applicationContext) }.start()
         handler.post(burstCommandPollRunnable)
         handler.postDelayed(burstFinishRunnable, BURST_DURATION_MS)

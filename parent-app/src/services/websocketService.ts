@@ -4,6 +4,7 @@ import {useAuthStore} from '../store/authStore';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {resubscribeSignalingRooms, clearSignalingSubscriptions} from './signalingWebSocket';
 import {plog} from './pairingLog';
+import {traceLog, traceError} from '../utils/traceLogger';
 import type {AlertItem, NotificationItem, LocationPoint} from './api';
 
 let client: Client | null = null;
@@ -33,16 +34,19 @@ export function connectWebSocket(): void {
 
   disconnectWebSocket();
   connectToken = token;
-  plog('WS connecting', {url: config.wsNativeUrl});
+  const wsUrl = config.wsNativeUrl;
+  plog('WS connecting', {url: wsUrl});
 
   client = new Client({
-    brokerURL: config.wsNativeUrl,
+    brokerURL: wsUrl,
+    webSocketFactory: () => new WebSocket(wsUrl),
     connectHeaders: {Authorization: `Bearer ${token}`},
     reconnectDelay: 5000,
     heartbeatIncoming: 10000,
     heartbeatOutgoing: 10000,
     onConnect: () => {
       plog('WS connected');
+      traceLog('Socket', 'onConnect', 'STOMP connected', {url: wsUrl});
       useRealtimeStore.getState().setWsConnected(true);
       if (client) {
         resubscribeSignalingRooms(client);
@@ -201,20 +205,36 @@ export function connectWebSocket(): void {
           streamType: string;
           deviceId?: string;
           failureReason?: string;
+          traceId?: string;
         }>(msg);
+        traceLog('Socket', 'streaming-state', 'STOMP streaming-state received', event);
         useRealtimeStore.getState().setStreamingState(event);
       });
     },
     onDisconnect: () => {
       plog('WS disconnected');
+      traceLog('Socket', 'onDisconnect', 'STOMP disconnected');
       useRealtimeStore.getState().setWsConnected(false);
     },
     onStompError: frame => {
       plog('WS stomp error', frame.headers.message);
+      traceError('Socket', 'onStompError', 'STOMP error', frame.headers.message);
       useRealtimeStore.getState().setWsConnected(false);
     },
     onWebSocketClose: () => {
       plog('WS socket closed');
+      traceLog('Socket', 'onWebSocketClose', 'WebSocket closed');
+      useRealtimeStore.getState().setWsConnected(false);
+    },
+    onWebSocketError: event => {
+      const message =
+        event instanceof ErrorEvent
+          ? event.message
+          : event instanceof Event
+            ? event.type
+            : 'unknown';
+      plog('WS transport error', message);
+      traceError('Socket', 'onWebSocketError', 'WebSocket transport error', message);
       useRealtimeStore.getState().setWsConnected(false);
     },
   });

@@ -37,8 +37,12 @@ object DeviceHttpClient {
     }
 
     fun postJson(context: Context, path: String, jsonBody: String): Boolean {
-        val base = NativeApiResolver.resolveWorkingBase(context) ?: return false
-        val token = MonitoringPrefs.deviceToken(context) ?: return false
+        return postJsonResponse(context, path, jsonBody) != null
+    }
+
+    fun postJsonResponse(context: Context, path: String, jsonBody: String): String? {
+        val base = NativeApiResolver.resolveWorkingBase(context) ?: return null
+        val token = MonitoringPrefs.deviceToken(context) ?: return null
         val urlString = "$base$path"
         return try {
             val conn = openConnection(urlString, "POST", token, context, jsonBody)
@@ -47,16 +51,15 @@ object DeviceHttpClient {
             if (code !in 200..299) {
                 val err = conn.errorStream?.bufferedReader()?.use(BufferedReader::readText)
                 Log.w(TAG, "POST $path failed: $code $err")
-                false
+                null
             } else {
-                true
+                conn.inputStream.bufferedReader().readText()
             }
         } catch (e: Exception) {
             Log.e(TAG, "POST $path error", e)
-            false
+            null
         }
     }
-
     /** Returns true when the server transitioned PENDING → DELIVERED for this command. */
     fun claimCommand(context: Context, commandId: String): Boolean {
         val base = NativeApiResolver.resolveWorkingBase(context) ?: return false

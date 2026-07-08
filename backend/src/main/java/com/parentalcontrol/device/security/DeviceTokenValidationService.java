@@ -30,7 +30,9 @@ public class DeviceTokenValidationService {
 
         // OFFLINE is presence-only (stale heartbeat). Revocation is REVOKED + tokenVersion mismatch.
         if (device.getStatus() == DeviceStatus.REVOKED) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Device monitoring revoked");
+            throw new BusinessException(
+                    ErrorCode.REPAIR_REQUIRED,
+                    "Device monitoring revoked — re-pair required");
         }
         if (device.getStatus() == DeviceStatus.SUSPENDED) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED, "Device suspended");
@@ -38,7 +40,9 @@ public class DeviceTokenValidationService {
 
         long tokenVersion = jwtTokenProvider.getTokenVersion(claims);
         if (tokenVersion != device.getTokenVersion()) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Device token revoked — re-pair required");
+            throw new BusinessException(
+                    ErrorCode.REPAIR_REQUIRED,
+                    "Device token revoked — re-pair required");
         }
     }
 }

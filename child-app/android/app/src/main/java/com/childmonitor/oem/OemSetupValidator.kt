@@ -27,8 +27,26 @@ object OemSetupValidator {
 
     fun isAutostartPromptCompleted(context: Context): Boolean {
         if (!requiresAutostartPrompt()) return true
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_AUTOSTART_PROMPTED, false)
+        when (XiaomiAutostartChecker.query(context)) {
+            XiaomiAutostartChecker.State.ENABLED -> {
+                markAutostartPromptCompleted(context)
+                return true
+            }
+            XiaomiAutostartChecker.State.DISABLED -> {
+                clearAutostartPromptCompleted(context)
+                return false
+            }
+            XiaomiAutostartChecker.State.UNKNOWN -> {
+                return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .getBoolean(KEY_AUTOSTART_PROMPTED, false)
+            }
+        }
+    }
+
+    fun clearAutostartPromptCompleted(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_AUTOSTART_PROMPTED, false)
+            .apply()
     }
 
     fun markAutostartPromptCompleted(context: Context) {
@@ -111,7 +129,7 @@ object OemSetupValidator {
     fun diagnostics(context: Context): Map<String, Any?> = OemDiagnosticsCollector.collect(context)
 
     fun openOemBackgroundSettings(context: Context) {
-        OemPowerWhitelistHelper.promptOemBackgroundSettingsIfNeeded(context.applicationContext)
+        OemPowerWhitelistHelper.openOemBackgroundSettings(context.applicationContext)
     }
 
     /** @deprecated Use openOemBackgroundSettings */

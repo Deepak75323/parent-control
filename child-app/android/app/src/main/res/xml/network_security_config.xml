@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Production: replace pin digest with your API certificate SHA-256 (SPKI).
-  Generate: openssl s_client -connect api.example.com:443 | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
+  Production/main: HTTPS only. Cleartext for local dev lives in src/debug/res/xml only.
+  Release overlay adds certificate pinning (src/release/res/xml/network_security_config.xml).
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
@@ -9,14 +9,4 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-
-    <!-- Local dev: emulator, USB reverse, and Mac LAN IP -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">10.0.2.2</domain>
-        <domain includeSubdomains="false">localhost</domain>
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">192.168.1.8</domain>
-    </domain-config>
-
-    <!-- Production API pin is in src/release/res/xml/network_security_config.xml -->
 </network-security-config>

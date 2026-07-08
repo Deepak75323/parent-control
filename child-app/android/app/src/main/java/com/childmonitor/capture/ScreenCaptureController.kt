@@ -3,7 +3,9 @@ package com.childmonitor.capture
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.util.Log
 import com.childmonitor.debug.PcpFlowLogger
 
@@ -164,7 +166,41 @@ object ScreenCaptureController {
 
     fun activeProjection(): MediaProjection? = activeProjection
 
+    /**
+     * Returns a [MediaProjection] ready for [MediaProjection.createVirtualDisplay].
+     * Reuses a warm cached instance when no VirtualDisplay is active — calling
+     * [MediaProjectionManager.getMediaProjection] twice on the same consent token
+     * makes [createVirtualDisplay] fail on Android 14–16.
+     */
+    @JvmStatic
+    fun acquireProjectionForCapture(context: Context): MediaProjection? {
+        val appContext = context.applicationContext
+        if (activeProjection != null) {
+            if (!virtualDisplayActive) {
+                CaptureFrameLogger.log(
+                    "OBTAIN_PROJECTION_CACHED",
+                    "reuse for capture fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} " +
+                        "obtainedWithFgs=$projectionObtainedWithFgs virtualDisplayActive=false",
+                )
+                return activeProjection
+            }
+            PcpFlowLogger.log(
+                PcpFlowLogger.Category.MEDIA_PROJECTION,
+                "acquireProjectionForCapture — releasing projection with active VirtualDisplay",
+            )
+            releaseProjection()
+            consentBinderUsed = false
+        } else if (isConsentExhausted()) {
+            MediaProjectionTokenStore.invalidateSession(appContext)
+            onConsentInvalidated()
+            MediaProjectionLossHandler.onProjectionUnavailable(appContext, "token_exhausted")
+            return null
+        }
+        return obtainProjection(appContext)
+    }
+
     fun releaseProjection() {
+        val hadProjection = activeProjection != null
         try {
             intentionalStop = true
             activeProjection?.stop() ?: run { intentionalStop = false }
@@ -174,6 +210,9 @@ object ScreenCaptureController {
         activeProjection = null
         projectionObtainedWithFgs = false
         virtualDisplayActive = false
+        if (hadProjection) {
+            consentBinderUsed = false
+        }
     }
 
     /** Drop in-memory projection only — stored pairing consent remains for reuse. */
@@ -185,6 +224,10 @@ object ScreenCaptureController {
 
     @JvmStatic
     fun projectionObtainedWithFgs(): Boolean = projectionObtainedWithFgs
+
+    /** True while [releaseProjection] is tearing down — secondary callbacks must not invalidate consent. */
+    @JvmStatic
+    fun isIntentionalProjectionStop(): Boolean = intentionalStop
 
     /** Consent intent was consumed but projection is not cached — re-grant required. */
     @JvmStatic
@@ -211,13 +254,21 @@ object ScreenCaptureController {
         MediaProjectionCaptureGate.release("consent-invalidated")
     }
 
+    /**
+     * System consent intent. On API 34+ uses [MediaProjectionConfig.createConfigForDefaultDisplay]
+     * so Android skips the app-picker step — user still sees the consent dialog once.
+     */
     fun buildConsentIntent(context: Context): Intent {
         val mgr = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        return mgr.createScreenCaptureIntent()
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            mgr.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+        } else {
+            mgr.createScreenCaptureIntent()
+        }
     }
 
     /**
-     * Release cached MediaProjection when no publisher or screen FGS is active.
+     * Release cached MediaProjection only when explicitly revoking consent — not after each stream.
      */
     @JvmStatic
     fun releaseIfIdle(context: Context, reason: String) {
@@ -225,7 +276,6 @@ object ScreenCaptureController {
         if (NativeStreamPublisher.isRunning() || ScreenCaptureForegroundService.isForegroundActive()) {
             return
         }
-        StreamLifecycleLogger.log("PROJECTION_RELEASE_IDLE", reason)
-        releaseProjection()
+        StreamLifecycleLogger.log("PROJECTION_RELEASE_IDLE_SKIPPED", reason)
     }
 }

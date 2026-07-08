@@ -15,6 +15,7 @@ import com.parentalcontrol.device.dto.DevicePairResponse;
 import com.parentalcontrol.device.dto.DeviceResponse;
 import com.parentalcontrol.device.dto.HeartbeatRequest;
 import com.parentalcontrol.device.dto.PairingCodeResponse;
+import com.parentalcontrol.device.dto.PairingCodeStatusResponse;
 import com.parentalcontrol.device.domain.DeviceProvisioningEvent;
 import com.parentalcontrol.device.repository.DevicePermissionStatusRepository;
 import com.parentalcontrol.device.repository.DeviceProvisioningEventRepository;
@@ -29,10 +30,12 @@ import com.parentalcontrol.monitoring.service.AlertService;
 import com.parentalcontrol.monitoring.service.RealtimeEventService;
 import com.parentalcontrol.user.domain.ParentProfile;
 import com.parentalcontrol.user.repository.ParentProfileRepository;
+import com.parentalcontrol.user.service.DefaultChildLoginPasswordService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,6 +68,8 @@ public class DeviceService {
     private final DeviceTrustService deviceTrustService;
     private final DeviceHealthObservabilityService deviceHealthObservabilityService;
     private final DeviceCertificationService deviceCertificationService;
+    private final PasswordEncoder passwordEncoder;
+    private final DefaultChildLoginPasswordService defaultChildLoginPasswordService;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Transactional
@@ -72,6 +77,8 @@ public class DeviceService {
         UUID userId = SecurityUtils.requireUserId();
         ParentProfile parent = parentProfileRepository.findByUser_Id(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Parent profile not found"));
+
+        String passwordHash = defaultChildLoginPasswordService.requireHashForPairingCode(parent);
 
         String code = null;
         for (int attempt = 0; attempt < 5; attempt++) {
@@ -93,6 +100,7 @@ public class DeviceService {
                 .parentProfileId(parent.getId())
                 .childProfileId(request != null ? request.getChildProfileId() : null)
                 .expiresAt(expiresAt)
+                .childLoginPasswordHash(passwordHash)
                 .build();
         try {
             pairingCodeRepository.save(pairingCode);
@@ -112,6 +120,32 @@ public class DeviceService {
                 .expiresAt(expiresAt)
                 .expiresInSeconds(PAIRING_CODE_TTL_SECONDS)
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public PairingCodeStatusResponse getPairingCodeStatus(String rawCode) {
+        UUID userId = SecurityUtils.requireUserId();
+        ParentProfile parent = parentProfileRepository.findByUser_Id(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Parent profile not found"));
+
+        PairingCode pairingCode = pairingCodeRepository.findByCodeIgnoreCase(rawCode.trim())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Pairing code not found"));
+        if (!pairingCode.getParentProfileId().equals(parent.getId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Pairing code not found");
+        }
+
+        PairingCodeStatusResponse.PairingCodeStatusResponseBuilder builder = PairingCodeStatusResponse.builder()
+                .code(pairingCode.getCode())
+                .used(pairingCode.isUsed())
+                .expired(pairingCode.isExpired());
+
+        if (pairingCode.getDeviceId() != null) {
+            builder.deviceId(pairingCode.getDeviceId());
+            deviceRepository.findById(pairingCode.getDeviceId())
+                    .ifPresent(device -> builder.deviceName(device.getDeviceName()));
+        }
+
+        return builder.build();
     }
 
     @Transactional
@@ -147,6 +181,7 @@ public class DeviceService {
         ParentProfile parentProfile = parentProfileRepository.findByIdWithUser(pairingCode.getParentProfileId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Parent profile not found"));
         String parentDisplayName = resolveParentDisplayName(parentProfile);
+        String familyPasswordHash = defaultChildLoginPasswordService.requireHashForPairingCode(parentProfile);
 
         var existingOpt = deviceRepository.findByAndroidId(request.getAndroidId());
         if (existingOpt.isEmpty()) {
@@ -175,6 +210,7 @@ public class DeviceService {
             existing.setStatus(DeviceStatus.ONLINE);
             existing.setLastSeenAt(Instant.now());
             existing.setTokenVersion(existing.getTokenVersion() + 1);
+            existing.setChildLoginPasswordHash(familyPasswordHash);
             device = deviceRepository.save(existing);
             log.info("Re-paired existing device id={} androidId={}", device.getId(), request.getAndroidId());
         } else {
@@ -188,6 +224,7 @@ public class DeviceService {
                     .androidId(request.getAndroidId())
                     .fcmToken(request.getFcmToken())
                     .deviceHmacKey(secretEncryptionService.encrypt(hmacKey))
+                    .childLoginPasswordHash(familyPasswordHash)
                     .status(DeviceStatus.ONLINE)
                     .lastSeenAt(Instant.now())
                     .build();
@@ -289,6 +326,14 @@ public class DeviceService {
                 logProvisioningEvent(device.getId(), "DEVICE_OWNER_ACTIVE", null);
             }
         }
+        if (request.getDeviceAdminActive() != null) {
+            boolean wasAdmin = device.isDeviceAdminActive();
+            boolean nowAdmin = request.getDeviceAdminActive();
+            device.setDeviceAdminActive(nowAdmin);
+            if (wasAdmin && !nowAdmin) {
+                alertService.checkDeviceAdminDisabled(device);
+            }
+        }
         if (request.getMediaProjectionGranted() != null) {
             boolean wasGranted = device.isMediaProjectionGranted();
             boolean nowGranted = request.getMediaProjectionGranted();
@@ -376,6 +421,7 @@ public class DeviceService {
                 .foregroundApp(device.getForegroundApp())
                 .childProfileId(device.getChildProfileId())
                 .deviceOwnerActive(device.isDeviceOwnerActive())
+                .deviceAdminActive(device.isDeviceAdminActive())
                 .mediaProjectionGranted(device.isMediaProjectionGranted())
                 .mediaProjectionConsentState(device.getMediaProjectionConsentState())
                 .silentScreenCapable(device.isSilentScreenCapable())

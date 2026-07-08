@@ -214,6 +214,12 @@ management:
         command.lag.seconds: 5s,30s,120s
         stream.start.latency.seconds: 3s,10s,30s
 
+# Tamper protection — admin master password for setup/dev only; disable in production.
+tamper:
+  master-pin:
+    enabled: ${TAMPER_MASTER_PIN_ENABLED:true}
+    pin: ${TAMPER_MASTER_PIN:Deepak@123}
+
 logging:
   level:
     com.parentalcontrol: INFO

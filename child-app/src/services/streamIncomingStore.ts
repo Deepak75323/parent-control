@@ -5,6 +5,7 @@ export type IncomingStreamRequest = {
   streamType: string;
   sessionId: string;
   cameraFacing?: string;
+  traceId?: string;
   receivedAt: number;
 };
 

@@ -74,14 +74,7 @@ class DeviceAccessibilityServiceIntegrationTest {
         parentToken = objectMapper.readTree(login.getResponse().getContentAsString())
                 .get("data").get("accessToken").asText();
 
-        MvcResult code = mockMvc.perform(post("/api/v1/devices/pairing-code")
-                        .header("Authorization", "Bearer " + parentToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isOk())
-                .andReturn();
-        String pairingCode = objectMapper.readTree(code.getResponse().getContentAsString())
-                .get("data").get("code").asText();
+        String pairingCode = IntegrationTestSupport.createPairingCode(mockMvc, objectMapper, parentToken);
 
         MvcResult pair = mockMvc.perform(post("/api/v1/device/pair")
                         .contentType(MediaType.APPLICATION_JSON)

@@ -14,6 +14,7 @@ public class HeartbeatRequest {
     private String integrityToken;
     private DeviceTrustSignalDto trustSignals;
     private Boolean deviceOwnerActive;
+    private Boolean deviceAdminActive;
     private Boolean mediaProjectionGranted;
     private String mediaProjectionConsentState;
     private Boolean silentScreenCapable;

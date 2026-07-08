@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.childmonitor.deviceowner.DeviceOwnerManager
+import com.childmonitor.tamper.TamperApiClient
+import com.childmonitor.tamper.TamperGateController
 
 /**
  * Device administrator for anti-tampering. Uninstall requires deactivating this admin first.
@@ -15,6 +17,7 @@ class ChildDeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onEnabled(context: Context, intent: Intent) {
         MonitoringPrefs.setTamperProtectionEnabled(context, true)
+        MonitoringPrefs.clearTamperUnlock(context)
         if (DeviceOwnerManager.isDeviceOwner(context)) {
             DeviceOwnerManager.onDeviceOwnerEstablished(context)
         }
@@ -28,7 +31,16 @@ class ChildDeviceAdminReceiver : DeviceAdminReceiver() {
         Log.i(TAG, "Device Owner provisioning complete")
     }
 
+    override fun onDisableRequested(context: Context, intent: Intent): CharSequence {
+        TamperGateController.onDisableRequested(context)
+        return context.getString(R.string.tamper_disable_warning)
+    }
+
     override fun onDisabled(context: Context, intent: Intent) {
+        MonitoringPrefs.clearTamperUnlock(context)
+        Thread {
+            TamperApiClient.reportAdminDisabled(context.applicationContext)
+        }.start()
         TamperProtectionManager.onDeviceAdminDisabled(context)
         Log.i(TAG, "Device administrator deactivated")
     }

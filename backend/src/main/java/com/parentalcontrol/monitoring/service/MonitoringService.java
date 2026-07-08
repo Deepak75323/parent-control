@@ -113,7 +113,7 @@ public class MonitoringService {
     public IngestResultResponse ingestInstalledApps(IngestInstalledAppsRequest request) {
         Device device = deviceAccessService.requireAuthenticatedDevice();
         Instant syncedAt = Instant.now();
-        deviceInstalledAppRepository.softDeleteAllByDeviceId(device.getId());
+        deviceInstalledAppRepository.deleteAllByDeviceId(device.getId());
 
         List<DeviceInstalledApp> apps = request.getApps().stream()
                 .map(item -> DeviceInstalledApp.builder()

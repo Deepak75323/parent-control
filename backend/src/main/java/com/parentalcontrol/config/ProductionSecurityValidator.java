@@ -30,6 +30,7 @@ public class ProductionSecurityValidator {
     private final WebrtcProperties webrtcProperties;
     private final PlayIntegrityProperties playIntegrityProperties;
     private final DeviceTrustProperties deviceTrustProperties;
+    private final TamperMasterPinProperties tamperMasterPinProperties;
 
     @EventListener(ApplicationReadyEvent.class)
     public void validateProductionSecurity() {
@@ -96,6 +97,10 @@ public class ProductionSecurityValidator {
             throw new IllegalStateException(
                     "Refusing to start: device-trust enforcement requires play-integrity.required=true");
         }
+        if (tamperMasterPinProperties.isEnabled()) {
+            log.warn(
+                    "tamper.master-pin.enabled=true in production — disable and use a server-managed secret before release");
+        }
         log.info("Production security validation passed");
     }
 
@@ -131,6 +136,7 @@ public class ProductionSecurityValidator {
         }
         log.warn("Active profiles: {}. Set spring.profiles.active=prod to enforce these checks.",
                 Arrays.toString(environment.getActiveProfiles()));
+        log.warn("Admin master PIN may be enabled (tamper.master-pin.enabled) — disable before production release.");
         log.warn("=========================================================================");
     }
 

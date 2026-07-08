@@ -5,6 +5,7 @@ import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useAuthStore} from '../store/authStore';
 import {deviceApi} from '../services/api';
 import {RootStackParamList} from '../navigation/RootNavigator';
+import {navigateToPairingFlow} from '../navigation/pairingNavigation';
 import {Colors, Spacing, Radii, Elevation, Typography} from '../theme/design';
 import {useFadeSlideIn, usePressScale} from '../utils/animations';
 
@@ -119,7 +120,7 @@ export function ProfileScreen({navigation}: {navigation: Nav}) {
           {/* Account section */}
           <Text style={styles.groupLabel}>ACCOUNT</Text>
           <SectionGroup>
-            <MenuRow icon="📱" label="My Devices" sub="Manage paired phones" value={deviceCount != null ? String(deviceCount) : '—'} onPress={() => navigation.navigate('DeviceList')} />
+            <MenuRow icon="📱" label="My Devices" sub="Manage paired phones" value={deviceCount != null ? String(deviceCount) : '—'} onPress={() => void navigateToPairingFlow(navigation)} />
             <View style={styles.divider} />
             <MenuRow icon="📨" label="Time Requests" sub="Pending approvals" onPress={() => navigation.navigate('Requests')} />
             <View style={styles.divider} />
@@ -129,6 +130,8 @@ export function ProfileScreen({navigation}: {navigation: Nav}) {
           {/* Security */}
           <Text style={styles.groupLabel}>SECURITY</Text>
           <SectionGroup>
+            <MenuRow icon="🔑" label="Child login password" sub="Same on every child phone" onPress={() => navigation.navigate('ChildLoginPassword')} />
+            <View style={styles.divider} />
             <MenuRow icon="🔒" label="Parent PIN" sub="Unlock silent monitoring" onPress={() => navigation.navigate('ParentPin')} />
             <View style={styles.divider} />
             <MenuRow icon="💳" label="Subscription" sub="Plan & billing" onPress={() => navigation.navigate('Subscription')} />

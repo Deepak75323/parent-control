@@ -3,15 +3,19 @@ package com.parentalcontrol.monitoring.service;
 import com.parentalcontrol.config.WebrtcProperties;
 import com.parentalcontrol.monitoring.dto.WebrtcIceConfigResponse;
 import io.micrometer.core.instrument.MeterRegistry;
+import com.parentalcontrol.observability.StreamTraceLogger;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class WebrtcConfigService {
 
     private final WebrtcProperties webrtcProperties;
@@ -81,6 +85,10 @@ public class WebrtcConfigService {
                 meterRegistry.counter("turn.credentials.issued", "mode", "static", "server", "primary").increment();
             }
         }
+
+        StreamTraceLogger.info("Backend", "TURN", "buildIceConfig", "ICE config built",
+                Map.of("subjectId", subjectId, "sessionId", sessionId,
+                        "serverCount", servers.size(), "hasTurn", webrtcProperties.hasTurnUrls()));
 
         return WebrtcIceConfigResponse.builder()
                 .iceServers(servers)

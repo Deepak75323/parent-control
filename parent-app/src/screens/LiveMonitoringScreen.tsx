@@ -12,6 +12,17 @@ import {
   registerStreamListeners,
 } from '../services/webrtcService';
 import {slog, slogReset} from '../services/streamDebug';
+import {
+  generateTraceId,
+  setTraceId,
+  setTraceState,
+  traceLog,
+  traceError,
+  traceFailure,
+} from '../utils/traceLogger';
+import {streamStateTransition, resetStreamState} from '../utils/streamStateMachine';
+import {getWebSocketClient} from '../services/websocketService';
+import {getIceConnectionState} from '../services/webrtcService';
 import {LiveStreamViewport} from '../components/liveMonitoring/LiveStreamViewport';
 import {RemoteControlActionModals} from '../components/liveMonitoring/RemoteControlActionModals';
 import {PreSessionLauncher} from '../components/liveMonitoring/PreSessionLauncher';
@@ -21,6 +32,7 @@ import {streamFailureMessage} from '../utils/streamFailureMessages';
 import {
   isScreenShareCapable,
   isSilentScreenCapable,
+  mergeScreenShareCapability,
   screenShareBlockedMessage,
 } from '../utils/screenShareCapability';
 
@@ -111,18 +123,21 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   }, [deviceId, initialStream]);
 
   useEffect(() => {
-    if (liveStatus?.mediaProjectionGranted !== undefined) {
-      setMediaProjectionGranted(liveStatus.mediaProjectionGranted === true);
-    }
-    if (liveStatus?.mediaProjectionConsentState !== undefined) {
-      setMediaProjectionConsentState(liveStatus.mediaProjectionConsentState);
-    }
-    if (liveStatus?.silentScreenCapable !== undefined) {
-      setSilentScreenCapable(
-        liveStatus.silentScreenCapable === true && liveStatus.mediaProjectionGranted === true,
-      );
-    }
-  }, [liveStatus?.mediaProjectionGranted, liveStatus?.mediaProjectionConsentState, liveStatus?.silentScreenCapable]);
+    if (!liveStatus) return;
+    const merged = mergeScreenShareCapability(liveStatus, {
+      mediaProjectionGranted,
+      mediaProjectionConsentState,
+    });
+    setMediaProjectionGranted(merged.mediaProjectionGranted === true);
+    setMediaProjectionConsentState(merged.mediaProjectionConsentState);
+    setSilentScreenCapable(
+      isSilentScreenCapable({
+        silentScreenCapable: liveStatus.silentScreenCapable,
+        mediaProjectionGranted: merged.mediaProjectionGranted,
+        mediaProjectionConsentState: merged.mediaProjectionConsentState,
+      }),
+    );
+  }, [liveStatus, mediaProjectionGranted, mediaProjectionConsentState]);
 
   useEffect(() => {
     if (streamType !== 'SCREEN' || mediaProjectionGranted) return;
@@ -144,7 +159,10 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   }, [streamingState, deviceId]);
 
   const needsPinForScreen = silentScreenCapable && !pinUnlocked;
-  const screenShareCapable = mediaProjectionGranted;
+  const screenShareCapable = isScreenShareCapable({
+    mediaProjectionGranted,
+    mediaProjectionConsentState,
+  });
   const screenShareBlockedReason = screenShareCapable
     ? undefined
     : screenShareBlockedMessage({
@@ -155,31 +173,73 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   const start = useCallback(
     async (type: StreamType) => {
       setStreamType(type);
+      const traceId = generateTraceId();
+      streamStateTransition('REQUEST_SENT', 'start', {deviceId, type, traceId});
+      setTraceState('BUTTON_CLICK');
+      const wsClient = getWebSocketClient();
+      traceLog('Parent', 'start', 'Button clicked — stream start requested', {
+        deviceId,
+        type,
+        traceId,
+        selectedChild: deviceId,
+        connectionState: liveStatus?.status ?? 'unknown',
+        socketState: wsClient?.connected ? 'connected' : 'disconnected',
+        webrtcState: getIceConnectionState() ?? 'none',
+        screenShareCapable,
+        mediaProjectionGranted,
+        mediaProjectionConsentState,
+      });
       if (type === 'SCREEN' && !screenShareCapable) {
+        traceFailure({
+          component: 'Screen',
+          fn: 'start',
+          reason: 'Screen share not capable',
+          actual: screenShareBlockedReason,
+        });
         Alert.alert('Screen capture unavailable', screenShareBlockedReason ?? 'Screen capture is unavailable.');
         return;
       }
       if (type === 'SCREEN' && needsPinForScreen && !pinInput) {
+        traceLog('Parent', 'start', 'Parent PIN required for silent screen');
         Alert.alert('Parent PIN required', 'Enter your PIN to start silent screen capture.');
         return;
       }
       setLoading(true);
       slogReset();
-      slog('UI', 'start stream clicked', {deviceId, type});
+      slog('UI', 'start stream clicked', {deviceId, type, traceId});
+      setTraceState('API_REQUEST');
       try {
+        traceLog('Parent', 'start', 'Fetching device before stream start', {deviceId});
         const deviceRes = await deviceApi.get(deviceId);
         const device = deviceRes.data.data;
+        traceLog('Parent', 'start', 'Device fetched', {
+          lastSeenAt: device.lastSeenAt,
+          mediaProjectionGranted: device.mediaProjectionGranted,
+          mediaProjectionConsentState: device.mediaProjectionConsentState,
+        });
         setMediaProjectionGranted(device.mediaProjectionGranted === true);
         setMediaProjectionConsentState(device.mediaProjectionConsentState);
         setSilentScreenCapable(isSilentScreenCapable(device));
         setAccessibilityEnabled(device.accessibilityEnabled !== false);
         if (type === 'SCREEN' && !isScreenShareCapable(device)) {
+          traceFailure({
+            component: 'Screen',
+            fn: 'start',
+            reason: 'Device not screen-share capable after refresh',
+          });
           Alert.alert('Screen capture unavailable', screenShareBlockedMessage(device));
           return;
         }
         const lastSeenAt = device.lastSeenAt;
         const staleMs = lastSeenAt ? Date.now() - Date.parse(lastSeenAt) : Number.POSITIVE_INFINITY;
         if (staleMs > 3 * 60 * 1000) {
+          traceFailure({
+            component: 'Parent',
+            fn: 'start',
+            reason: 'Child device offline',
+            actual: `staleMs=${staleMs}`,
+            nextCauses: ['Child app not running', 'Network disconnected', 'Wrong device selected'],
+          });
           Alert.alert(
             'Child device offline',
             'This phone has not checked in recently. Open Device Monitor on the child phone, keep it on the same Wi‑Fi as your Mac (or plug in USB), then try again.\n\nIf you re-paired recently, use the newer device in the list — not an old duplicate.',
@@ -187,30 +247,63 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           return;
         }
 
+        traceLog('Parent', 'start', 'Sending start-stream API request', {deviceId, type, traceId});
         const {data} = await monitoringApi.startStream(
           deviceId,
           type,
           type === 'SCREEN' && silentScreenCapable ? pinInput || undefined : undefined,
         );
         const s = data.data;
+        if (s.traceId) setTraceId(s.traceId);
+        traceLog(
+          type === 'CAMERA' ? 'Camera' : type === 'AUDIO' ? 'Audio' : 'Screen',
+          'start',
+          'Stream session created',
+          {
+            sessionId: s.sessionId,
+            roomId: s.signalingRoomId,
+            captureMode: s.captureMode,
+            traceId: s.traceId ?? traceId,
+          },
+        );
         slog('FLOW', 'parent stream request sent', {
           deviceId,
           type,
           sessionId: s.sessionId,
           roomId: s.signalingRoomId,
           captureMode: s.captureMode,
+          traceId: s.traceId ?? traceId,
         });
         setSession(s);
         setIceState(null);
         setRemoteStream(null);
         setConnecting(true);
         if (s.captureMode === 'NATIVE') setPinUnlocked(true);
+        setTraceState('WEBRTC_CONNECT');
+        traceLog('WebRTC', 'connectParentViewer', 'Connecting parent viewer', {
+          roomId: s.signalingRoomId,
+          sessionId: s.sessionId,
+        });
         await connectParentViewer(s.signalingRoomId, s.sessionId);
         setSession(prev => (prev ? {...prev, status: 'ACTIVE'} : prev));
+        streamStateTransition('STREAMING', 'start', {roomId: s.signalingRoomId, sessionId: s.sessionId});
+        setTraceState('ACTIVE');
+        traceLog('Parent', 'start', 'Stream start complete', {
+          roomId: s.signalingRoomId,
+          sessionId: s.sessionId,
+        });
       } catch (e: unknown) {
         const msg =
           (e as {response?: {data?: {message?: string}}})?.response?.data?.message ??
           (e instanceof Error ? e.message : 'Could not start stream session');
+        traceError('Parent', 'start', 'Stream start failed', e);
+        streamStateTransition('FAILED', 'start', {reason: msg});
+        traceFailure({
+          component: 'Parent',
+          fn: 'start',
+          reason: msg,
+          nextCauses: ['Backend rejected request', 'Child offline', 'Permissions missing on child'],
+        }, e);
         setConnecting(false);
         setRemoteStream(null);
         setSession(null);
@@ -219,7 +312,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setLoading(false);
       }
     },
-    [deviceId, needsPinForScreen, pinInput, silentScreenCapable, screenShareCapable],
+    [deviceId, needsPinForScreen, pinInput, silentScreenCapable, screenShareCapable, liveStatus, screenShareBlockedReason, mediaProjectionGranted, mediaProjectionConsentState],
   );
 
   useEffect(() => {
@@ -232,6 +325,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
 
   const stop = useCallback(async () => {
     if (!session) return;
+    streamStateTransition('STOPPING', 'stop', {sessionId: session.sessionId});
     setStopping(true);
     try {
       await monitoringApi.stopScreenShare(session.sessionId);
@@ -239,6 +333,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       setSession(null);
       setRemoteStream(null);
       setConnecting(false);
+      streamStateTransition('STOPPED', 'stop');
+      resetStreamState();
     } catch {
       Alert.alert('Error', 'Could not stop session');
     } finally {
@@ -248,6 +344,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
 
   const reconnect = useCallback(async () => {
     if (!session) return;
+    streamStateTransition('WEBRTC_CONNECTING', 'reconnect', {sessionId: session.sessionId});
     setConnecting(true);
     setIceState(null);
     setRemoteStream(null);

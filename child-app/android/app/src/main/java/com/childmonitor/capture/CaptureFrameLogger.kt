@@ -18,6 +18,12 @@ object CaptureFrameLogger {
     }
 
     @JvmStatic
+    fun hasReceivedFrame(): Boolean = frameCount.get() > 0
+
+    @JvmStatic
+    fun capturedFrameCount(): Long = frameCount.get()
+
+    @JvmStatic
     @JvmOverloads
     fun log(stage: String, detail: String? = null) {
         val line = if (detail.isNullOrBlank()) stage else "$stage $detail"

@@ -25,6 +25,7 @@ function fmtTime(iso: string) {
 }
 
 function alertIcon(type: string) {
+  if (type.includes('LOGIN_RECOVERY')) return '🔑';
   if (type.includes('GEOFENCE')) return '📍';
   if (type.includes('BATTERY')) return '🔋';
   if (type.includes('BLOCKED')) return '🚫';
@@ -62,6 +63,12 @@ function RequestCard({item, onYes, onNo}: {item: TimeExtensionRequestItem; onYes
 
 function AlertCard({item}: {item: AlertItem}) {
   const color = severityColor(item.severity);
+  const verificationCode =
+    (item.alertType === 'DEVICE_ADMIN_DISABLE_ATTEMPT' ||
+      item.alertType === 'CHILD_LOGIN_RECOVERY') &&
+    typeof item.payloadJson?.verificationCode === 'string'
+      ? item.payloadJson.verificationCode
+      : null;
   return (
     <View style={styles.alertCard}>
       <View style={[styles.alertStripe, {backgroundColor: color}]} />
@@ -71,7 +78,13 @@ function AlertCard({item}: {item: AlertItem}) {
       <View style={styles.alertBody}>
         <Text style={[styles.alertType, {color}]}>{item.alertType.replace(/_/g, ' ')}</Text>
         <Text style={styles.alertTitle}>{item.title}</Text>
-        {item.message ? <Text style={styles.alertMsg} numberOfLines={2}>{item.message}</Text> : null}
+        {item.message ? <Text style={styles.alertMsg} numberOfLines={3}>{item.message}</Text> : null}
+        {verificationCode ? (
+          <View style={styles.codeBox}>
+            <Text style={styles.codeLabel}>Verification code for child device</Text>
+            <Text style={styles.codeValue}>{verificationCode}</Text>
+          </View>
+        ) : null}
       </View>
       <Text style={styles.alertTime}>{fmtTime(item.createdAt)}</Text>
     </View>
@@ -217,6 +230,9 @@ const styles = StyleSheet.create({
   alertType: {fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginBottom: 3},
   alertTitle: {fontSize: 14, fontWeight: '700', color: Colors.textPrimary},
   alertMsg: {fontSize: 12, color: Colors.textTertiary, marginTop: 2, lineHeight: 17},
+  codeBox: {marginTop: 8, backgroundColor: '#ede9fe', borderRadius: Radii.md, padding: Spacing.sm},
+  codeLabel: {fontSize: 11, fontWeight: '700', color: '#6d28d9'},
+  codeValue: {fontSize: 24, fontWeight: '900', color: '#5b21b6', letterSpacing: 4, marginTop: 2},
   alertTime: {fontSize: 11, color: Colors.textTertiary, marginLeft: Spacing.sm},
 
   // Notification card

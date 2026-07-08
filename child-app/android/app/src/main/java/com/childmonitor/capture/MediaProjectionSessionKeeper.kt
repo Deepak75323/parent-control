@@ -40,6 +40,11 @@ object MediaProjectionSessionKeeper {
             Log.i(TAG, "warmSession skipped — UI not ready")
             return false
         }
+        // Re-warm typed FGS when projection is already cached (avoids getMediaProjection on API 34+).
+        if (ScreenCaptureController.activeProjection() != null) {
+            PcpFlowLogger.log(PcpFlowLogger.Category.MEDIA_PROJECTION, "warmSession — reusing cached projection")
+            return ScreenCaptureForegroundService.startAndWait(app)
+        }
         PcpFlowLogger.log(PcpFlowLogger.Category.MEDIA_PROJECTION, "warmSession — starting screen FGS")
         if (!ScreenCaptureForegroundService.startAndWait(app)) {
             PcpFlowLogger.warn(PcpFlowLogger.Category.MEDIA_PROJECTION, "warmSession — screen FGS PREPARE failed")
@@ -71,10 +76,12 @@ object MediaProjectionSessionKeeper {
         if (!MediaProjectionTokenStore.hasValidToken(app)) return false
         if (
             ScreenCaptureForegroundService.isForegroundActive() &&
-            ScreenCaptureController.activeProjection() != null &&
-            ScreenCaptureController.projectionObtainedWithFgs()
+            ScreenCaptureController.activeProjection() != null
         ) {
             return true
+        }
+        if (ScreenCaptureController.activeProjection() != null) {
+            return warmSession(app)
         }
         if (!ScreenFgsStartupGate.canStartScreenFgs()) {
             return false

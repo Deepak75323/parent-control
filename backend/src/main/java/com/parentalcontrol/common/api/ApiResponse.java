@@ -1,6 +1,7 @@
 package com.parentalcontrol.common.api;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.parentalcontrol.common.exception.ErrorCode;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,6 +18,8 @@ public class ApiResponse<T> {
 
     private boolean success;
     private String message;
+    /** Machine-readable error code (e.g. REPAIR_REQUIRED) when success=false. */
+    private String code;
     private T data;
     @Builder.Default
     private Instant timestamp = Instant.now();
@@ -46,6 +49,14 @@ public class ApiResponse<T> {
     public static ApiResponse<Void> error(String message) {
         return ApiResponse.<Void>builder()
                 .success(false)
+                .message(message)
+                .build();
+    }
+
+    public static ApiResponse<Void> error(ErrorCode errorCode, String message) {
+        return ApiResponse.<Void>builder()
+                .success(false)
+                .code(errorCode.getCode())
                 .message(message)
                 .build();
     }

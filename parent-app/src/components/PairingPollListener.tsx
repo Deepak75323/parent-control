@@ -29,6 +29,22 @@ function detectPairedDevice(
   return list.find(device => !baselineIds.has(device.id));
 }
 
+/** Re-pair of the same physical device (e.g. after revoke) — id already in baseline but status improved. */
+function detectRePairedDevice(
+  list: DeviceSummary[],
+  baselineIds: Set<string>,
+  baselineStatuses: Record<string, string>,
+): DeviceSummary | undefined {
+  return list.find(device => {
+    if (!baselineIds.has(device.id)) {
+      return false;
+    }
+    const was = (baselineStatuses[device.id] ?? '').toUpperCase();
+    const now = (device.status ?? '').toUpperCase();
+    return was === 'REVOKED' && now === 'ONLINE';
+  });
+}
+
 /** Polls device list while a pairing code is active — works even if WS is down or device re-pairs. */
 export function PairingPollListener() {
   const pendingPairingCode = useRealtimeStore(s => s.pendingPairingCode);
@@ -47,25 +63,64 @@ export function PairingPollListener() {
 
     const poll = async () => {
       try {
+        const store = useRealtimeStore.getState();
+        const code = store.pendingPairingCode;
+        if (!code) {
+          return;
+        }
+        const {data: statusResp} = await deviceApi.getPairingCodeStatus(code);
+        const status = statusResp.data;
+        if (status?.used && status.deviceId) {
+          plog('app poll detected pairing via code status', status);
+          store.notifyPairingComplete({
+            deviceId: status.deviceId,
+            deviceName: status.deviceName?.trim() || 'Child device',
+          });
+          navigateToDeviceList();
+          return;
+        }
+
         const {data} = await deviceApi.list();
         const list = data.data ?? [];
-        useRealtimeStore.getState().mergeDevices(list);
+        store.mergeDevices(list);
 
-        const matched = detectPairedDevice(list, pairingBaselineIds, pairingStartedAt);
+        const matched = detectPairedDevice(
+          list,
+          store.pairingBaselineIds,
+          store.pairingStartedAt,
+        );
         if (matched) {
           plog('app poll detected pairing', {
             deviceId: matched.id,
             deviceName: matched.deviceName,
             lastSeenAt: matched.lastSeenAt,
           });
-          useRealtimeStore.getState().notifyPairingComplete({
+          store.notifyPairingComplete({
             deviceId: matched.id,
             deviceName: matched.deviceName,
           });
           navigateToDeviceList();
+          return;
         }
-      } catch {
-        // ignore transient network errors during poll
+
+        const rePaired = detectRePairedDevice(
+          list,
+          store.pairingBaselineIds,
+          store.pairingBaselineStatuses,
+        );
+        if (rePaired) {
+          plog('app poll detected re-pair', {
+            deviceId: rePaired.id,
+            deviceName: rePaired.deviceName,
+          });
+          store.notifyPairingComplete({
+            deviceId: rePaired.id,
+            deviceName: rePaired.deviceName,
+          });
+          navigateToDeviceList();
+        }
+      } catch (err) {
+        plog('app poll error', String(err));
       }
     };
 

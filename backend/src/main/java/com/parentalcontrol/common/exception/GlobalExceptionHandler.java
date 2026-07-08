@@ -24,7 +24,7 @@ public class GlobalExceptionHandler {
         recordSecurityMetric(ex);
         return ResponseEntity
                 .status(ex.getErrorCode().getStatus())
-                .body(ApiResponse.error(ex.getMessage()));
+                .body(ApiResponse.error(ex.getErrorCode(), ex.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

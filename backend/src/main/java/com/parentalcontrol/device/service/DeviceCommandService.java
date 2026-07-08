@@ -343,10 +343,19 @@ public class DeviceCommandService {
                     "Remote control requires Accessibility to be enabled on the child device. "
                             + "Open the child app → Permissions → turn on Accessibility.");
         }
-        if (isRemoteControlCommand(type)
-                && (device.getStatus() == DeviceStatus.OFFLINE
-                || device.getStatus() == DeviceStatus.REVOKED)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Device is offline");
+        if (isRemoteControlCommand(type) && device.getStatus() == DeviceStatus.REVOKED) {
+            throw new BusinessException(
+                    ErrorCode.REPAIR_REQUIRED,
+                    "Device monitoring revoked — re-pair required");
+        }
+        if ((type == DeviceCommandType.ENABLE_KIOSK
+                        || type == DeviceCommandType.DISABLE_KIOSK
+                        || type == DeviceCommandType.REVOKE_MONITORING)
+                && device.getStatus() == DeviceStatus.REVOKED
+                && type != DeviceCommandType.REVOKE_MONITORING) {
+            throw new BusinessException(
+                    ErrorCode.REPAIR_REQUIRED,
+                    "Device monitoring revoked — re-pair required");
         }
     }
 

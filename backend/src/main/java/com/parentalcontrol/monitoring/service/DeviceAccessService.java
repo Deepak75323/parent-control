@@ -4,6 +4,7 @@ import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.exception.ErrorCode;
 import com.parentalcontrol.common.security.SecurityUtils;
 import com.parentalcontrol.device.domain.Device;
+import com.parentalcontrol.device.domain.DeviceStatus;
 import com.parentalcontrol.device.repository.DeviceRepository;
 import com.parentalcontrol.user.domain.ParentProfile;
 import com.parentalcontrol.user.repository.ParentProfileRepository;
@@ -38,7 +39,18 @@ public class DeviceAccessService {
     @Transactional(readOnly = true)
     public Device requireAuthenticatedDevice() {
         UUID deviceId = SecurityUtils.requireDeviceId();
-        return deviceRepository.findById(deviceId)
+        Device device = deviceRepository.findById(deviceId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEVICE_NOT_FOUND));
+        requireMonitoringActive(device);
+        return device;
+    }
+
+    /** Rejects API calls from revoked devices until the child re-pairs. */
+    public void requireMonitoringActive(Device device) {
+        if (device.getStatus() == DeviceStatus.REVOKED) {
+            throw new BusinessException(
+                    ErrorCode.REPAIR_REQUIRED,
+                    "Device monitoring revoked — re-pair required");
+        }
     }
 }

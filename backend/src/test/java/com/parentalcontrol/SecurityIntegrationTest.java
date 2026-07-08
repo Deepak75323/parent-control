@@ -27,6 +27,7 @@ import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -108,14 +109,7 @@ class SecurityIntegrationTest {
     }
 
     private String createPairingCode() throws Exception {
-        MvcResult code = mockMvc.perform(post("/api/v1/devices/pairing-code")
-                        .header("Authorization", "Bearer " + parentToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isOk())
-                .andReturn();
-        return objectMapper.readTree(code.getResponse().getContentAsString())
-                .get("data").get("code").asText();
+        return IntegrationTestSupport.createPairingCode(mockMvc, objectMapper, parentToken);
     }
 
     private void pairDevice(String androidId, String name) throws Exception {
@@ -273,7 +267,8 @@ class SecurityIntegrationTest {
                         .header("Authorization", "Bearer " + deviceToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"batteryLevel\": 50}"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("REPAIR_REQUIRED"));
     }
 
     @Test

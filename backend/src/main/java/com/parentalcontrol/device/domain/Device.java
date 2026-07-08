@@ -82,6 +82,10 @@ public class Device extends BaseEntity {
     @Builder.Default
     private boolean deviceOwnerActive = false;
 
+    @Column(name = "device_admin_active", nullable = false)
+    @Builder.Default
+    private boolean deviceAdminActive = false;
+
     @Column(name = "media_projection_granted", nullable = false)
     @Builder.Default
     private boolean mediaProjectionGranted = false;
@@ -182,4 +186,8 @@ public class Device extends BaseEntity {
 
     @Column(name = "certification_score")
     private Integer certificationScore;
+
+    /** bcrypt hash of the child device login password (copied from pairing code at pair time). */
+    @Column(name = "child_login_password_hash")
+    private String childLoginPasswordHash;
 }

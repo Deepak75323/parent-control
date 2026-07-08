@@ -20,7 +20,7 @@ export function ParentPinScreen({navigation}: Props) {
 
   const savePin = async () => {
     if (pin.length < 4) {
-      Alert.alert('PIN', 'Enter at least 4 digits');
+      Alert.alert('PIN', 'Enter at least 4 characters');
       return;
     }
     setSaving(true);
@@ -81,8 +81,9 @@ export function ParentPinScreen({navigation}: Props) {
           value={pin}
           onChangeText={setPin}
           secureTextEntry
-          keyboardType="number-pad"
-          maxLength={8}
+          autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={64}
           placeholder="••••"
           style={styles.pinInput}
         />

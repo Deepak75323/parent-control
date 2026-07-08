@@ -18,6 +18,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -78,6 +79,56 @@ public class AlertService {
                 "Remote control reconnecting",
                 device.getDeviceName() + " accessibility service disconnected briefly. "
                         + "Remote taps may be delayed until it reconnects.",
+                Map.of("deviceId", device.getId().toString())
+        );
+    }
+
+    @Transactional
+    public void checkDeviceAdminDisableAttempt(Device device, String verificationCode, Instant codeExpiresAt) {
+        createAndPublish(
+                device,
+                "DEVICE_ADMIN_DISABLE_ATTEMPT",
+                AlertSeverity.CRITICAL,
+                "Device admin removal attempted",
+                device.getDeviceName()
+                        + ": someone tried to deactivate device administrator. "
+                        + "Use the verification code below on the child device, or enter your parent PIN there.",
+                Map.of(
+                        "deviceId", device.getId().toString(),
+                        "verificationCode", verificationCode,
+                        "codeExpiresAt", codeExpiresAt.toString()
+                )
+        );
+    }
+
+    @Transactional
+    public void checkChildLoginRecovery(Device device, String verificationCode, Instant codeExpiresAt) {
+        createAndPublish(
+                device,
+                "CHILD_LOGIN_RECOVERY",
+                AlertSeverity.WARNING,
+                "Child login recovery requested",
+                device.getDeviceName()
+                        + " needs to log in. Enter the recovery code below on the child device "
+                        + "(Forgot password → Use setup code).",
+                Map.of(
+                        "deviceId", device.getId().toString(),
+                        "verificationCode", verificationCode,
+                        "codeExpiresAt", codeExpiresAt.toString()
+                )
+        );
+    }
+
+    @Transactional
+    public void checkDeviceAdminDisabled(Device device) {
+        createAndPublish(
+                device,
+                "DEVICE_ADMIN_DISABLED",
+                AlertSeverity.CRITICAL,
+                "Device administrator removed",
+                device.getDeviceName()
+                        + ": device administrator was deactivated. "
+                        + "Monitoring protection is reduced — open the child app to review permissions.",
                 Map.of("deviceId", device.getId().toString())
         );
     }

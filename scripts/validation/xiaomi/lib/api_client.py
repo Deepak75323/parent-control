@@ -63,9 +63,12 @@ class ApiClient:
         )
         return resp or {}
 
-    def pairing_code(self, token: Optional[str] = None) -> dict:
+    def pairing_code(self, token: Optional[str] = None, child_login_password: str = "TestChild1234") -> dict:
         return self._request(
-            "POST", "/api/v1/devices/pairing-code", {}, token=token or self.parent_token
+            "POST",
+            "/api/v1/devices/pairing-code",
+            {"childLoginPassword": child_login_password},
+            token=token or self.parent_token,
         ) or {}
 
     def send_command(

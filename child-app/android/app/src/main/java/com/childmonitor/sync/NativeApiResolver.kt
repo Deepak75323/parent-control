@@ -13,7 +13,7 @@ import java.net.URL
 object NativeApiResolver {
 
     private const val TAG = "NativeApiResolver"
-    private const val DEFAULT_LAN_HOST = "192.168.1.8"
+    private const val DEFAULT_LAN_HOST = "192.168.1.2"
 
     fun candidates(context: Context): List<String> {
         val saved = MonitoringPrefs.apiBaseUrl(context)?.trimEnd('/')

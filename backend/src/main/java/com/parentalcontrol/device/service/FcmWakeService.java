@@ -29,16 +29,21 @@ public class FcmWakeService {
 
     public void wakeDevice(Device device, String action, Map<String, String> data) {
         if (!fcmProperties.isEnabled()) {
+            log.debug("FCM wake skipped — disabled");
             return;
         }
         String token = device.getFcmToken();
         if (token == null || token.isBlank()) {
-            log.debug("FCM wake skipped — no token for device {}", device.getId());
+            log.warn("[TRACE_ID={}] FCM wake skipped — no token for device {}",
+                    data != null ? data.get("traceId") : "none", device.getId());
             return;
         }
         Map<String, String> payload = new HashMap<>(data != null ? data : Map.of());
         payload.put("action", action);
         payload.put("deviceId", device.getId().toString());
+        String traceId = payload.get("traceId");
+        log.info("[TRACE_ID={}] FCM wake preparing action={} device={} payloadKeys={}",
+                traceId != null ? traceId : "none", action, device.getId(), payload.keySet());
 
         try {
             if (fcmOAuthTokenProvider.isConfigured()) {
@@ -46,12 +51,15 @@ public class FcmWakeService {
             } else if (fcmProperties.getServerKey() != null && !fcmProperties.getServerKey().isBlank()) {
                 sendLegacy(token, payload);
             } else {
-                log.warn("FCM enabled but neither service-account-file nor server-key is configured");
+                log.warn("[TRACE_ID={}] FCM enabled but neither service-account-file nor server-key is configured",
+                        traceId != null ? traceId : "none");
                 return;
             }
-            log.debug("FCM wake sent action={} device={}", action, device.getId());
+            log.info("[TRACE_ID={}] FCM wake sent successfully action={} device={}",
+                    traceId != null ? traceId : "none", action, device.getId());
         } catch (Exception e) {
-            log.warn("FCM wake failed for device {}: {}", device.getId(), e.getMessage());
+            log.error("[TRACE_ID={}] FCM wake failed for device {} action={}",
+                    traceId != null ? traceId : "none", device.getId(), action, e);
         }
     }
 

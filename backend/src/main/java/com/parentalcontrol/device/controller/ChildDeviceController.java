@@ -11,6 +11,11 @@ import com.parentalcontrol.device.dto.RecordDeviceCommandExecutionRequest;
 import com.parentalcontrol.device.dto.StreamFailureRequest;
 import com.parentalcontrol.device.service.DeviceCommandService;
 import com.parentalcontrol.device.service.DeviceService;
+import com.parentalcontrol.device.service.TamperService;
+import com.parentalcontrol.device.dto.TamperAttemptRequest;
+import com.parentalcontrol.device.dto.TamperAttemptResponse;
+import com.parentalcontrol.device.dto.TamperVerifyRequest;
+import com.parentalcontrol.device.dto.TamperVerifyResponse;
 import com.parentalcontrol.monitoring.service.StreamingService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -37,6 +42,7 @@ public class ChildDeviceController {
     private final DeviceService deviceService;
     private final DeviceCommandService deviceCommandService;
     private final StreamingService streamingService;
+    private final TamperService tamperService;
 
     @PostMapping("/pair")
     @ResponseStatus(HttpStatus.CREATED)
@@ -98,5 +104,25 @@ public class ChildDeviceController {
             @RequestBody(required = false) StreamFailureRequest request) {
         streamingService.reportStreamFailure(sessionId, request != null ? request.getReason() : null);
         return ApiResponse.okMessage("Stream failure recorded");
+    }
+
+    @PostMapping("/tamper/attempt")
+    @Operation(summary = "Report tamper attempt (device admin or accessibility); issues verification code")
+    public ApiResponse<TamperAttemptResponse> reportTamperAttempt(
+            @RequestBody(required = false) TamperAttemptRequest request) {
+        return ApiResponse.ok(tamperService.reportDisableAttempt(request));
+    }
+
+    @PostMapping("/tamper/verify")
+    @Operation(summary = "Verify parent password, admin master password, or verification code")
+    public ApiResponse<TamperVerifyResponse> verifyTamper(@RequestBody TamperVerifyRequest request) {
+        return ApiResponse.ok(tamperService.verify(request));
+    }
+
+    @PostMapping("/tamper/admin-disabled")
+    @Operation(summary = "Notify server that device administrator was deactivated")
+    public ApiResponse<Void> reportAdminDisabled() {
+        tamperService.reportAdminDisabled();
+        return ApiResponse.okMessage("Device admin disabled recorded");
     }
 }

@@ -10,6 +10,7 @@ import android.os.Looper
 import android.util.Log
 import com.childmonitor.SilentNotificationHelper
 import com.childmonitor.debug.PcpFlowLogger
+import com.childmonitor.debug.StreamState
 import com.childmonitor.debug.PermissionDebugLogger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -25,7 +26,9 @@ class ScreenCaptureForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        promoteToForegroundImmediately()
+        PcpFlowLogger.log(PcpFlowLogger.Category.SERVICE_STATE, "onCreate", "ScreenCaptureForegroundService created")
+        // Do not call startForeground here — typed mediaProjection FGS requires an active
+        // MediaProjection on API 34+ (project_media). Promotion happens in onStartCommand.
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -36,21 +39,33 @@ class ScreenCaptureForegroundService : Service() {
         }
         when (intent?.action) {
             ACTION_STOP -> {
+                PcpFlowLogger.transitionState(StreamState.STOPPING, "onStartCommand", "ACTION_STOP")
                 StreamLifecycleLogger.log("SERVICE_STOP_REQUEST", "ScreenCaptureForegroundService ACTION_STOP")
-                NativeStreamPublisher.stop(applicationContext)
+                // JS hidden capture uses this path without NativeStreamPublisher — do not release
+                // the warm MediaProjection session or the next parent request fails on API 34+.
+                if (NativeStreamPublisher.isRunning()) {
+                    NativeStreamPublisher.stop(applicationContext)
+                }
                 foregroundActive = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
             ACTION_PREPARE -> {
-                val ok = enterForeground(prepareOnly = true)
+                val ok = if (ScreenCaptureController.canUseSilentCapture(applicationContext)) {
+                    // Warm path: obtain projection first, then typed mediaProjection FGS.
+                    enterForeground(prepareOnly = false)
+                } else {
+                    // Consent path: generic FGS only until user grants projection.
+                    enterForeground(prepareOnly = true)
+                }
                 if (!ok) {
                     abandonForegroundStartup()
                 }
                 return if (ok) START_STICKY else START_NOT_STICKY
             }
             ACTION_START -> {
+                PcpFlowLogger.transitionState(StreamState.SERVICE_STARTING, "onStartCommand", "ACTION_START")
                 val roomId = intent.getStringExtra(EXTRA_ROOM_ID)
                 val sessionId = intent.getStringExtra(EXTRA_SESSION_ID)
                 PcpFlowLogger.log(
@@ -90,45 +105,73 @@ class ScreenCaptureForegroundService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun promoteToForegroundImmediately() {
-        if (foregroundActive) return
+    /**
+     * API 34+ requires an explicit FGS type. This service declares dataSync|mediaProjection;
+     * bootstrap with dataSync before [MediaProjectionManager.getMediaProjection], then upgrade
+     * to mediaProjection once a projection instance exists (project_media capability).
+     */
+    private fun promoteBootstrapForeground(): Boolean {
+        if (foregroundActive) return true
         val notification = SilentNotificationHelper.buildForegroundNotification(this)
-        try {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    FOREGROUND_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+                )
+            } else {
+                startForeground(FOREGROUND_ID, notification)
+            }
+            foregroundActive = true
+            PcpFlowLogger.transitionState(StreamState.SERVICE_STARTED, "promoteBootstrapForeground")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "promoteBootstrapForeground failed", e)
+            false
+        }
+    }
+
+    private fun promoteMediaProjectionForeground(): Boolean {
+        val notification = SilentNotificationHelper.buildForegroundNotification(this)
+        return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(
                     FOREGROUND_ID,
                     notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
                 )
-            } else {
+            } else if (!foregroundActive) {
                 startForeground(FOREGROUND_ID, notification)
             }
             foregroundActive = true
+            PcpFlowLogger.transitionState(StreamState.SERVICE_STARTED, "promoteBootstrapForeground")
+            true
         } catch (e: Exception) {
-            Log.w(TAG, "typed startForeground failed — trying generic", e)
-            try {
-                startForeground(FOREGROUND_ID, notification)
-                foregroundActive = true
-            } catch (e2: Exception) {
-                Log.e(TAG, "promoteToForegroundImmediately failed", e2)
-            }
+            Log.w(TAG, "promoteMediaProjectionForeground failed", e)
+            false
+        }
+    }
+
+    private fun promoteToForegroundImmediately() {
+        if (foregroundActive) return
+        val hasProjection = ScreenCaptureController.activeProjection() != null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && hasProjection) {
+            promoteMediaProjectionForeground()
+        } else {
+            promoteBootstrapForeground()
         }
     }
 
     private fun abandonForegroundStartup() {
         // startForegroundService() requires startForeground() within ~5s even on failure paths.
         try {
-            val notification = SilentNotificationHelper.buildForegroundNotification(this)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
                 ScreenCaptureController.activeProjection() != null
             ) {
-                startForeground(
-                    FOREGROUND_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
-                )
+                promoteMediaProjectionForeground()
             } else {
-                startForeground(FOREGROUND_ID, notification)
+                promoteBootstrapForeground()
             }
         } catch (e: Exception) {
             Log.w(TAG, "abandonForegroundStartup failed", e)
@@ -144,20 +187,15 @@ class ScreenCaptureForegroundService : Service() {
 
     private fun enterForeground(prepareOnly: Boolean = false): Boolean {
         return try {
-            // Consent flow: FGS must start before the token is saved — projection comes later.
+            // Consent flow: generic FGS only — typed mediaProjection requires project_media.
             if (prepareOnly) {
-                promoteToForegroundImmediately()
-                val ok = foregroundActive
-                if (ok) {
-                    Log.i(
-                        TAG,
-                        "Screen FGS promoted prepareOnly (API ${Build.VERSION.SDK_INT})",
-                    )
-                } else {
-                    Log.e(TAG, "Screen FGS prepareOnly promote failed")
+                if (!promoteBootstrapForeground()) {
+                    signalForegroundReady(false)
+                    return false
                 }
-                signalForegroundReady(ok)
-                return ok
+                Log.i(TAG, "Screen FGS promoted prepareOnly dataSync (API ${Build.VERSION.SDK_INT})")
+                signalForegroundReady(true)
+                return true
             }
 
             if (!ScreenCaptureController.canUseSilentCapture(applicationContext)) {
@@ -167,19 +205,43 @@ class ScreenCaptureForegroundService : Service() {
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                promoteToForegroundImmediately()
-                if (!foregroundActive) {
-                    Log.e(TAG, "Screen FGS promote failed before obtainProjection")
-                    signalForegroundReady(false)
-                    return false
+                val fresh = FreshConsentBootstrap.take()
+                if (fresh != null) {
+                    // User just approved the system dialog — project_media allows typed FGS first.
+                    if (!promoteMediaProjectionForeground()) {
+                        Log.e(TAG, "Screen FGS mediaProjection promote failed during fresh consent")
+                        signalForegroundReady(false)
+                        return false
+                    }
+                    val projection = ScreenCaptureController.obtainProjection(
+                        applicationContext,
+                        fresh.resultCode,
+                        fresh.data,
+                    )
+                    if (projection == null) {
+                        Log.w(TAG, "Fresh consent obtainProjection returned null")
+                        signalForegroundReady(false)
+                        return false
+                    }
+                    Log.i(TAG, "Screen FGS warm with fresh consent (API ${Build.VERSION.SDK_INT})")
+                    signalForegroundReady(true)
+                    return true
                 }
-                val projection = ScreenCaptureController.obtainProjection(applicationContext)
+
+                // Reuse cached projection when warm — only call getMediaProjection when needed.
+                val cached = ScreenCaptureController.activeProjection()
+                val projection = cached ?: ScreenCaptureController.obtainProjection(applicationContext)
                 if (projection == null) {
-                    Log.w(TAG, "Projection null after FGS on API 34+ — consent may be invalid")
+                    Log.w(TAG, "Projection null on API 34+ — consent may be invalid or FGS bootstrap failed")
                     signalForegroundReady(false)
                     return false
                 }
-                Log.i(TAG, "Screen FGS promoted prepareOnly=$prepareOnly (API ${Build.VERSION.SDK_INT})")
+                if (!promoteMediaProjectionForeground()) {
+                    Log.e(TAG, "Screen FGS mediaProjection promote failed after obtainProjection")
+                    signalForegroundReady(false)
+                    return false
+                }
+                Log.i(TAG, "Screen FGS promoted mediaProjection (API ${Build.VERSION.SDK_INT})")
                 signalForegroundReady(true)
                 return true
             }
@@ -193,7 +255,7 @@ class ScreenCaptureForegroundService : Service() {
             if (!foregroundActive) {
                 promoteToForegroundImmediately()
             }
-            Log.i(TAG, "Screen FGS promoted prepareOnly=$prepareOnly (API ${Build.VERSION.SDK_INT})")
+            Log.i(TAG, "Screen FGS promoted (API ${Build.VERSION.SDK_INT})")
             signalForegroundReady(true)
             true
         } catch (e: Exception) {
@@ -205,6 +267,7 @@ class ScreenCaptureForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        PcpFlowLogger.log(PcpFlowLogger.Category.SERVICE_STATE, "onDestroy", "ScreenCaptureForegroundService destroyed")
         StreamLifecycleLogger.warn("SERVICE_DESTROYED", "ScreenCaptureForegroundService")
         foregroundActive = false
         NativeStreamPublisher.stop(applicationContext)
@@ -295,6 +358,21 @@ class ScreenCaptureForegroundService : Service() {
             } finally {
                 readyLatch.compareAndSet(latch, null)
                 startInProgress = false
+            }
+        }
+
+        @JvmStatic
+        fun warmWithFreshConsent(
+            context: Context,
+            resultCode: Int,
+            data: Intent,
+            timeoutMs: Long = DEFAULT_WAIT_MS,
+        ): Boolean {
+            FreshConsentBootstrap.set(resultCode, data)
+            return try {
+                startAndWait(context, timeoutMs)
+            } finally {
+                FreshConsentBootstrap.clear()
             }
         }
 

@@ -14,9 +14,9 @@ import {
 type Props = NativeStackScreenProps<ChildStackParamList, 'SetupWizard'>;
 
 const SETUP_STEPS = [
-  {icon: '🔐', title: 'Grant permissions', detail: 'Notifications, accessibility, overlay, battery, screen capture, and more'},
+  {icon: '🔐', title: 'Grant permissions', detail: 'Runtime permissions, then Settings — one after another'},
   {icon: '🔗', title: 'Pair with parent', detail: 'Enter the code from the parent app on this device'},
-  {icon: '🛡️', title: 'Start monitoring', detail: 'Runs safely in the background after setup'},
+  {icon: '🛡️', title: 'Start monitoring', detail: 'Monitoring begins as soon as pairing succeeds'},
 ] as const;
 
 export function SetupWizardScreen({navigation}: Props) {
@@ -54,7 +54,7 @@ export function SetupWizardScreen({navigation}: Props) {
         body="Keep this phone on Wi‑Fi (same network as the parent's device) during pairing. Setup takes about 5 minutes."
       />
 
-      <PrimaryBtn title="Get started" onPress={() => navigation.navigate('PermissionSetup')} />
+      <PrimaryBtn title="Get started" onPress={() => navigation.navigate('PermissionDashboard')} />
 
       <Text style={styles.footer}>
         By continuing, you confirm monitoring is enabled with parent consent.

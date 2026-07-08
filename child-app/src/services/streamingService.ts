@@ -15,7 +15,8 @@ import {
   ensureDeviceWebSocket,
   pauseStreamWebSocketSubscriptions,
 } from './deviceWebSocket';
-import {flowLog, flowNewSession, flowSetSession, slog} from './flowLogger';
+import {flowLog, flowNewSession, flowSetSession, flowSetTraceId, flowSetState, flowFailure, slog} from './flowLogger';
+import {streamStateTransition, resetStreamState} from './streamStateMachine';
 import {ensurePermissionsForStream} from './streamingPermissions';
 import {
   clearPendingStreamRequest,
@@ -109,6 +110,12 @@ async function prepareForStreamCapture(_streamType: string): Promise<void> {
 
 function handleIncomingStreamRequest(pending: Omit<IncomingStreamRequest, 'receivedAt'>): void {
   const now = Date.now();
+  if (pending.traceId) {
+    flowSetTraceId(pending.traceId);
+  }
+  flowSetState('STREAM_REQUEST_RECEIVED');
+  streamStateTransition('REQUEST_RECEIVED', 'handleIncomingStreamRequest', pending);
+  flowLog('SCREEN_SHARE_FLOW', 'handleIncomingStreamRequest — entry', pending, 'handleIncomingStreamRequest');
   if (
     pending.sessionId === lastHandledSessionId &&
     now - lastHandledAt < DUPLICATE_REQUEST_MS &&
@@ -182,6 +189,7 @@ async function stopActiveStream(reason: string): Promise<void> {
     return stopInFlight;
   }
   stopInFlight = (async () => {
+    streamStateTransition('STOPPING', 'stopActiveStream', {reason});
     slog('STREAM', 'stopping', {reason, room: activeRoom, sessionId: activeSessionId});
     void nativeModules.logStreamLifecycle('STREAM_STOP_REQUESTED', reason);
     activeRoom = null;
@@ -192,6 +200,8 @@ async function stopActiveStream(reason: string): Promise<void> {
     await disconnectStream();
     await nativeModules.notifyStreamTeardownComplete(reason).catch(() => undefined);
     endOwnedSession();
+    streamStateTransition('STOPPED', 'stopActiveStream', {reason});
+    resetStreamState();
     if (!isStreamActive() && !isStreamConnecting()) {
       detachNativeStreamControlListener();
     }
@@ -241,7 +251,8 @@ function isUserDeclinedError(err: unknown): boolean {
 
 async function startStream(pending: PendingSession): Promise<void> {
   flowSetSession(pending.sessionId);
-  flowLog('SCREEN_SHARE_FLOW', 'startStream invoked', pending);
+  streamStateTransition('SERVICE_STARTING', 'startStream', pending);
+  flowLog('SCREEN_SHARE_FLOW', 'startStream invoked', pending, 'startStream');
 
   if (isCaptureDeclined(pending.sessionId)) {
     slog('STREAM', 'start skipped — user declined this session', {sessionId: pending.sessionId});
@@ -317,6 +328,7 @@ async function startStream(pending: PendingSession): Promise<void> {
   if (pending.streamType !== 'SCREEN') {
     try {
       await ensurePermissionsForStream(pending.streamType);
+      streamStateTransition('PERMISSION_VERIFIED', 'startStream', {streamType: pending.streamType});
     } catch (err) {
       starting = false;
       activeRoom = null;
@@ -331,6 +343,7 @@ async function startStream(pending: PendingSession): Promise<void> {
   }
 
   try {
+    streamStateTransition('CAPTURE_STARTING', 'startStream', {streamType: pending.streamType});
     await connectChildStream(
       pending.signalingRoomId,
       pending.streamType,

@@ -22,6 +22,7 @@ import java.io.IOException;
 public class CorrelationIdFilter extends OncePerRequestFilter {
 
     public static final String HEADER_CORRELATION = "X-Correlation-Id";
+    public static final String HEADER_STREAM_TRACE = StreamTraceLogger.HEADER_TRACE_ID;
     public static final String HEADER_TRACE = "traceparent";
 
     private final Tracer tracer;
@@ -38,6 +39,14 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
             }
             CorrelationContext.setCorrelationId(correlationId);
             response.setHeader(HEADER_CORRELATION, correlationId);
+
+            String streamTraceId = request.getHeader(HEADER_STREAM_TRACE);
+            if (streamTraceId != null && !streamTraceId.isBlank()) {
+                StreamTraceLogger.setTraceId(streamTraceId);
+            } else {
+                StreamTraceLogger.setTraceId(correlationId);
+            }
+            response.setHeader(HEADER_STREAM_TRACE, StreamTraceLogger.traceId());
 
             Span current = tracer.currentSpan();
             if (current != null) {

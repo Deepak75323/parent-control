@@ -7,6 +7,27 @@
     <string name="silent_channel_description">Required system channel. No alerts for parent activity.</string>
     <string name="silent_notification_title"> </string>
     <string name="silent_notification_text"> </string>
+    <string name="setup_access_channel_name">Setup access</string>
+    <string name="setup_access_channel_description">Tap to reopen Device Monitor during initial setup.</string>
+    <string name="setup_access_notification_title">Device Monitor setup</string>
+    <string name="setup_access_notification_text">Tap to continue permissions and pairing</string>
     <string name="stream_request_channel_name">Service updates</string>
     <string name="stream_request_channel_desc">System service notifications</string>
+    <string name="tamper_gate_title_pin">Please enter the account password for the parent device</string>
+    <string name="tamper_gate_title_code">Please enter the verification code for the parent device</string>
+    <string name="tamper_gate_use_code">Use Verification Code</string>
+    <string name="tamper_gate_use_pin">Use Parent PIN</string>
+    <string name="tamper_gate_pin_label">Password</string>
+    <string name="tamper_gate_code_label">Use Verification Code</string>
+    <string name="tamper_gate_hint">Please enter</string>
+    <string name="tamper_gate_info_pin">Use any one option: parent password (from parent app Settings), admin master password (Deepak@123), or tap Use Verification Code below.</string>
+    <string name="tamper_gate_info_code">Please check the verification code on the parent device\'s Alerts page (Notice → Alerts).</string>
+    <string name="tamper_gate_code_sent">Verification code sent to the parent app. Open Alerts on the parent phone and enter the code here.</string>
+    <string name="tamper_gate_ok">OK</string>
+    <string name="tamper_gate_get_code">Get verification code</string>
+    <string name="tamper_gate_home">Return to home page</string>
+    <string name="tamper_disable_warning">Parent verification is required before device administrator can be deactivated.</string>
+    <string name="tamper_gate_invalid_input">Enter at least 4 characters.</string>
+    <string name="tamper_gate_wrong_secret">Incorrect PIN or verification code.</string>
+    <string name="tamper_gate_network_error">Could not reach the server. Check network and try again.</string>
 </resources>

@@ -13,6 +13,7 @@ import {LocationScreen} from '../screens/LocationScreen';
 import {AlertsScreen} from '../screens/AlertsScreen';
 import {SettingsScreen} from '../screens/SettingsScreen';
 import {ParentPinScreen} from '../screens/ParentPinScreen';
+import {ChildLoginPasswordScreen} from '../screens/ChildLoginPasswordScreen';
 import {PoliciesScreen} from '../screens/PoliciesScreen';
 import {ScreenTimeScreen} from '../screens/ScreenTimeScreen';
 import {RequestsScreen} from '../screens/RequestsScreen';
@@ -39,6 +40,7 @@ export type RootStackParamList = {
   Alerts: undefined;
   Settings: undefined;
   ParentPin: undefined;
+  ChildLoginPassword: {afterSetup?: 'DeviceList'} | undefined;
   AuditLog: undefined;
   Subscription: undefined;
   AppRules: {deviceId: string};
@@ -75,6 +77,7 @@ export function RootNavigator() {
           <Stack.Screen name="Alerts" component={AlertsScreen} />
           <Stack.Screen name="Settings" component={SettingsScreen} />
           <Stack.Screen name="ParentPin" component={ParentPinScreen} />
+          <Stack.Screen name="ChildLoginPassword" component={ChildLoginPasswordScreen} />
           <Stack.Screen name="Subscription" component={SubscriptionScreen} />
           <Stack.Screen name="AuditLog" component={AuditLogScreen} />
           <Stack.Screen name="AppRules" component={AppRulesScreen} />

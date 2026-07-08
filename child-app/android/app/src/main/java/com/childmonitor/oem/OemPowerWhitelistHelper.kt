@@ -52,14 +52,7 @@ object OemPowerWhitelistHelper {
     }
 
     /** Route to vendor-specific background / autostart settings. */
-    fun promptOemBackgroundSettingsIfNeeded(context: Context) {
-        if (!MonitoringPrefs.isPaired(context)) return
-        if (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean(KEY_AUTOSTART_PROMPTED, false)
-        ) {
-            return
-        }
-        markAutostartPrompted(context)
+    fun openOemBackgroundSettings(context: Context) {
         when (OemVendor.detect()) {
             OemVendor.XIAOMI -> openXiaomiAutostart(context)
             OemVendor.SAMSUNG -> openSamsungNeverSleepingApps(context)
@@ -69,6 +62,18 @@ object OemPowerWhitelistHelper {
             OemVendor.MOTOROLA -> openMotorolaBattery(context)
             OemVendor.PIXEL, OemVendor.GENERIC -> openAppDetails(context)
         }
+    }
+
+    /** Post-pairing one-shot prompt — skipped when already shown or not paired. */
+    fun promptOemBackgroundSettingsIfNeeded(context: Context) {
+        if (!MonitoringPrefs.isPaired(context)) return
+        if (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_AUTOSTART_PROMPTED, false)
+        ) {
+            return
+        }
+        markAutostartPrompted(context)
+        openOemBackgroundSettings(context)
     }
 
     /** @deprecated Use promptOemBackgroundSettingsIfNeeded */
@@ -102,10 +107,24 @@ object OemPowerWhitelistHelper {
     }
 
     private fun openXiaomiAutostart(context: Context) {
+        val guidance = OemCompatibilityManager.buildGuidance(context)
+        val resolved = guidance.autostartIntent
+        if (resolved != null && startSettings(context, resolved)) {
+            Log.i(TAG, "Opened Xiaomi autostart via OemCompatibilityManager")
+            return
+        }
         val intents = listOf(
             Intent().setClassName(
                 "com.miui.securitycenter",
                 "com.miui.permcenter.autostart.AutoStartManagementActivity",
+            ),
+            Intent().setClassName(
+                "com.miui.securitycenter",
+                "com.miui.applicationlock.ConfirmAutoStartActivity",
+            ),
+            Intent().setClassName(
+                "com.miui.powerkeeper",
+                "com.miui.powerkeeper.ui.HiddenAppsContainerManagementActivity",
             ),
             Intent().setClassName(
                 "com.miui.securitycenter",
@@ -184,15 +203,25 @@ object OemPowerWhitelistHelper {
 
     private fun tryIntents(context: Context, intents: List<Intent>): Boolean {
         for (intent in intents) {
-            try {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
+            if (startSettings(context, intent)) {
                 Log.i(TAG, "Opened OEM settings: ${intent.component}")
                 return true
-            } catch (_: Exception) {
             }
         }
         return false
+    }
+
+    private fun startSettings(context: Context, intent: Intent): Boolean {
+        return try {
+            if (context !is android.app.Activity) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not start OEM settings intent: ${intent.component}", e)
+            false
+        }
     }
 
     private fun openAppDetails(context: Context) {

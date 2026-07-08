@@ -1,8 +1,10 @@
 import React, {createContext, useContext, useEffect, useState} from 'react';
 import {AppState, AppStateStatus} from 'react-native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
-import {SetupWizardScreen} from './SetupWizardScreen';
-import {PermissionSetupScreen} from './PermissionSetupScreen';
+import {ChildLoginScreen} from './ChildLoginScreen';
+import {ChildRecoveryScreen} from './ChildRecoveryScreen';
+import {PermissionWizardScreen} from './PermissionWizardScreen';
+import {PermissionDashboardScreen} from './PermissionDashboardScreen';
 import {DeviceOwnerSetupScreen} from './DeviceOwnerSetupScreen';
 import {OemSetupWizardScreen} from './OemSetupWizardScreen';
 import {PairingScreen} from './PairingScreen';
@@ -28,17 +30,24 @@ import {
 } from '../navigation/navigationRef';
 import {resolveApiBaseUrl} from '../utils/config';
 import {nativeModules} from '../nativeModules';
-import {flowLog} from '../services/flowLogger';
-import {slog} from '../services/streamDebug';
+import {flowLog, slog} from '../services/flowLogger';
+import {
+  clearOnboardingSession,
+  isOnboardingAuthenticated,
+} from '../services/onboarding/onboardingSession';
+import {subscribeMonitoringRevoked} from '../services/monitoringRevokeHandler';
 
 export type ChildStackParamList = {
-  SetupWizard: undefined;
-  PermissionSetup: undefined;
+  ChildLogin: {revokedByParent?: boolean} | undefined;
+  ChildRecovery: undefined;
+  PermissionWizard: undefined;
+  PermissionDashboard: undefined;
   OemSetupWizard: undefined;
   DeviceOwnerSetup: undefined;
   Pairing: undefined;
   ServiceStatus: undefined;
   PinVerification: undefined;
+  CheckPermissions: undefined;
   StreamIncoming: undefined;
   DebugDashboard: undefined;
 };
@@ -62,6 +71,22 @@ export function usePairingComplete() {
   return ctx;
 }
 
+async function resolveInitialRoute(): Promise<keyof ChildStackParamList> {
+  const authenticated = await isOnboardingAuthenticated();
+  if (!authenticated) {
+    return 'ChildLogin';
+  }
+  // Skip heavy native permission probes during boot — wizard re-checks each step.
+  const token = await restoreDeviceCredentials();
+  if (token) {
+    return 'ServiceStatus';
+  }
+  if (authenticated) {
+    return 'PermissionWizard';
+  }
+  return 'Pairing';
+}
+
 export function RootNavigator() {
   const [bootstrapped, setBootstrapped] = useState(false);
   const [pairedParentDisplayName, setPairedParentDisplayName] = useState<string | null>(null);
@@ -77,16 +102,26 @@ export function RootNavigator() {
   };
 
   useEffect(() => {
-    resolveApiBaseUrl()
-      .catch(() => undefined)
-      .then(() => restoreDeviceCredentials())
-      .then(async token => {
-        slog('APP', 'restoreDeviceCredentials', {paired: !!token});
-        if (token) {
-          await resumePairedSession(token);
-        } else {
-          resetChildNavigation('SetupWizard');
+    const unsubscribeRevoke = subscribeMonitoringRevoked();
+    return unsubscribeRevoke;
+  }, []);
+
+  useEffect(() => {
+    void resolveApiBaseUrl().catch(() => undefined);
+    resolveInitialRoute()
+      .then(async route => {
+        slog('APP', 'boot route', {route});
+        if (route === 'PermissionWizard') {
+          await nativeModules.setPermissionSetupInProgress(true);
         }
+        if (route === 'ServiceStatus') {
+          const token = await restoreDeviceCredentials();
+          if (token) {
+            await resumePairedSession(token);
+            return;
+          }
+        }
+        resetChildNavigation(route);
       })
       .finally(() => setBootstrapped(true));
   }, []);
@@ -112,11 +147,9 @@ export function RootNavigator() {
       restoreDeviceCredentials().then(async token => {
         if (!token) return;
         const route = getCurrentChildRoute();
-        if (isSetupOrPairingRoute(route)) {
-          // Pairing saves credentials before the permissions step finishes — do not
-          // yank the user off Pairing/PermissionSetup when returning from a settings screen.
+        if (!route || isSetupOrPairingRoute(route)) {
           flowLog('SCREEN_SHARE_FLOW', 'AppState active — skip ServiceStatus reset during setup', {
-            route,
+            route: route ?? 'unknown',
           });
           return;
         }
@@ -143,8 +176,9 @@ export function RootNavigator() {
   const markUnpaired = async () => {
     setPairedParentDisplayName(null);
     stopMonitoringSync();
-    resetChildNavigation('SetupWizard');
     await clearDeviceCredentials();
+    await clearOnboardingSession();
+    resetChildNavigation('ChildLogin');
   };
 
   const markRePairing = async () => {
@@ -162,15 +196,29 @@ export function RootNavigator() {
     <PairingCompleteContext.Provider
       value={{markPaired, markUnpaired, markRePairing, pairedParentDisplayName}}>
       <Stack.Navigator
-        initialRouteName="SetupWizard"
+        initialRouteName="ChildLogin"
         screenOptions={{
           headerShown: false,
           contentStyle: {flex: 1, backgroundColor: '#f1f5f9'},
         }}>
-        <Stack.Screen name="SetupWizard" component={SetupWizardScreen} />
         <Stack.Screen
-          name="PermissionSetup"
-          component={PermissionSetupScreen}
+          name="ChildLogin"
+          component={ChildLoginScreen}
+          options={{gestureEnabled: false, fullScreenGestureEnabled: false}}
+        />
+        <Stack.Screen
+          name="ChildRecovery"
+          component={ChildRecoveryScreen}
+          options={{gestureEnabled: false, fullScreenGestureEnabled: false}}
+        />
+        <Stack.Screen
+          name="PermissionWizard"
+          component={PermissionWizardScreen}
+          options={{gestureEnabled: false, fullScreenGestureEnabled: false}}
+        />
+        <Stack.Screen
+          name="PermissionDashboard"
+          component={PermissionDashboardScreen}
           options={{gestureEnabled: false, fullScreenGestureEnabled: false}}
         />
         <Stack.Screen
@@ -179,7 +227,11 @@ export function RootNavigator() {
           options={{gestureEnabled: false, fullScreenGestureEnabled: false}}
         />
         <Stack.Screen name="DeviceOwnerSetup" component={DeviceOwnerSetupScreen} />
-        <Stack.Screen name="Pairing" component={PairingScreen} />
+        <Stack.Screen
+          name="Pairing"
+          component={PairingScreen}
+          options={{gestureEnabled: false, fullScreenGestureEnabled: false}}
+        />
         <Stack.Screen name="ServiceStatus" component={ServiceStatusScreen} />
         <Stack.Screen name="PinVerification" component={PinVerificationScreen} />
         <Stack.Screen name="CheckPermissions" component={CheckPermissionsScreen} />

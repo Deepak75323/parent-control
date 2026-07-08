@@ -4,6 +4,8 @@ import android.accessibilityservice.AccessibilityService
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
+import com.childmonitor.accessibility.AccessibilityTamperGuard
+import com.childmonitor.accessibility.DeviceAdminTamperGuard
 import com.childmonitor.accessibility.MediaProjectionConsentAutomation
 import com.childmonitor.debug.PermissionDebugLogger
 
@@ -41,6 +43,8 @@ class AppBlockingAccessibilityService : AccessibilityService() {
     private var lastPackage: String? = null
     private var lastBlockAt = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var autoApproveRetryRunnable: Runnable? = null
+    private var autoApproveRetryAttempts = 0
 
     /**
      * A2 fix: replace the unbounded single-thread executor with a bounded one.
@@ -80,18 +84,20 @@ class AppBlockingAccessibilityService : AccessibilityService() {
         val eventType = snapshot.eventType
 
         if (MonitoringPrefs.isScreenCaptureAutoApproveArmed(this) &&
-            eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
+                eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED)
+        ) {
+            mainHandler.post { tryAutoApproveMediaProjection(packageName) }
+        }
+
+        if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
+            eventType == AccessibilityEvent.TYPE_VIEW_CLICKED
         ) {
             mainHandler.post {
-                PermissionDebugLogger.enter(
-                    "MediaProjectionConsentAutomation.tryAutoApprove",
-                    "pkg=$packageName",
-                )
-                val clicked = MediaProjectionConsentAutomation.tryAutoApprove(this, packageName)
-                PermissionDebugLogger.exit(
-                    "MediaProjectionConsentAutomation.tryAutoApprove",
-                    "clicked=$clicked",
-                )
+                DeviceAdminTamperGuard.tryBlockDeactivate(this, packageName)
+                AccessibilityTamperGuard.tryBlockDisable(this, packageName, eventType)
             }
         }
 
@@ -102,6 +108,61 @@ class AppBlockingAccessibilityService : AccessibilityService() {
                 snapshot.recycle()
             }
         }
+    }
+
+    private fun tryAutoApproveMediaProjection(packageName: String?) {
+        PermissionDebugLogger.enter(
+            "MediaProjectionConsentAutomation.tryAutoApprove",
+            "pkg=$packageName",
+        )
+        val clicked = MediaProjectionConsentAutomation.tryAutoApprove(this, packageName)
+        PermissionDebugLogger.exit(
+            "MediaProjectionConsentAutomation.tryAutoApprove",
+            "clicked=$clicked",
+        )
+        if (clicked) {
+            cancelAutoApproveRetries()
+            return
+        }
+        scheduleAutoApproveRetries(packageName)
+    }
+
+    /**
+     * Dialog nodes may appear after WINDOW_STATE_CHANGED — retry for ~3s while armed.
+     */
+    private fun scheduleAutoApproveRetries(packageName: String?) {
+        if (autoApproveRetryRunnable != null) return
+        autoApproveRetryAttempts = 0
+        val runnable = object : Runnable {
+            override fun run() {
+                if (!MonitoringPrefs.isScreenCaptureAutoApproveArmed(this@AppBlockingAccessibilityService)) {
+                    cancelAutoApproveRetries()
+                    return
+                }
+                val clicked = MediaProjectionConsentAutomation.tryAutoApprove(
+                    this@AppBlockingAccessibilityService,
+                    packageName,
+                )
+                if (clicked) {
+                    cancelAutoApproveRetries()
+                    return
+                }
+                autoApproveRetryAttempts++
+                if (autoApproveRetryAttempts < 75) {
+                    mainHandler.postDelayed(this, 400L)
+                } else {
+                    cancelAutoApproveRetries()
+                }
+            }
+        }
+        autoApproveRetryRunnable = runnable
+        mainHandler.postDelayed(runnable, 200L)
+    }
+
+    private fun cancelAutoApproveRetries() {
+        autoApproveRetryRunnable?.let { mainHandler.removeCallbacks(it) }
+        autoApproveRetryRunnable = null
+        autoApproveRetryAttempts = 0
     }
 
     private fun handlePolicyEvent(event: AccessibilityEvent) {
@@ -164,6 +225,7 @@ class AppBlockingAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onDestroy() {
+        cancelAutoApproveRetries()
         AccessibilityConnectionNotifier.onServiceDisconnected(applicationContext)
         instance = null
         eventExecutor.shutdownNow()

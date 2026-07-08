@@ -11,8 +11,10 @@ import {deviceApi, signalingApi, streamingApi} from './api';
 import {nativeModules} from '../nativeModules';
 import {subscribeSignalingRoom, unsubscribeSignalingRoom} from './deviceWebSocket';
 import {slog, flowLog} from './flowLogger';
+import {streamStateTransition} from './streamStateMachine';
 import {ensurePermissionsForStream} from './streamingPermissions';
-import {defaultIceConfig, isIceConfigStale, logIce, orderedSignalingMessages} from './webrtcIce';
+import {defaultIceConfig, isIceConfigStale, logIce, orderedSignalingMessages, adaptIceServersForDev} from './webrtcIce';
+import {getApiBaseUrl} from '../utils/config';
 import {markCaptureDeclined, setCapturePromptActive} from './streamCaptureGate';
 import {
   beginJsSession,
@@ -53,7 +55,10 @@ async function loadIceConfig(
   } catch (err) {
     slog('ICE', 'webrtc-config fetch failed', String(err));
   }
-  const ice = defaultIceConfig(apiServers, credentialExpiresAt);
+  const ice = defaultIceConfig(
+    adaptIceServersForDev(apiServers, getApiBaseUrl()),
+    credentialExpiresAt,
+  );
   slog('ICE', 'config loaded', {
     servers: ice.iceServers.length,
     policy: ice.iceTransportPolicy,
@@ -192,6 +197,7 @@ async function applyRemoteAnswer(payload: string, messageId: string): Promise<bo
   signalingBusy = true;
   try {
     await pc.setRemoteDescription(new RTCSessionDescription(parseSessionDescription(payload)));
+    streamStateTransition('REMOTE_DESCRIPTION_SET', 'applyRemoteAnswer', {messageId});
     seenIds.add(messageId);
     slog('SDP', 'remote ANSWER applied', messageId);
     flowLog('WEBRTC_FLOW', sdpHasVideoMline(pc.remoteDescription?.sdp) ? 'ANSWER_CONTAINS_VIDEO' : 'ANSWER_MISSING_VIDEO', {
@@ -349,6 +355,7 @@ function attachConnectionHandlers(peer: RTCPeerConnection): void {
     slog('PC', 'iceConnectionState', state);
     logIce('child', 'iceConnectionState', state);
     if (state === 'connected' || state === 'completed') {
+      streamStateTransition('CONNECTED', 'oniceconnectionstatechange', {state, roomId: activeRoomId});
       markJsActive();
       flowLog('WEBRTC_FLOW', 'ICE_CONNECTED', {state, roomId: activeRoomId});
       streamingApi
@@ -365,7 +372,11 @@ function attachConnectionHandlers(peer: RTCPeerConnection): void {
     logIce('child', 'connectionState', peer.connectionState ?? 'unknown');
   };
   peer.onicegatheringstatechange = () => {
-    slog('PC', 'iceGatheringState', peer.iceGatheringState ?? 'unknown');
+    const state = peer.iceGatheringState ?? 'unknown';
+    if (state === 'gathering') {
+      streamStateTransition('ICE_CONNECTING', 'onicegatheringstatechange', {state});
+    }
+    slog('PC', 'iceGatheringState', state);
   };
 }
 
@@ -390,6 +401,7 @@ export async function connectChildStream(
   }
 
   connecting = true;
+  streamStateTransition('WEBRTC_CONNECTING', 'connectChildStream', {roomId, streamType, sessionId});
   slog('FLOW', 'connectChildStream START', {roomId, streamType, sessionId});
   try {
     await disconnectStream(false);
@@ -417,6 +429,7 @@ export async function connectChildStream(
     });
 
     await ensurePermissionsForStream(streamType);
+    streamStateTransition('PERMISSION_VERIFIED', 'connectChildStream', {streamType});
 
     let stream: MediaStream;
     if (streamType === 'AUDIO') {
@@ -482,6 +495,11 @@ export async function connectChildStream(
       await waitForCaptureTrackLive(videoTrack);
     }
 
+    streamStateTransition('CAPTURE_RUNNING', 'connectChildStream', {
+      streamType,
+      tracks: stream.getTracks().map(t => ({kind: t.kind, id: t.id, readyState: t.readyState})),
+    });
+
     activeMediaStream = stream;
     pc = new RTCPeerConnection({
       iceServers: ice.iceServers,
@@ -523,6 +541,7 @@ export async function connectChildStream(
       sessionId,
     });
     await pc.setLocalDescription(offer);
+    streamStateTransition('LOCAL_DESCRIPTION_SET', 'connectChildStream', {roomId, sessionId});
     await signalingApi.post(roomId, 'offer', JSON.stringify(offer), sessionId);
     slog('SDP', 'offer sent', roomId);
     flowLog('SCREEN_SHARE_FLOW', 'offer sent', {roomId, sessionId});
@@ -545,6 +564,7 @@ export async function connectChildStream(
       throw new Error('Parent answer not received — check parent login/token');
     }
     startIceMonitor('child post-negotiation');
+    streamStateTransition('STREAMING', 'connectChildStream', {roomId, sessionId});
     markJsActive();
     void nativeModules.markJsStreamSessionActive(sessionId).catch(() => undefined);
     slog('PC', 'negotiation complete', {
@@ -552,6 +572,7 @@ export async function connectChildStream(
       connection: pc?.connectionState,
     });
   } catch (err) {
+    streamStateTransition('FAILED', 'connectChildStream', {error: String(err)});
     slog('FLOW', 'connectChildStream FAILED', String(err));
     throw err;
   } finally {

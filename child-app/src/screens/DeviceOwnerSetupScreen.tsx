@@ -5,6 +5,7 @@ import {useFocusEffect} from '@react-navigation/native';
 import {ChildStackParamList} from './RootNavigator';
 import {nativeModules} from '../nativeModules';
 import {flowLog} from '../services/flowLogger';
+import {isPermissionStatusComplete, loadPermissionStatus} from '../services/permissionDashboard/permissionStatus';
 import {
   Card,
   HeroBlock,
@@ -42,6 +43,13 @@ export function DeviceOwnerSetupScreen({navigation}: Props) {
       flowLog('PERMISSION_FLOW', 'DeviceOwnerSetup — screen capture already granted');
       return;
     }
+    if (!(await nativeModules.isScreenCaptureAutoApproveReady())) {
+      Alert.alert(
+        'Enable Accessibility first',
+        'Accessibility auto-taps "Share screen" on the Android dialog. Enable it in Permissions setup, then try again.',
+      );
+      return;
+    }
     if (consentBusy) {
       flowLog('PERMISSION_FLOW', 'DeviceOwnerSetup — consent already in progress');
       return;
@@ -66,10 +74,23 @@ export function DeviceOwnerSetupScreen({navigation}: Props) {
     }
   }, [consentBusy, projectionOk, refresh]);
 
+  const continueToPairing = useCallback(async () => {
+    const status = await loadPermissionStatus();
+    if (!isPermissionStatusComplete(status)) {
+      Alert.alert(
+        'Permissions required',
+        'Grant every permission on the dashboard before continuing.',
+      );
+      navigation.navigate('PermissionWizard');
+      return;
+    }
+    navigation.navigate('Pairing');
+  }, [navigation]);
+
   const caps = isOwner && projectionOk;
 
   return (
-    <ScreenShell backLabel="← Back to permissions" onBack={() => navigation.goBack()}>
+    <ScreenShell backLabel="← Back" onBack={() => navigation.goBack()}>
       <HeroBlock
         eyebrow="Optional upgrade"
         title="Full protection"
@@ -106,7 +127,7 @@ export function DeviceOwnerSetupScreen({navigation}: Props) {
 
       <PrimaryBtn
         title={caps ? 'Continue to pairing' : 'Skip — use standard protection'}
-        onPress={() => navigation.navigate('Pairing')}
+        onPress={() => void continueToPairing()}
       />
     </ScreenShell>
   );

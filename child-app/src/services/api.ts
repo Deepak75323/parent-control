@@ -19,8 +19,12 @@ api.interceptors.request.use(async (req: InternalAxiosRequestConfig) => {
   req.baseURL = getApiBaseUrl();
   Object.assign(req.headers, correlationHeaders());
 
-  // Pairing is unauthenticated — stale tokens must not be sent.
-  if (req.url === '/api/v1/device/pair') {
+  // Pairing and onboarding are unauthenticated — stale tokens must not be sent.
+  if (
+    req.url === '/api/v1/device/pair' ||
+    req.url === '/api/v1/onboarding/authenticate' ||
+    req.url === '/api/v1/onboarding/recovery/request'
+  ) {
     delete req.headers.Authorization;
     return req;
   }
@@ -113,6 +117,23 @@ export const deviceApi = {
 
   reportStreamFailure: (sessionId: string, reason: string) =>
     api.post(`/api/v1/device/stream-sessions/${sessionId}/failure`, {reason}),
+};
+
+export const tamperApi = {
+  reportAttempt: (target?: 'accessibility' | 'device_admin') =>
+    api.post<
+      ApiResponse<{parentPinConfigured: boolean; message: string}>
+    >('/api/v1/device/tamper/attempt', target ? {target} : {}),
+
+  verifyPin: (pin: string, target?: 'accessibility' | 'device_admin') =>
+    api.post<
+      ApiResponse<{verified: boolean; unlockExpiresAt?: string}>
+    >('/api/v1/device/tamper/verify', target ? {pin, target} : {pin}),
+
+  verifyCode: (code: string, target?: 'accessibility' | 'device_admin') =>
+    api.post<
+      ApiResponse<{verified: boolean; unlockExpiresAt?: string}>
+    >('/api/v1/device/tamper/verify', target ? {code, target} : {code}),
 };
 
 export const monitoringApi = {

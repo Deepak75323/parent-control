@@ -158,14 +158,7 @@ class StompRedisClusterIntegrationTest {
         String parentToken = objectMapper.readTree(login.getResponse().getContentAsString())
                 .get("data").get("accessToken").asText();
 
-        MvcResult pairing = mockMvc.perform(post("/api/v1/devices/pairing-code")
-                        .header("Authorization", "Bearer " + parentToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isOk())
-                .andReturn();
-        String pairingCode = objectMapper.readTree(pairing.getResponse().getContentAsString())
-                .get("data").get("code").asText();
+        String pairingCode = IntegrationTestSupport.createPairingCode(mockMvc, objectMapper, parentToken);
 
         MvcResult pair = mockMvc.perform(post("/api/v1/device/pair")
                         .contentType(MediaType.APPLICATION_JSON)

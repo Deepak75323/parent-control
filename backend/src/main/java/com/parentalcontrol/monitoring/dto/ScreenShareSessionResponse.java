@@ -20,4 +20,6 @@ public class ScreenShareSessionResponse {
     private String message;
     /** NATIVE = silent Device Owner capture; RN_DISPLAY_MEDIA = standard consent dialog */
     private String captureMode;
+    /** End-to-end trace id for stream debugging */
+    private String traceId;
 }

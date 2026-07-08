@@ -4,6 +4,10 @@ spring:
     activate:
       on-profile: prod
 
+tamper:
+  master-pin:
+    enabled: false
+
 app:
   security:
     # Production: always require parent PIN for sensitive remote-control commands.

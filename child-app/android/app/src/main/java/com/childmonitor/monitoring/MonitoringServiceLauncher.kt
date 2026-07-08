@@ -6,6 +6,7 @@ import android.os.Build
 import android.util.Log
 import com.childmonitor.MonitoringForegroundService
 import com.childmonitor.MonitoringPrefs
+import com.childmonitor.SetupAccessNotificationHelper
 
 /**
  * Single entry point for starting monitoring — applies Android 15 backoff and avoids restart loops.
@@ -29,6 +30,7 @@ object MonitoringServiceLauncher {
 
     fun onDevicePaired(context: Context) {
         val app = context.applicationContext
+        SetupAccessNotificationHelper.sync(app)
         MonitoringWorkScheduler.ensurePeriodicMonitoring(app)
         requestMonitoring(app, Reason.USER, force = true)
     }

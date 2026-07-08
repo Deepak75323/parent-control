@@ -1,6 +1,7 @@
 import {Client, IMessage} from '@stomp/stompjs';
 import {getWebSocketClient, connectWebSocket} from './websocketService';
 import {slog} from './streamDebug';
+import {traceLog, traceError, setTraceState} from '../utils/traceLogger';
 
 const signalingHandlers = new Map<string, (payload: Record<string, unknown>) => void>();
 const activeSubscriptions = new Map<string, {unsubscribe: () => void}>();
@@ -16,6 +17,12 @@ function doSubscribe(roomId: string, handler: (payload: Record<string, unknown>)
 
   const sub = client.subscribe(`/topic/signaling/${roomId}`, msg => {
     const payload = parseJson<Record<string, unknown>>(msg);
+    traceLog('Socket', 'subscribeSignalingRoom', 'STOMP signaling received', {
+      roomId,
+      type: payload.messageType,
+      from: payload.senderRole,
+      traceId: payload.traceId,
+    });
     slog('WS', 'signaling push', {
       roomId,
       type: payload.messageType,
@@ -32,6 +39,8 @@ export function subscribeSignalingRoom(
   handler: (payload: Record<string, unknown>) => void,
 ): void {
   signalingHandlers.set(roomId, handler);
+  traceLog('Socket', 'subscribeSignalingRoom', 'Subscribing to signaling room', {roomId});
+  setTraceState('SIGNALING_SUBSCRIBE');
 
   const client = getWebSocketClient();
   if (client?.connected) {

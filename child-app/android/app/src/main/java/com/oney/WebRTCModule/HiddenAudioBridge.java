@@ -14,6 +14,9 @@ import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
 
+import com.childmonitor.capture.StreamSessionRegistry;
+import com.childmonitor.sync.DeviceHttpClient;
+
 import java.lang.reflect.Field;
 
 /**
@@ -25,6 +28,34 @@ public final class HiddenAudioBridge {
     private static volatile String activeStreamId = null;
     private static volatile AudioFocusRequest audioFocusRequest = null;
     private static volatile ReactApplicationContext activeReactContext = null;
+    private static volatile Runnable onStopForegroundCallback = null;
+
+    private static void handleUnrecoverableFocusLoss() {
+        ReactApplicationContext ctx = activeReactContext;
+        Context appContext = ctx != null ? ctx.getApplicationContext() : null;
+        Runnable stopFgs = onStopForegroundCallback;
+        onStopForegroundCallback = null;
+        Log.w(TAG, "Audio focus lost permanently — tearing down mic stream");
+        if (ctx != null) {
+            stopActiveCapture(ctx);
+        }
+        if (stopFgs != null) {
+            try {
+                stopFgs.run();
+            } catch (Exception e) {
+                Log.w(TAG, "onStopForeground after focus loss failed", e);
+            }
+        }
+        if (appContext != null) {
+            String sessionId = StreamSessionRegistry.INSTANCE.activeSessionId();
+            if (sessionId != null && !sessionId.isBlank()) {
+                final Context reportCtx = appContext;
+                final String sid = sessionId;
+                new Thread(() -> DeviceHttpClient.INSTANCE.reportStreamFailure(
+                        reportCtx, sid, "AUDIO_FOCUS_LOST")).start();
+            }
+        }
+    }
 
     private static final OnAudioFocusChangeListener AUDIO_FOCUS_LISTENER = focusChange -> {
         Log.d(TAG, "audio focus change=" + focusChange);
@@ -36,11 +67,7 @@ public final class HiddenAudioBridge {
                 || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
             boolean regained = requestAudioFocus(activeReactContext.getApplicationContext());
             if (!regained) {
-                Log.w(TAG, "Audio focus lost and could not be regained — stopping capture");
-                ReactApplicationContext ctx = activeReactContext;
-                if (ctx != null) {
-                    stopActiveCapture(ctx);
-                }
+                handleUnrecoverableFocusLoss();
             }
         }
     };
@@ -101,6 +128,7 @@ public final class HiddenAudioBridge {
         }
         activeStreamId = null;
         activeReactContext = null;
+        onStopForegroundCallback = null;
         abandonAudioFocus(reactContext.getApplicationContext());
         try {
             WebRTCModule webrtc = reactContext.getNativeModule(WebRTCModule.class);
@@ -126,6 +154,7 @@ public final class HiddenAudioBridge {
         new Thread(() -> {
             try {
                 stopActiveCapture(reactContext);
+                onStopForegroundCallback = onStopForeground;
 
                 if (!foregroundGate.enter()) {
                     promise.reject(
@@ -169,6 +198,7 @@ public final class HiddenAudioBridge {
                                 }
                                 activeStreamId = streamId;
                                 activeReactContext = reactContext;
+                                onStopForegroundCallback = onStopForeground;
                                 WritableMap data = Arguments.createMap();
                                 data.putString("streamId", streamId);
                                 data.putMap("track", tracks.getMap(0));

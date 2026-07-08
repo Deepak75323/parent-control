@@ -12,6 +12,9 @@ import org.webrtc.ThreadUtils
 import org.webrtc.VideoCapturer
 import org.webrtc.VideoFrame
 import org.webrtc.VideoSink
+import com.childmonitor.debug.PcpFlowLogger
+import com.childmonitor.debug.StreamState
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -24,6 +27,14 @@ class ReuseProjectionCapturer(
     private val densityDpi: Int,
     private val onProjectionLost: (() -> Unit)? = null,
 ) : VideoCapturer, VideoSink {
+
+    companion object {
+        private val firstFrameSent = AtomicBoolean(false)
+
+        fun resetFirstFrameFlag() {
+            firstFrameSent.set(false)
+        }
+    }
 
     private val captureOwnerId = "ReuseProjectionCapturer@${System.identityHashCode(this)}"
 
@@ -39,17 +50,23 @@ class ReuseProjectionCapturer(
     private val mediaProjectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
             CaptureFrameLogger.warn("MEDIA_PROJECTION_CALLBACK_ON_STOP", threadContext())
-            // Pass context so REQUIRES_RECONSENT is written to SharedPreferences; without it
-            // the state stays GRANTED_ACTIVE in prefs while in-memory binders are gone.
+            if (ScreenCaptureController.isIntentionalProjectionStop()) {
+                // releaseProjection() for re-capture — do not notify WebRTC (VideoSource may
+                // be disposed → SIGSEGV in NativeAndroidVideoTrackSource.setState).
+                CaptureFrameLogger.log("MEDIA_PROJECTION_CALLBACK_ON_STOP_INTENTIONAL", threadContext())
+                releaseVirtualDisplayOnly()
+                return
+            }
+            // System or user revoked projection — invalidate consent and notify publisher.
             MediaProjectionTokenStore.invalidateSession(appContext)
             ScreenCaptureController.detachProjection()
             val helper = surfaceTextureHelper
+            val stopCaptureRunnable = Runnable { stopCapture() }
             if (helper != null) {
-                helper.handler.post { stopCapture() }
+                helper.handler.post(stopCaptureRunnable)
             } else {
-                stopCapture()
+                stopCaptureRunnable.run()
             }
-            // Notify the stream publisher so it can stop cleanly and release the session registry.
             onProjectionLost?.invoke()
         }
     }
@@ -198,9 +215,13 @@ class ReuseProjectionCapturer(
                     invokeError.set(t)
                     MediaProjectionCaptureGate.release(captureOwnerId)
                     CaptureFrameLogger.error("CREATE_VIRTUAL_DISPLAY_FAILED", t, threadContext())
-                    if (t is SecurityException) {
-                        MediaProjectionTokenStore.invalidateSession()
-                        ScreenCaptureController.detachProjection()
+                    if (t is SecurityException && !ScreenCaptureController.isIntentionalProjectionStop()) {
+                        val ctx = appContext
+                        if (ctx != null) {
+                            MediaProjectionTokenStore.markRequiresReconsent(ctx, "virtual_display_rejected")
+                        }
+                        MediaProjectionTokenStore.invalidateSession(ctx)
+                        ScreenCaptureController.onConsentInvalidated()
                     }
                     throw t
                 }
@@ -243,6 +264,10 @@ class ReuseProjectionCapturer(
     }
 
     override fun onFrame(frame: VideoFrame) {
+        if (firstFrameSent.compareAndSet(false, true)) {
+            PcpFlowLogger.transitionState(StreamState.FIRST_FRAME_SENT, "ReuseProjectionCapturer.onFrame",
+                "${frame.rotatedWidth}x${frame.rotatedHeight}")
+        }
         CaptureFrameLogger.onFrameCaptured(
             CaptureFrameLogger.VideoFrameDimensions(frame.rotatedWidth, frame.rotatedHeight),
         )
@@ -251,6 +276,14 @@ class ReuseProjectionCapturer(
 
     override fun stopCapture() {
         CaptureFrameLogger.log("CAPTURE_STOP_ENTER", threadContext())
+        releaseVirtualDisplayOnly()
+        surfaceTextureHelper?.stopListening()
+        capturerObserver?.onCapturerStopped()
+        CaptureFrameLogger.log("CAPTURE_STOP_EXIT", threadContext())
+    }
+
+    /** Release VirtualDisplay only — no WebRTC observer callback (safe from MediaProjection.onStop). */
+    private fun releaseVirtualDisplayOnly() {
         val helper = surfaceTextureHelper
         if (helper != null) {
             try {
@@ -275,10 +308,9 @@ class ReuseProjectionCapturer(
         } else {
             virtualDisplay?.release()
             virtualDisplay = null
+            ScreenCaptureController.markVirtualDisplayActive(false)
+            MediaProjectionCaptureGate.release(captureOwnerId)
         }
-        helper?.stopListening()
-        capturerObserver?.onCapturerStopped()
-        CaptureFrameLogger.log("CAPTURE_STOP_EXIT", threadContext())
     }
 
     override fun changeCaptureFormat(width: Int, height: Int, framerate: Int) {

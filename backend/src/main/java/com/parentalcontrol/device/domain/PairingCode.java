@@ -40,6 +40,10 @@ public class PairingCode extends BaseEntity {
     @Column(name = "device_id")
     private UUID deviceId;
 
+    /** bcrypt hash of the child device login password (parent sets during pairing). */
+    @Column(name = "child_login_password_hash")
+    private String childLoginPasswordHash;
+
     public boolean isExpired() {
         return Instant.now().isAfter(expiresAt);
     }

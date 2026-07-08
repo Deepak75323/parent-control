@@ -1,0 +1,24 @@
+package com.childmonitor.debug
+
+/** Unified stream lifecycle states — grep Logcat with {@code STREAM_STATE}. */
+enum class StreamState {
+    IDLE,
+    REQUEST_SENT,
+    REQUEST_RECEIVED,
+    SERVICE_STARTING,
+    SERVICE_STARTED,
+    PERMISSION_VERIFIED,
+    CAPTURE_STARTING,
+    CAPTURE_RUNNING,
+    WEBRTC_CONNECTING,
+    LOCAL_DESCRIPTION_SET,
+    REMOTE_DESCRIPTION_SET,
+    ICE_CONNECTING,
+    CONNECTED,
+    FIRST_FRAME_SENT,
+    FIRST_FRAME_RECEIVED,
+    STREAMING,
+    STOPPING,
+    STOPPED,
+    FAILED,
+}

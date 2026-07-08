@@ -62,16 +62,29 @@ export function AlertsScreen({navigation}: Props) {
         data={merged}
         keyExtractor={item => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        renderItem={({item}) => (
+        renderItem={({item}) => {
+          const verificationCode =
+            item.alertType === 'DEVICE_ADMIN_DISABLE_ATTEMPT' &&
+            typeof item.payloadJson?.verificationCode === 'string'
+              ? item.payloadJson.verificationCode
+              : null;
+          return (
           <View style={styles.card}>
             <Text style={[styles.severity, severityStyle(item.severity)]}>{item.severity}</Text>
             <Text style={styles.cardTitle}>{item.title}</Text>
             {item.message ? <Text style={styles.body}>{item.message}</Text> : null}
+            {verificationCode ? (
+              <View style={styles.codeBox}>
+                <Text style={styles.codeLabel}>Verification code</Text>
+                <Text style={styles.codeValue}>{verificationCode}</Text>
+              </View>
+            ) : null}
             <Text style={styles.meta}>
               {item.alertType} · {new Date(item.createdAt).toLocaleString()}
             </Text>
           </View>
-        )}
+          );
+        }}
         ListEmptyComponent={
           <EmptyState
             icon="🔔"
@@ -103,5 +116,13 @@ const styles = StyleSheet.create({
   severityLow: {color: '#2563eb'},
   cardTitle: {fontSize: 16, fontWeight: '600', marginTop: 4, color: '#0f172a'},
   body: {marginTop: 4, color: '#475569', lineHeight: 20},
+  codeBox: {
+    marginTop: 10,
+    backgroundColor: '#ede9fe',
+    borderRadius: 10,
+    padding: 12,
+  },
+  codeLabel: {fontSize: 12, color: '#6d28d9', fontWeight: '600'},
+  codeValue: {fontSize: 28, fontWeight: '800', color: '#5b21b6', letterSpacing: 6, marginTop: 4},
   meta: {marginTop: 8, fontSize: 12, color: '#94a3b8'},
 });

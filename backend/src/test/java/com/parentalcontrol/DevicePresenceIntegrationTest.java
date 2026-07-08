@@ -81,14 +81,7 @@ class DevicePresenceIntegrationTest {
         accessToken = objectMapper.readTree(login.getResponse().getContentAsString())
                 .get("data").get("accessToken").asText();
 
-        MvcResult code = mockMvc.perform(post("/api/v1/devices/pairing-code")
-                        .header("Authorization", "Bearer " + accessToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isOk())
-                .andReturn();
-        pairingCode = objectMapper.readTree(code.getResponse().getContentAsString())
-                .get("data").get("code").asText();
+        pairingCode = IntegrationTestSupport.createPairingCode(mockMvc, objectMapper, accessToken);
 
         MvcResult pair = mockMvc.perform(post("/api/v1/device/pair")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -146,6 +139,7 @@ class DevicePresenceIntegrationTest {
                         .content("""
                                 {"batteryLevel": 90, "charging": true, "networkType": "WIFI"}
                                 """))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("REPAIR_REQUIRED"));
     }
 }

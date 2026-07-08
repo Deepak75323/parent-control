@@ -10,6 +10,22 @@ function normalizeUrls(urls: string | string[]): string[] {
   return Array.isArray(urls) ? urls : [urls];
 }
 
+/** Split multi-URL iceServers so each transport can be selected independently in dev tooling. */
+export function expandIceServersByUrl(servers: RTCIceServer[]): RTCIceServer[] {
+  const expanded: RTCIceServer[] = [];
+  for (const server of servers) {
+    const urls = normalizeUrls(server.urls as string | string[]);
+    if (urls.length <= 1) {
+      expanded.push(server);
+      continue;
+    }
+    for (const url of urls) {
+      expanded.push({...server, urls: url});
+    }
+  }
+  return expanded;
+}
+
 /** Emulator maps 10.0.2.2 → host; rewrite loopback TURN URLs from the API. */
 export function adaptIceServersForDev(
   servers: RTCIceServer[],
@@ -36,8 +52,10 @@ export function adaptIceServersForDev(
       return url
         .replace(/^turn:127\.0\.0\.1/i, 'turn:10.0.2.2')
         .replace(/^turn:localhost/i, 'turn:10.0.2.2')
+        .replace(/^turn:192\.168\.\d+\.\d+/i, 'turn:10.0.2.2')
         .replace(/^turns:127\.0\.0\.1/i, 'turns:10.0.2.2')
-        .replace(/^turns:localhost/i, 'turns:10.0.2.2');
+        .replace(/^turns:localhost/i, 'turns:10.0.2.2')
+        .replace(/^turns:192\.168\.\d+\.\d+/i, 'turns:10.0.2.2');
     });
     return {
       ...server,

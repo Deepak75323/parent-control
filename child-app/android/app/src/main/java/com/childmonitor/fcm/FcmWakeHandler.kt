@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.PowerManager
 import android.util.Log
 import com.childmonitor.MonitoringPrefs
+import com.childmonitor.debug.PcpFlowLogger
+import com.childmonitor.debug.StreamState
 import com.childmonitor.monitoring.BootWakeChain
 import com.childmonitor.monitoring.MonitoringBurstEngine
 import com.childmonitor.monitoring.MonitoringServiceLauncher
@@ -50,19 +52,27 @@ object FcmWakeHandler {
     }
 
     fun handleMessage(context: Context, data: Map<String, String>) {
+        PcpFlowLogger.applyTraceFromPayload(data)
+        PcpFlowLogger.setState("FCM_RECEIVED")
+        PcpFlowLogger.log(PcpFlowLogger.Category.FCM, "handleMessage", "Firebase notification received", data.toString())
         if (!MonitoringPrefs.isPaired(context)) {
+            PcpFlowLogger.warn(PcpFlowLogger.Category.FCM, "handleMessage", "Ignoring FCM — device not paired")
             Log.w(TAG, "Ignoring FCM — device not paired")
             return
         }
         val action = data["action"] ?: run {
+            PcpFlowLogger.warn(PcpFlowLogger.Category.FCM, "handleMessage", "Ignoring FCM — missing action")
             Log.w(TAG, "Ignoring FCM — missing action")
             return
         }
-        Log.i(TAG, "FCM wake action=$action")
+        PcpFlowLogger.log(PcpFlowLogger.Category.FCM, "handleMessage", "FCM action parsed", "action=$action")
+        Log.i(TAG, "FCM wake action=$action traceId=${data["traceId"]}")
+        PcpFlowLogger.log(PcpFlowLogger.Category.FCM, "acquireWakeLock", "Acquiring partial wake lock", "timeoutMs=$WAKE_LOCK_MS")
         acquireWakeLock(context)
         try {
             dispatchWithWakeLock(context, action, data)
         } finally {
+            PcpFlowLogger.log(PcpFlowLogger.Category.FCM, "releaseWakeLock", "Releasing wake lock")
             releaseWakeLock()
         }
     }
@@ -111,6 +121,15 @@ object FcmWakeHandler {
                 val sessionId = data["sessionId"] ?: ""
                 val streamType = data["streamType"] ?: "SCREEN"
                 val cameraFacing = data["cameraFacing"]
+                PcpFlowLogger.setState("FCM_STREAM_REQUEST")
+                PcpFlowLogger.transitionState(StreamState.REQUEST_RECEIVED, "dispatchWithWakeLock",
+                    "room=$roomId session=$sessionId type=$streamType")
+                PcpFlowLogger.log(
+                    PcpFlowLogger.Category.FCM,
+                    "dispatchWithWakeLock",
+                    "STREAM_REQUEST received via FCM",
+                    "room=$roomId session=$sessionId type=$streamType facing=$cameraFacing",
+                )
                 // Hold the wake lock until the FGS and coordinator are started.
                 // Previously this returned immediately and the device could sleep before
                 // the stream FGS was promoted — causing the stream to be silently dropped.
@@ -139,7 +158,17 @@ object FcmWakeHandler {
                 }.start()
                 val finished = latch.await(WAKE_WORK_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                 if (!finished) {
+                    PcpFlowLogger.failureReport(
+                        PcpFlowLogger.Category.FCM,
+                        "dispatchWithWakeLock",
+                        input = "room=$roomId session=$sessionId",
+                        reason = "FCM STREAM_REQUEST work timed out",
+                        actual = "timeoutMs=$WAKE_WORK_TIMEOUT_MS",
+                        nextCauses = listOf("FGS start blocked", "MediaProjection unavailable", "Device in Doze"),
+                    )
                     Log.w(TAG, "FCM STREAM_REQUEST work timed out after ${WAKE_WORK_TIMEOUT_MS}ms")
+                } else {
+                    PcpFlowLogger.log(PcpFlowLogger.Category.FCM, "dispatchWithWakeLock", "STREAM_REQUEST FCM dispatch complete")
                 }
             }
             else -> MonitoringBurstEngine.runCycle(context.applicationContext)

@@ -30,4 +30,10 @@ public interface PairingCodeRepository extends JpaRepository<PairingCode, UUID> 
             @Param("deviceId") UUID deviceId,
             @Param("usedAt") Instant usedAt,
             @Param("now") Instant now);
+
+    @Query("""
+            SELECT p FROM PairingCode p
+            WHERE p.usedAt IS NULL AND p.expiresAt > :now AND p.childLoginPasswordHash IS NOT NULL
+            """)
+    java.util.List<PairingCode> findActiveUnusedWithPassword(@Param("now") Instant now);
 }

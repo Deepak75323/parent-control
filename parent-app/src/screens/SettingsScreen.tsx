@@ -19,6 +19,12 @@ export function SettingsScreen({navigation}: Props) {
       />
       <Card style={styles.menuCard}>
         <MenuRow
+          icon="🔑"
+          title="Child login password"
+          subtitle="Same password on every child phone"
+          onPress={() => navigation.navigate('ChildLoginPassword')}
+        />
+        <MenuRow
           icon="🔒"
           title="Parent PIN"
           subtitle="Unlock silent screen monitoring"

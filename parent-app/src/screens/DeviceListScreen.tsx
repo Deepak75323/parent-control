@@ -13,15 +13,29 @@ import {useFocusEffect} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {RootStackParamList} from '../navigation/RootNavigator';
-import {deviceApi, DeviceSummary} from '../services/api';
+import {deviceApi, DeviceSummary, childLoginPasswordApi} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {useAuthStore} from '../store/authStore';
 import {plog} from '../services/pairingLog';
+
+function apiErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const data = (err as {response?: {data?: {message?: string}}}).response?.data;
+    if (data?.message?.trim()) {
+      return data.message.trim();
+    }
+  }
+  return fallback;
+}
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DeviceList'>;
 
 function isOnline(status?: string): boolean {
   return (status ?? '').toUpperCase() === 'ONLINE';
+}
+
+function isRevoked(status?: string): boolean {
+  return (status ?? '').toUpperCase() === 'REVOKED';
 }
 
 function DeviceRow({
@@ -37,19 +51,25 @@ function DeviceRow({
 }) {
   const status = liveStatus ?? device.status;
   const online = isOnline(status);
+  const revoked = isRevoked(status);
   const battery = liveBattery ?? device.batteryLevel;
 
   return (
     <Pressable
       style={({pressed}) => [styles.deviceCard, pressed && styles.deviceCardPressed]}
       onPress={onPress}>
-      <View style={[styles.statusDot, online ? styles.statusOnline : styles.statusOffline]} />
+      <View
+        style={[
+          styles.statusDot,
+          revoked ? styles.statusRevoked : online ? styles.statusOnline : styles.statusOffline,
+        ]}
+      />
       <View style={styles.deviceInfo}>
         <Text style={styles.deviceName} numberOfLines={1}>
           {device.deviceName}
         </Text>
         <Text style={styles.deviceMeta}>
-          {online ? 'Online' : status ?? 'Offline'}
+          {revoked ? 'Revoked' : online ? 'Online' : status ?? 'Offline'}
           {battery != null ? ` · ${battery}%` : ''}
         </Text>
       </View>
@@ -98,7 +118,36 @@ export function DeviceListScreen({navigation}: Props) {
 
   useFocusEffect(
     useCallback(() => {
+      childLoginPasswordApi
+        .status()
+        .then(r => {
+          if (!r.data.data?.configured) {
+            navigation.replace('ChildLoginPassword', {afterSetup: 'DeviceList'});
+          }
+        })
+        .catch(() => navigation.replace('ChildLoginPassword', {afterSetup: 'DeviceList'}));
+    }, [navigation]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
       load();
+      const code = useRealtimeStore.getState().pendingPairingCode;
+      if (code) {
+        deviceApi
+          .getPairingCodeStatus(code)
+          .then(({data}) => {
+            const status = data.data;
+            if (status?.used && status.deviceId) {
+              plog('focus detected pairing via code status', status);
+              useRealtimeStore.getState().notifyPairingComplete({
+                deviceId: status.deviceId,
+                deviceName: status.deviceName?.trim() || 'Child device',
+              });
+            }
+          })
+          .catch(err => plog('focus pairing status error', String(err)));
+      }
     }, [load]),
   );
 
@@ -112,8 +161,6 @@ export function DeviceListScreen({navigation}: Props) {
       plog('generate pairing code');
       const {data: devicesBefore} = await deviceApi.list();
       const fromApi = devicesBefore.data ?? [];
-      // Fall back to the UI device list when the API returns empty but we already show devices
-      // (prevents poll from treating an existing child as a "new" pairing).
       const baseline = fromApi.length > 0 ? fromApi : devices;
       const {data} = await deviceApi.createPairingCode();
       const code = data.data?.code?.trim();
@@ -129,7 +176,8 @@ export function DeviceListScreen({navigation}: Props) {
       await load();
     } catch (err) {
       plog('pairing code failed', String(err));
-      Alert.alert('Error', 'Could not create pairing code');
+      const message = apiErrorMessage(err, 'Could not create pairing code');
+      Alert.alert('Error', message);
     } finally {
       setGenerating(false);
     }
@@ -142,6 +190,11 @@ export function DeviceListScreen({navigation}: Props) {
   };
 
   const connectionColor = wsConnected ? '#22c55e' : '#f59e0b';
+  const connectionLabel = wsConnected
+    ? 'Live sync connected'
+    : pendingPairingCode
+      ? 'Connecting live sync…'
+      : 'Live sync offline';
 
   return (
     <SafeAreaView style={styles.root} edges={['bottom']}>
@@ -167,9 +220,7 @@ export function DeviceListScreen({navigation}: Props) {
               ) : null}
               <View style={styles.connectionRow}>
                 <View style={[styles.connectionDot, {backgroundColor: connectionColor}]} />
-                <Text style={styles.connectionText}>
-                  {wsConnected ? 'Live sync connected' : 'Reconnecting live sync…'}
-                </Text>
+                <Text style={styles.connectionText}>{connectionLabel}</Text>
               </View>
             </View>
 
@@ -186,7 +237,8 @@ export function DeviceListScreen({navigation}: Props) {
                 <Text style={styles.pairingLabel}>Active pairing code</Text>
                 <CodeDisplay code={pendingPairingCode} />
                 <Text style={styles.pairingHint}>
-                  Enter this on the child phone now. One use only — expires in 15 minutes
+                  Enter the setup code on the child phone only if recovery is needed. Children log in
+                  with your family password from Settings. One use only — expires in 15 minutes
                   {codeExpiresAt
                     ? ` (until ${new Date(codeExpiresAt).toLocaleTimeString()})`
                     : ''}
@@ -207,7 +259,7 @@ export function DeviceListScreen({navigation}: Props) {
                   pressed && styles.generateBtnPressed,
                   generating && styles.generateBtnDisabled,
                 ]}
-                onPress={generateCode}
+                onPress={() => void generateCode()}
                 disabled={generating}>
                 {generating ? (
                   <ActivityIndicator color="#fff" />
@@ -368,6 +420,7 @@ const styles = StyleSheet.create({
   deviceCardPressed: {backgroundColor: '#f8fafc'},
   statusDot: {width: 10, height: 10, borderRadius: 5, marginRight: 12},
   statusOnline: {backgroundColor: '#22c55e'},
+  statusRevoked: {backgroundColor: '#dc2626'},
   statusOffline: {backgroundColor: '#cbd5e1'},
   deviceInfo: {flex: 1},
   deviceName: {fontSize: 15, fontWeight: '600', color: '#0f172a'},

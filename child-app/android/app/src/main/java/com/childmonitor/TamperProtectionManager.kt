@@ -4,10 +4,12 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.os.Build
 import com.childmonitor.MainActivity
 import com.childmonitor.capture.StreamLifecycleLogger
+import com.childmonitor.permissions.PermissionSettingsLauncher
 
 object TamperProtectionManager {
 
@@ -36,6 +38,13 @@ object TamperProtectionManager {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         }
+
+    /**
+     * Opens the system screen where the user can enable or deactivate device administrators.
+     * Avoids [Settings.ACTION_SECURITY_SETTINGS] — on MIUI/HyperOS that opens the wrong page.
+     */
+    fun openDeviceAdminSettings(context: Context): Boolean =
+        PermissionSettingsLauncher.openDeviceAdmin(context, activity = null)
 
     fun resolveLauncherComponent(context: Context): ComponentName? {
         val alias = launcherAliasComponent(context)
@@ -122,6 +131,7 @@ object TamperProtectionManager {
      * Hides the app icon from the launcher. Requires active device admin when [hidden] is true.
      */
     fun setHideLauncher(context: Context, hidden: Boolean): Boolean {
+        if (hidden && !MonitoringPrefs.isPaired(context)) return false
         if (hidden && !isDeviceAdminActive(context)) return false
 
         migrateLegacyMainActivityDisabled(context)
@@ -131,10 +141,12 @@ object TamperProtectionManager {
         val alreadyHidden = isLauncherComponentDisabled(context, component)
         if (hidden && alreadyHidden) {
             MonitoringPrefs.setHideLauncherEnabled(context, true)
+            SetupAccessNotificationHelper.sync(context)
             return true
         }
         if (!hidden && !alreadyHidden) {
             MonitoringPrefs.setHideLauncherEnabled(context, false)
+            SetupAccessNotificationHelper.sync(context)
             return true
         }
 
@@ -150,6 +162,7 @@ object TamperProtectionManager {
             if (hidden) "LAUNCHER_HIDDEN" else "LAUNCHER_SHOWN",
             "component=${component.className}",
         )
+        SetupAccessNotificationHelper.sync(context)
         return true
     }
 
@@ -166,6 +179,7 @@ object TamperProtectionManager {
         setHideLauncher(context, false)
         MonitoringPrefs.setTamperProtectionEnabled(context, false)
         MonitoringPrefs.setHideLauncherEnabled(context, false)
+        SetupAccessNotificationHelper.sync(context)
     }
 
     /** Intent to open the RN app when the launcher icon is hidden (via foreground notification). */
