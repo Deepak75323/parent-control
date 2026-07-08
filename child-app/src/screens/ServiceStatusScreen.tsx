@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
+  Alert,
   Animated,
   View,
   Text,
@@ -72,6 +73,38 @@ export function ServiceStatusScreen({navigation}: Props) {
   const [busy, setBusy] = useState(false);
   const [screenCaptureOk, setScreenCaptureOk] = useState(true);
   const [grantBusy, setGrantBusy] = useState(false);
+
+  // Hide App state
+  const [launcherHidden, setLauncherHidden] = useState(false);
+  const [hideBusy, setHideBusy] = useState(false);
+
+  useEffect(() => {
+    nativeModules.isLauncherHidden().then(h => setLauncherHidden(h)).catch(() => undefined);
+  }, []);
+
+  const toggleHideApp = useCallback(async () => {
+    if (hideBusy) return;
+    setHideBusy(true);
+    try {
+      const next = !launcherHidden;
+      const ok = await nativeModules.setHideLauncher(next);
+      if (ok) {
+        setLauncherHidden(next);
+        Alert.alert(
+          next ? 'App hidden' : 'App visible',
+          next
+            ? 'The app icon is now hidden from the launcher. Open it again via Settings → Apps if needed.'
+            : 'The app icon is now visible in the launcher.',
+        );
+      } else {
+        Alert.alert('Not available', 'Device admin must be active to hide the app icon.');
+      }
+    } catch (e) {
+      Alert.alert('Error', String(e));
+    } finally {
+      setHideBusy(false);
+    }
+  }, [launcherHidden, hideBusy]);
 
   const heroAnim = useFadeSlideIn(0);
   const syncAnim = usePressScale(0.95);
@@ -249,6 +282,17 @@ export function ServiceStatusScreen({navigation}: Props) {
           />
           <View style={styles.menuDivider} />
           <MenuButton
+            icon={launcherHidden ? '👁️' : '🫥'}
+            label={launcherHidden ? 'Show app icon' : 'Hide app icon'}
+            subtitle={
+              launcherHidden
+                ? 'Make this app visible in the launcher again'
+                : 'Remove this app from the launcher so the child cannot find it'
+            }
+            onPress={() => void toggleHideApp()}
+          />
+          <View style={styles.menuDivider} />
+          <MenuButton
             icon="🔗"
             label="Re-pair with new code"
             subtitle="Link to a different parent account"
@@ -418,4 +462,5 @@ const styles = StyleSheet.create({
   // Version
   versionCard: {alignItems: 'center', paddingVertical: 12},
   versionText: {fontSize: 12, color: '#94a3b8'},
+
 });

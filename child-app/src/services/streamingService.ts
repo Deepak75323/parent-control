@@ -113,9 +113,10 @@ function handleIncomingStreamRequest(pending: Omit<IncomingStreamRequest, 'recei
   if (pending.traceId) {
     flowSetTraceId(pending.traceId);
   }
-  flowSetState('STREAM_REQUEST_RECEIVED');
-  streamStateTransition('REQUEST_RECEIVED', 'handleIncomingStreamRequest', pending);
-  flowLog('SCREEN_SHARE_FLOW', 'handleIncomingStreamRequest — entry', pending, 'handleIncomingStreamRequest');
+  // Duplicate check MUST run before any state transition.  Moving streamStateTransition below this
+  // guard means the active/connecting state is still visible when we check, so a second delivery of
+  // the same session-id (e.g. from the native wake listener) correctly returns early instead of
+  // tearing down the ongoing stream.
   if (
     pending.sessionId === lastHandledSessionId &&
     now - lastHandledAt < DUPLICATE_REQUEST_MS &&
@@ -127,6 +128,9 @@ function handleIncomingStreamRequest(pending: Omit<IncomingStreamRequest, 'recei
     });
     return;
   }
+  flowSetState('STREAM_REQUEST_RECEIVED');
+  streamStateTransition('REQUEST_RECEIVED', 'handleIncomingStreamRequest', pending);
+  flowLog('SCREEN_SHARE_FLOW', 'handleIncomingStreamRequest — entry', pending, 'handleIncomingStreamRequest');
   lastHandledSessionId = pending.sessionId;
   lastHandledAt = now;
 

@@ -38,7 +38,8 @@ import {
 import {subscribeMonitoringRevoked} from '../services/monitoringRevokeHandler';
 
 export type ChildStackParamList = {
-  ChildLogin: {revokedByParent?: boolean} | undefined;
+  /** returnTo: when set, successful login navigates to that screen instead of PermissionWizard */
+  ChildLogin: {revokedByParent?: boolean; returnTo?: 'ServiceStatus'} | undefined;
   ChildRecovery: undefined;
   PermissionWizard: undefined;
   PermissionDashboard: undefined;
@@ -79,7 +80,8 @@ async function resolveInitialRoute(): Promise<keyof ChildStackParamList> {
   // Skip heavy native permission probes during boot — wizard re-checks each step.
   const token = await restoreDeviceCredentials();
   if (token) {
-    return 'ServiceStatus';
+    // Paired — show the password lock screen first; success navigates to ServiceStatus.
+    return 'ChildLogin';
   }
   if (authenticated) {
     return 'PermissionWizard';
@@ -97,7 +99,8 @@ export function RootNavigator() {
     if (name) {
       setPairedParentDisplayName(name);
     }
-    resetChildNavigation('ServiceStatus');
+    // Show the password lock screen; on success it navigates to ServiceStatus.
+    resetChildNavigation('ChildLogin', {returnTo: 'ServiceStatus'});
     await startMonitoringSync(token, hmacKey ?? undefined, name ?? undefined);
   };
 
@@ -114,7 +117,10 @@ export function RootNavigator() {
         if (route === 'PermissionWizard') {
           await nativeModules.setPermissionSetupInProgress(true);
         }
-        if (route === 'ServiceStatus') {
+        // When a device is already paired, resolveInitialRoute returns 'ChildLogin'
+        // (to show the lock screen). resumePairedSession handles starting monitoring
+        // and then navigates to ChildLogin with returnTo='ServiceStatus'.
+        if (route === 'ChildLogin') {
           const token = await restoreDeviceCredentials();
           if (token) {
             await resumePairedSession(token);
@@ -134,9 +140,12 @@ export function RootNavigator() {
           state: nextState,
         });
         pauseStreamingListener();
-        if (!isStreamActive()) {
-          void nativeModules.setJsStreamingListenerActive(false);
-        }
+        // Always tell native the JS listener is inactive when backgrounded.
+        // Previously this was skipped when isStreamActive() was true, but that left
+        // jsListenerActive=true while the streamRequestWake handler was already
+        // detached — native would emit wake events into a void instead of routing
+        // to the headless path, so background camera requests were silently dropped.
+        void nativeModules.setJsStreamingListenerActive(false);
         return;
       }
       if (nextState !== 'active') return;
@@ -157,7 +166,8 @@ export function RootNavigator() {
         if (name) {
           setPairedParentDisplayName(name);
         }
-        resetChildNavigation('ServiceStatus');
+        // Re-foreground: show the lock screen again for security.
+        resetChildNavigation('ChildLogin', {returnTo: 'ServiceStatus'});
         const hmacKey = await getDeviceHmacKey();
         await startMonitoringSync(token, hmacKey ?? undefined, name ?? undefined);
       });

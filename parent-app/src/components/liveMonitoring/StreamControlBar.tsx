@@ -20,6 +20,10 @@ type Props = {
   pipVisible: boolean;
   isFullscreen: boolean;
   bottomInset: number;
+  /** Whether the camera stream audio is muted on the parent side */
+  audioMuted?: boolean;
+  /** Called to toggle camera stream audio mute (shown only in camera mode) */
+  onToggleAudioMute?: () => void;
 };
 
 export function StreamControlBar({
@@ -40,6 +44,8 @@ export function StreamControlBar({
   pipVisible,
   isFullscreen,
   bottomInset,
+  audioMuted,
+  onToggleAudioMute,
 }: Props) {
   return (
     <View style={[styles.bar, {paddingBottom: bottomInset + 10}]}>
@@ -81,6 +87,15 @@ export function StreamControlBar({
         {showSwitchCamera && onSwitchCamera ? (
           <Pressable style={styles.secondaryBtn} onPress={onSwitchCamera}>
             <Text style={styles.secondaryBtnText}>Flip</Text>
+          </Pressable>
+        ) : null}
+        {onToggleAudioMute ? (
+          <Pressable
+            style={[styles.secondaryBtn, !audioMuted && styles.audioActiveBtn]}
+            onPress={onToggleAudioMute}>
+            <Text style={styles.secondaryBtnText}>
+              {audioMuted ? '🔇 Muted' : '🔊 Sound'}
+            </Text>
           </Pressable>
         ) : null}
         {onToggleFullscreen ? (
@@ -135,6 +150,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(56, 189, 248, 0.35)',
     borderWidth: 1,
     borderColor: 'rgba(56, 189, 248, 0.6)',
+  },
+  audioActiveBtn: {
+    backgroundColor: 'rgba(34, 197, 94, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.5)',
   },
   stopBtn: {
     minWidth: 88,

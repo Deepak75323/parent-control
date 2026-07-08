@@ -21,6 +21,10 @@ public final class HiddenCameraBridge {
 
     private static final String TAG = "HiddenCameraBridge";
     private static volatile String activeStreamId = null;
+    // Held so stopActiveCapture can call stopCapture() → ProcessCameraProvider.unbindAll(),
+    // which clears the Android green privacy indicator. mediaStreamRelease alone only
+    // removes the stream wrapper and does not reach the CameraX lifecycle.
+    private static volatile AbstractVideoCaptureController activeController = null;
 
     private HiddenCameraBridge() {}
 
@@ -34,13 +38,27 @@ public final class HiddenCameraBridge {
             return;
         }
         activeStreamId = null;
+
+        // Stop the CameraX capturer first so ProcessCameraProvider.unbindAll() runs
+        // synchronously and the green camera privacy indicator is cleared immediately.
+        AbstractVideoCaptureController ctrl = activeController;
+        activeController = null;
+        if (ctrl != null) {
+            try {
+                ctrl.stopCapture();
+                Log.i(TAG, "stopActiveCapture: capturer stopped, camera unbound");
+            } catch (Exception e) {
+                Log.w(TAG, "stopActiveCapture: capturer stopCapture failed", e);
+            }
+        }
+
         try {
             WebRTCModule webrtc = reactContext.getNativeModule(WebRTCModule.class);
             if (webrtc != null) {
                 webrtc.mediaStreamRelease(streamId);
             }
         } catch (Exception e) {
-            Log.w(TAG, "stopActiveCapture failed", e);
+            Log.w(TAG, "stopActiveCapture: stream release failed", e);
         }
     }
 
@@ -112,6 +130,8 @@ public final class HiddenCameraBridge {
                     return;
                 }
 
+                // Capture in a final variable so the lambda can reference it.
+                final com.oney.WebRTCModule.AbstractVideoCaptureController capturedController = controller;
                 webrtc.createStream(
                         new MediaStreamTrack[] {videoTrack},
                         (streamId, tracksInfo) -> {
@@ -120,6 +140,9 @@ public final class HiddenCameraBridge {
                                 promise.reject("NO_TRACK", "Camera track missing after createStream");
                                 return;
                             }
+                            // Store controller reference so stopActiveCapture can reach
+                            // CameraXVideoCapturer.stopCapture() → unbindAll().
+                            activeController = capturedController;
                             activeStreamId = streamId;
                             WritableMap data = Arguments.createMap();
                             data.putString("streamId", streamId);

@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -86,9 +87,12 @@ public class WebrtcConfigService {
             }
         }
 
-        StreamTraceLogger.info("Backend", "TURN", "buildIceConfig", "ICE config built",
-                Map.of("subjectId", subjectId, "sessionId", sessionId,
-                        "serverCount", servers.size(), "hasTurn", webrtcProperties.hasTurnUrls()));
+        Map<String, Object> traceAttrs = new HashMap<>();
+        traceAttrs.put("subjectId", subjectId);
+        traceAttrs.put("sessionId", sessionId);
+        traceAttrs.put("serverCount", servers.size());
+        traceAttrs.put("hasTurn", webrtcProperties.hasTurnUrls());
+        StreamTraceLogger.info("Backend", "TURN", "buildIceConfig", "ICE config built", traceAttrs);
 
         return WebrtcIceConfigResponse.builder()
                 .iceServers(servers)

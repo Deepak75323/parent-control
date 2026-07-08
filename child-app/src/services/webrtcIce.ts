@@ -106,6 +106,11 @@ export function isIceConfigStale(ice: IceConfig | null, refreshSkewSeconds = 300
 }
 
 function usesLocalDevTurn(servers: RTCIceServer[]): boolean {
+  // Only force relay-only when the TURN server is reachable solely via a virtual/loopback
+  // address (10.0.2.2 = Android-emulator alias for host loopback; 127.0.0.1/localhost).
+  // LAN IPs (192.168.x.x) are reachable from a physical device via Wi-Fi, so the child
+  // should use 'all' policy: host/srflx candidates allow a direct Wi-Fi path that bypasses
+  // the broken hairpin TURN relay (both relays on the same host IP).
   return servers.some(server => {
     const urls = normalizeUrls(server.urls as string | string[]);
     return urls.some(
@@ -113,7 +118,6 @@ function usesLocalDevTurn(servers: RTCIceServer[]): boolean {
         typeof url === 'string' &&
         (url.includes('10.0.2.2') ||
           url.includes('127.0.0.1') ||
-          url.includes('192.168.') ||
           url.includes('localhost')),
     );
   });

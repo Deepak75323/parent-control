@@ -19,8 +19,11 @@ sleep 1
 echo "Starting coturn on 0.0.0.0:3478 (external: ${LAN_IP}/10.0.2.2, relay: all interfaces)"
 exec turnserver \
   -n \
+  --no-tls \
+  --no-dtls \
   --log-file=/tmp/pcp-coturn.log \
   --fingerprint \
+  --no-cli \
   --realm="${TURN_REALM}" \
   --static-auth-secret="${TURN_SECRET}" \
   --listening-ip=0.0.0.0 \
@@ -28,4 +31,8 @@ exec turnserver \
   --external-ip="${LAN_IP}/10.0.2.2" \
   --listening-port=3478 \
   --min-port="${MIN_PORT}" \
-  --max-port="${MAX_PORT}"
+  --max-port="${MAX_PORT}" \
+  --allowed-peer-ip=192.168.0.0-192.168.255.255 \
+  --allowed-peer-ip=10.0.0.0-10.255.255.255 \
+  --allow-loopback-peers \
+  --verbose

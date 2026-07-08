@@ -1,4 +1,6 @@
+import {Platform} from 'react-native';
 import {config} from '../utils/config';
+import {slog} from './streamDebug';
 
 export type IceConfig = {
   iceServers: RTCIceServer[];
@@ -13,15 +15,32 @@ function normalizeUrls(urls: string | string[]): string[] {
   return Array.isArray(urls) ? urls : [urls];
 }
 
+function isAndroidEmulator(): boolean {
+  if (Platform.OS !== 'android') {
+    return false;
+  }
+  const fingerprint = String(Platform.constants?.Fingerprint ?? '');
+  const model = String(Platform.constants?.Model ?? '');
+  return (
+    fingerprint.includes('generic') ||
+    fingerprint.includes('emu64') ||
+    model.includes('sdk_gphone') ||
+    model.includes('Emulator')
+  );
+}
+
 function isEmulatorDevApi(apiBaseUrl: string): boolean {
   if (!__DEV__) {
     return false;
   }
   try {
-    return new URL(apiBaseUrl).hostname === '10.0.2.2';
+    if (new URL(apiBaseUrl).hostname === '10.0.2.2') {
+      return true;
+    }
   } catch {
-    return false;
+    // fall through to hardware heuristic
   }
+  return isAndroidEmulator();
 }
 
 /** One ICE URL per RTCIceServer — required so emulator can drop UDP TURN without keeping UDP in a multi-URL entry. */
@@ -68,35 +87,28 @@ function isUdpTurnUrl(url: string): boolean {
 }
 
 /**
- * Emulator cannot route to Mac LAN IPs in relay candidates (192.168.x.x).
- * Rewrite every LAN / loopback address in relay lines so connectivity checks hit the host via 10.0.2.2.
- * Parent → child posted candidates are left unchanged (phone reaches LAN relay addresses).
+ * Dev emulator TURN topology:
+ * - Both parent (emulator) and child (physical) reach coturn via adb reverse tcp:3478.
+ * - Coturn allocates relay addresses as 192.168.x.x (LAN IP, since adb connects via loopback).
+ * - Parent uses iceTransportPolicy:'relay' so ALL ICE traffic flows through coturn TCP — the
+ *   emulator never routes directly to relay IPs.
+ * - When parent tells coturn "forward to 192.168.x.x:child_relay_port", coturn recognises
+ *   its own relay port and performs hairpin delivery to the child over the child's TCP connection.
+ * - Rewriting 192.168.x.x to 10.0.2.2 breaks hairpin: coturn cannot route to 10.0.2.2 from the
+ *   host machine, so ICE always fails. Keep child relay candidates unchanged.
  */
 export function adaptRelayCandidateForEmulator(
   candidate: RTCIceCandidateInit,
-  apiBaseUrl: string,
+  _apiBaseUrl: string,
 ): RTCIceCandidateInit {
-  if (!candidate.candidate || !isEmulatorDevApi(apiBaseUrl)) {
-    return candidate;
-  }
-  const line = candidate.candidate;
-  if (!/\btyp relay\b/.test(line)) {
-    return candidate;
-  }
-  const adapted = line
-    .replace(/\b192\.168\.\d{1,3}\.\d{1,3}\b/g, '10.0.2.2')
-    .replace(/\b127\.0\.0\.1\b/g, '10.0.2.2');
-  if (adapted === line) {
-    return candidate;
-  }
-  logIce('parent', 'relay candidate rewritten for emulator', adapted.slice(0, 72));
-  return {...candidate, candidate: adapted};
+  return candidate;
 }
 
 /**
  * Parent-on-emulator dev topology:
  * - TURN control plane: TCP to 10.0.2.2:3478 (host loopback via emulator alias + adb reverse).
- * - Relay data plane: rewrite child's LAN relay addresses to 10.0.2.2 when applying remote candidates.
+ * - Remote relay candidates kept as-is (192.168.x.x): parent routes them through coturn TCP
+ *   and coturn does hairpin delivery to its own relay ports — no IP rewrite needed.
  * - UDP TURN to 192.168.x from the emulator is dropped (split entries + TCP-only filter).
  */
 export function adaptIceServersForDev(
@@ -150,6 +162,13 @@ export function adaptIceServersForDev(
   });
 
   const chosenTurn = tcpTurn.length > 0 ? tcpTurn : turnEntries;
+  const result = [...nonTurn, ...chosenTurn];
+  slog('ICE', 'emulator ICE adapt', {
+    in: servers.length,
+    out: result.length,
+    tcpOnly: tcpTurn.length > 0,
+    turnUrls: chosenTurn.map(s => normalizeUrls(s.urls as string | string[])[0]),
+  });
   logIce(
     'parent',
     'emulator ICE servers',
@@ -180,8 +199,9 @@ export function mergeIceServers(apiServers: RTCIceServer[] = []): RTCIceServer[]
 export function defaultIceConfig(
   apiServers: RTCIceServer[] = [],
   credentialExpiresAt?: number,
+  apiBaseUrl: string = config.apiBaseUrl,
 ): IceConfig {
-  const iceServers = mergeIceServers(apiServers);
+  const iceServers = adaptIceServersForDev(mergeIceServers(apiServers), apiBaseUrl);
   if (!__DEV__ && !iceServers.some(hasTurnCredentials)) {
     logIce('config', 'warning', 'no ephemeral TURN credentials from API');
   }

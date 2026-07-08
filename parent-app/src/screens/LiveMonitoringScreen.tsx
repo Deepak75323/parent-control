@@ -10,6 +10,7 @@ import {
   disconnectViewer,
   reconnectParentViewer,
   registerStreamListeners,
+  setRemoteAudioEnabled,
 } from '../services/webrtcService';
 import {slog, slogReset} from '../services/streamDebug';
 import {
@@ -278,13 +279,15 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setIceState(null);
         setRemoteStream(null);
         setConnecting(true);
+        // Camera streams start muted; dedicated Audio streams start unmuted
+        setAudioMuted(type === 'CAMERA');
         if (s.captureMode === 'NATIVE') setPinUnlocked(true);
         setTraceState('WEBRTC_CONNECT');
         traceLog('WebRTC', 'connectParentViewer', 'Connecting parent viewer', {
           roomId: s.signalingRoomId,
           sessionId: s.sessionId,
         });
-        await connectParentViewer(s.signalingRoomId, s.sessionId);
+        await connectParentViewer(s.signalingRoomId, s.sessionId, type);
         setSession(prev => (prev ? {...prev, status: 'ACTIVE'} : prev));
         streamStateTransition('STREAMING', 'start', {roomId: s.signalingRoomId, sessionId: s.sessionId});
         setTraceState('ACTIVE');
@@ -365,6 +368,14 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       Alert.alert('Error', 'Could not switch camera');
     }
   }, [session]);
+
+  const [audioMuted, setAudioMuted] = useState(true);
+
+  const toggleAudioMute = useCallback(() => {
+    const next = !audioMuted;
+    setAudioMuted(next);
+    setRemoteAudioEnabled(!next);
+  }, [audioMuted]);
 
   const sendRemoteCommand = useCallback(
     async (
@@ -464,6 +475,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           onBack={handleBack}
           onStop={stop}
           onSwitchCamera={streamType === 'CAMERA' ? switchCamera : undefined}
+          audioMuted={audioMuted}
+          onToggleAudioMute={streamType === 'CAMERA' ? toggleAudioMute : undefined}
           onTogglePip={() => setPipVisible(v => !v)}
           remoteControlEnabled={remoteControlEnabled}
           onToggleRemoteControl={toggleRemoteControl}

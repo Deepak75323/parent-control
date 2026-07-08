@@ -50,6 +50,10 @@ type Props = {
   stopping: boolean;
   topInset: number;
   bottomInset: number;
+  /** Whether the incoming audio track is muted on the parent side (camera streams only) */
+  audioMuted?: boolean;
+  /** Called when the parent presses the mute/unmute audio button in camera view */
+  onToggleAudioMute?: () => void;
 };
 
 const RemoteRtcView = React.memo(function RemoteRtcView({
@@ -111,6 +115,8 @@ export function LiveStreamViewport({
   stopping,
   topInset,
   bottomInset,
+  audioMuted,
+  onToggleAudioMute,
 }: Props) {
   const window = useWindowDimensions();
   const layout = useMemo(() => getStreamLayout(window), [window]);
@@ -331,6 +337,8 @@ export function LiveStreamViewport({
           pipVisible={pipVisible}
           isFullscreen={isFullscreen}
           bottomInset={bottomInset}
+          audioMuted={streamType === 'CAMERA' ? audioMuted : undefined}
+          onToggleAudioMute={streamType === 'CAMERA' ? onToggleAudioMute : undefined}
         />
       ) : isFullscreen ? (
         <View style={[styles.fullscreenExit, {top: topInset + 8}]}>

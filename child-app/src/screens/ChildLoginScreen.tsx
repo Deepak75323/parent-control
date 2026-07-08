@@ -21,21 +21,28 @@ export function ChildLoginScreen({navigation, route}: Props) {
   const [status, setStatus] = useState<string | null>(null);
   const revokedByParent = route.params?.revokedByParent === true;
 
+  const returnTo = route.params?.returnTo;
+
   const submit = useCallback(async () => {
     setBusy(true);
     setStatus(null);
     try {
       const result = await authenticateWithPassword(password);
       if (result.ok) {
-        flowLog('ONBOARDING', 'ChildLogin success — starting wizard');
-        navigation.replace('PermissionWizard');
+        if (returnTo === 'ServiceStatus') {
+          flowLog('ONBOARDING', 'ChildLogin success — returning to ServiceStatus');
+          navigation.replace('ServiceStatus');
+        } else {
+          flowLog('ONBOARDING', 'ChildLogin success — starting wizard');
+          navigation.replace('PermissionWizard');
+        }
         return;
       }
       setStatus(result.message);
     } finally {
       setBusy(false);
     }
-  }, [password, navigation]);
+  }, [password, navigation, returnTo]);
 
   return (
     <ScreenShell>

@@ -25,6 +25,14 @@ object MediaProjectionConsentAutomation {
         "recording or casting",
         "will have access to everything",
         "share entire screen",
+        // MIUI / HyperOS variants
+        "screen recording",
+        "capture screen",
+        "start capture",
+        "screenshot or screen record",
+        // Additional Android system variants
+        "allow display over other apps",
+        "capture everything",
     )
 
     private val APPROVE_TEXTS = listOf(
@@ -37,10 +45,16 @@ object MediaProjectionConsentAutomation {
         "allow",
         "accept",
         "ok",
+        // MIUI / HyperOS Chinese + English
         "立即开始",
         "开始",
         "允许",
         "同意",
+        "确认",
+        "确定",
+        "开始录制",
+        "start capture",
+        "capture",
     )
 
     /** System MediaProjection consent UI only — not OEM settings / security center screens. */
@@ -53,6 +67,11 @@ object MediaProjectionConsentAutomation {
         "com.oplus.permissioncontroller",
         "com.coloros.permissioncontroller",
         "com.vivo.permissioncontroller",
+        // MIUI / HyperOS (Xiaomi) — SystemUI is forked under miui.systemui
+        "com.miui.systemui",
+        "com.miui.home",
+        "com.miui.securitycenter",
+        "com.miui.permcenter",
         "com.childmonitor",
     )
 

@@ -48,6 +48,8 @@ const seenIds = new Set<string>();
 const pendingIceCandidates: RTCIceCandidateInit[] = [];
 let detachIceRecovery: (() => void) | null = null;
 let viewerAudioModeActive = false;
+/** Set when connecting so ontrack knows whether to mute incoming audio by default. */
+let viewerStreamType: 'CAMERA' | 'SCREEN' | 'AUDIO' | null = null;
 
 export {registerStreamListeners, setOnConnectionState, setOnRemoteStream} from './streamSessionOwner';
 
@@ -95,14 +97,18 @@ async function loadIceConfig(
   } catch (err) {
     slog('ICE', 'webrtc-config fetch failed', String(err));
   }
-  const ice = defaultIceConfig(
-    adaptIceServersForDev(apiServers, config.apiBaseUrl),
-    credentialExpiresAt,
+  const ice = defaultIceConfig(apiServers, credentialExpiresAt, config.apiBaseUrl);
+  const turnUrls = ice.iceServers.flatMap(s =>
+    (Array.isArray(s.urls) ? s.urls : [s.urls]).filter(
+      (u): u is string => typeof u === 'string' && u.startsWith('turn'),
+    ),
   );
   slog('ICE', 'config loaded', {
     servers: ice.iceServers.length,
     policy: ice.iceTransportPolicy,
     expiresAt: ice.credentialExpiresAt,
+    turnUrls,
+    emulatorAdapted: turnUrls.every(u => !u.includes('192.168.')),
   });
   return ice;
 }
@@ -336,7 +342,7 @@ function shouldAbortOfferWait(): boolean {
 }
 
 async function refreshIceAndRestart(): Promise<void> {
-  cachedIceConfig = await loadIceConfig();
+  cachedIceConfig = await loadIceConfig(activeSessionId);
 }
 
 async function renegotiateParentViewer(): Promise<void> {
@@ -351,14 +357,14 @@ function attachConnectionHandlers(peer: RTCPeerConnection): void {
     onRestartIce: refreshIceAndRestart,
     onRenegotiate: renegotiateParentViewer,
     onFatal: reason => {
-      reportIceTelemetry(peer.iceConnectionState ?? 'failed', 'SCREEN', reason);
+      reportIceTelemetry(peer.iceConnectionState ?? 'failed', streamTypeFromRoom(activeRoomId), reason);
       setSessionPhase('TEARDOWN');
     },
     reportEvent: (event, attrs) => {
       slog('ICE', event, attrs ?? {});
       monitoringApi
         .reportIceConnectivity({
-          streamType: 'SCREEN',
+          streamType: streamTypeFromRoom(activeRoomId),
           sessionId: activeSessionId,
           iceConnectionState: peer.iceConnectionState ?? 'unknown',
           failureReason: event === 'ice_recovery_failed' ? 'recovery_exhausted' : undefined,
@@ -467,8 +473,13 @@ function createPeerConnection(
     }
     if (remoteStream) {
       if (ev.track?.kind === 'audio') {
-        ev.track.enabled = true;
-        enableViewerAudioPlayback().catch(() => undefined);
+        // For camera streams the audio track starts muted so the parent
+        // actively chooses to unmute (via the Mute/Unmute button).
+        // For dedicated AUDIO streams (ambient listening) audio is always on.
+        ev.track.enabled = viewerStreamType !== 'CAMERA';
+        if (viewerStreamType !== 'CAMERA') {
+          enableViewerAudioPlayback().catch(() => undefined);
+        }
       }
       ev.track?.addEventListener('mute', () => slog('RENDER', 'track muted', ev.track?.kind));
       ev.track?.addEventListener('unmute', () => {
@@ -477,7 +488,7 @@ function createPeerConnection(
           streamStateTransition('FIRST_FRAME_RECEIVED', 'ontrack', {roomId: activeRoomId});
           flowLog('WEBRTC_FLOW', 'FIRST_REMOTE_FRAME', {roomId: activeRoomId});
         }
-        if (ev.track?.kind === 'audio') {
+        if (ev.track?.kind === 'audio' && viewerStreamType !== 'CAMERA') {
           enableViewerAudioPlayback().catch(() => undefined);
         }
       });
@@ -534,8 +545,29 @@ function createPeerConnection(
   };
 }
 
-export async function connectParentViewer(roomId: string, sessionId?: string): Promise<void> {
-  slog('FLOW', 'connectParentViewer START', {roomId, sessionId});
+/**
+ * Set or clear the audio-mute state for the incoming remote audio track.
+ * Called from the UI mute/unmute button in the camera view.
+ */
+export function setRemoteAudioEnabled(enabled: boolean): void {
+  if (!remoteStream) return;
+  remoteStream.getAudioTracks().forEach(t => {
+    t.enabled = enabled;
+  });
+  if (enabled) {
+    enableViewerAudioPlayback().catch(() => undefined);
+  } else {
+    disableViewerAudioPlayback().catch(() => undefined);
+  }
+}
+
+export async function connectParentViewer(
+  roomId: string,
+  sessionId?: string,
+  streamType?: 'CAMERA' | 'SCREEN' | 'AUDIO',
+): Promise<void> {
+  viewerStreamType = streamType ?? null;
+  slog('FLOW', 'connectParentViewer START', {roomId, sessionId, streamType});
   traceLog('WebRTC', 'connectParentViewer', 'START', {roomId, sessionId});
   streamStateTransition('WEBRTC_CONNECTING', 'connectParentViewer', {roomId, sessionId});
   setTraceState('WEBRTC_NEGOTIATING');
