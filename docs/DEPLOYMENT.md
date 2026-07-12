@@ -33,8 +33,8 @@ podman run -p 8080:8080 \
 Build release APK/AAB separately:
 
 ```bash
-cd parent-app && cd android && ./gradlew assembleRelease
-cd child-app && cd android && ./gradlew assembleRelease
+cd parent && cd android && ./gradlew assembleRelease
+cd child && cd android && ./gradlew assembleRelease
 ```
 
 Distribute via Play Store or MDM for enterprise Device Owner provisioning.

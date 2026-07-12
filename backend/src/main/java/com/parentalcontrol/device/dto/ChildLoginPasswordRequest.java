@@ -6,6 +6,6 @@ import lombok.Data;
 @Data
 public class ChildLoginPasswordRequest {
 
-    @Size(min = 4, max = 128)
-    private String childLoginPassword;
+  @Size(min = 4, max = 128)
+  private String childLoginPassword;
 }

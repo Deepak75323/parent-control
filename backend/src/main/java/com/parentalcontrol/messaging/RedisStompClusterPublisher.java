@@ -13,22 +13,23 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class RedisStompClusterPublisher {
 
-    private final StringRedisTemplate redisTemplate;
-    private final ObjectMapper objectMapper;
-    private final com.parentalcontrol.config.StompClusterProperties stompClusterProperties;
+  private final StringRedisTemplate redisTemplate;
+  private final ObjectMapper objectMapper;
+  private final com.parentalcontrol.config.StompClusterProperties stompClusterProperties;
 
-    public void publish(String destination, Object payload) {
-        try {
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String body = objectMapper.writeValueAsString(new StompClusterMessage(destination, payloadJson));
-            redisTemplate.convertAndSend(stompClusterProperties.getRedis().getChannel(), body);
-        } catch (Exception e) {
-            log.error("Failed to publish STOMP cluster message destination={}", destination, e);
-            throw new IllegalStateException("STOMP cluster publish failed", e);
-        }
+  public void publish(String destination, Object payload) {
+    try {
+      String payloadJson = objectMapper.writeValueAsString(payload);
+      String body =
+          objectMapper.writeValueAsString(new StompClusterMessage(destination, payloadJson));
+      redisTemplate.convertAndSend(stompClusterProperties.getRedis().getChannel(), body);
+    } catch (Exception e) {
+      log.error("Failed to publish STOMP cluster message destination={}", destination, e);
+      throw new IllegalStateException("STOMP cluster publish failed", e);
     }
+  }
 
-    public void publishToUser(String userId, String destination, Object payload) {
-        publish("/user/" + userId + destination, payload);
-    }
+  public void publishToUser(String userId, String destination, Object payload) {
+    publish("/user/" + userId + destination, payload);
+  }
 }

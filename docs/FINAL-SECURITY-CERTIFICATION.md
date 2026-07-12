@@ -77,9 +77,9 @@
 | **M2** | Inadequate supply chain | **Partial Pass** | `ci.yml:14-15` gitleaks; `ci.yml:31-32` OWASP dependency-check (continue-on-error). |
 | **M3** | Insecure auth/authorization | **Pass** (child) / **Partial** (parent) | Child `SecureCredentialStore.kt:27-32`; parent secure bridge `parentSecureAuthBridge.ts:10-18`. |
 | **M4** | Insufficient input validation | **Pass** | Jakarta `@Valid` on DTOs (unchanged). |
-| **M5** | Insecure communication | **Partial Fail** | Parent release pin placeholder: `parent-app/.../release/.../network_security_config.xml:11-12`. Debug cleartext: `parent-app/.../debug/AndroidManifest.xml:7`. Child release same placeholder: `child-app/.../release/.../network_security_config.xml:11-12`. |
+| **M5** | Insecure communication | **Partial Fail** | Parent release pin placeholder: `parent/.../release/.../network_security_config.xml:11-12`. Debug cleartext: `parent/.../debug/AndroidManifest.xml:7`. Child release same placeholder: `child/.../release/.../network_security_config.xml:11-12`. |
 | **M6** | Inadequate privacy controls | **Partial** | Pairing codes in logs (`DeviceService.java:104-105`). |
-| **M7** | Insufficient binary protections | **Fail** | Broad ProGuard keep: `child-app/android/app/proguard-rules.pro:9-15` (`-keep class com.childmonitor.** { *; }`). |
+| **M7** | Insufficient binary protections | **Fail** | Broad ProGuard keep: `child/android/app/proguard-rules.pro:9-15` (`-keep class com.childmonitor.** { *; }`). |
 | **M8** | Security misconfiguration | **Partial Pass** | Prod boot gate: `ProductionSecurityValidator.java:39-90`. Helm secrets split: `values.yaml:110-116`. Swagger still public: `SecurityConfig.java:30-33`. |
 | **M9** | Insecure data storage | **Pass** (child) / **Pass** (parent Android) | Child encrypted creds; parent `ParentSecureAuthStore.kt`. Integrity token cache still plain: `MonitoringPrefs.kt:201-215`. |
 | **M10** | Insufficient cryptography | **Partial Pass** | HMAC + encrypted prefs strong; transport pinning not operational until CI injects SPKI. |
@@ -121,14 +121,14 @@
 
 | Control | L1 | Evidence |
 |---------|-----|----------|
-| TLS for all traffic | **Partial** | Base cleartext false: `parent-app/.../main/.../network_security_config.xml:2-7`. Debug exception: `debug/AndroidManifest.xml:7`. |
+| TLS for all traffic | **Partial** | Base cleartext false: `parent/.../main/.../network_security_config.xml:2-7`. Debug exception: `debug/AndroidManifest.xml:7`. |
 | Certificate pinning | **Fail** (operational) | Placeholder: `release/.../network_security_config.xml:12` |
 
 ### MSTG-PLATFORM
 
 | Control | L1 | Evidence |
 |---------|-----|----------|
-| `allowBackup=false` | **Pass** | `parent-app/.../AndroidManifest.xml:10`; child manifest line 32 |
+| `allowBackup=false` | **Pass** | `parent/.../AndroidManifest.xml:10`; child manifest line 32 |
 | Debug-only dangerous receivers | **Pass** | `DebugPairingReceiver.kt:23-25` `BuildConfig.DEBUG` guard |
 
 ### MSTG-AUTH
@@ -179,7 +179,7 @@
 
 | Control | Status | Evidence |
 |---------|--------|----------|
-| Prometheus auth | **Pass** (default) | `MetricsScrapeAuthFilter.java:37-50` — 403 without token; `prometheus-public` default false (`application.yml:135`) |
+| Prometheus auth | **Pass** (default) | `MetricsScrapeAuthFilter.java:37-50` — 403 without token; `prometheus-public` default false (`application.properties`) |
 | Prometheus in SecurityConfig permitAll | **Partial** | `SecurityConfig.java:37` — mitigated by filter |
 
 ### 5.4 CI/CD
@@ -233,7 +233,7 @@ No Critical finding has active vulnerable code on the primary Android deployment
 |-------|--------|
 | **Severity** | High (until CI injects pins) |
 | **CWE** | CWE-295 |
-| **Evidence** | `parent-app/android/app/src/release/res/xml/network_security_config.xml:11-12` and `child-app/android/app/src/release/res/xml/network_security_config.xml:11-12` — `REPLACE_WITH_BASE64_SPKI_PIN=`. |
+| **Evidence** | `parent/android/app/src/release/res/xml/network_security_config.xml:11-12` and `child/android/app/src/release/res/xml/network_security_config.xml:11-12` — `REPLACE_WITH_BASE64_SPKI_PIN=`. |
 | **Exploit** | Corporate CA or LAN MITM can intercept HTTPS API traffic on release builds if operator removes pin-set or pins are never set. |
 | **Remediation** | CI step to inject SPKI pin from production cert; fail release build if placeholder remains. |
 
@@ -330,11 +330,11 @@ Scoring uses the same domain weights as the adversarial review; scores reflect *
 ## 10. Evidence Index (remediation artifacts)
 
 ```
-parent-app/android/.../ParentSecureAuthStore.kt
-parent-app/android/.../ParentNativeModule.kt
-parent-app/src/services/authStorage.ts
-parent-app/src/services/parentSecureAuthBridge.ts
-parent-app/src/__tests__/authStorage.test.ts
+parent/android/.../ParentSecureAuthStore.kt
+parent/android/.../ParentNativeModule.kt
+parent/src/services/authStorage.ts
+parent/src/services/parentSecureAuthBridge.ts
+parent/src/__tests__/authStorage.test.ts
 
 backend/.../WebMvcConfig.java
 backend/.../StompAuthChannelInterceptor.java

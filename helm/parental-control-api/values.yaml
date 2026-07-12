@@ -36,7 +36,7 @@ rabbitmq:
     tag: 3.13-management-alpine
   auth:
     username: pcp
-    password: pcp_secret
+    password: ""
   existingSecret: ""
   persistence:
     size: 5Gi
@@ -56,7 +56,7 @@ coturn:
   replicas: 2
   realm: pcp
   externalIp: ""
-  authSecret: pcp_turn_secret_change_in_prod
+  authSecret: ""
   existingSecret: ""
   hostNetwork: false
   relayMinPort: 49160
@@ -84,7 +84,8 @@ coturn:
 
 env:
   SPRING_PROFILES_ACTIVE: prod
-  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/parental_control
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/parental_control?sslmode=require
+  CORS_ALLOWED_ORIGINS: "https://app.parentalcontrol.local"
   KAFKA_ENABLED: "true"
   KAFKA_BOOTSTRAP_SERVERS: kafka:9092
   HMAC_REQUIRED: "true"
@@ -111,9 +112,13 @@ env:
 secretEnv:
   JWT_SECRET: ""
   APP_ENCRYPTION_KEY: ""
+  SPRING_DATASOURCE_USERNAME: ""
+  SPRING_DATASOURCE_PASSWORD: ""
   FCM_SERVER_KEY: ""
   METRICS_SCRAPE_TOKEN: ""
   TURN_SECRET: ""
+  STRIPE_SECRET_KEY: ""
+  STRIPE_WEBHOOK_SECRET: ""
 
 monitoring:
   serviceMonitor:

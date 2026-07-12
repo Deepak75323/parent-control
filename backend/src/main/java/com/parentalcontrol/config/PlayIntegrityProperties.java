@@ -7,21 +7,21 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app.play-integrity")
 public class PlayIntegrityProperties {
 
-    /** When true, pair/heartbeat must include a valid integrity token. */
-    private boolean required = false;
+  /** When true, pair/heartbeat must include a valid integrity token. */
+  private boolean required = false;
 
-    /** Android application id registered in Play Console. */
-    private String packageName = "com.childmonitor";
+  /** Android application id registered in Play Console. */
+  private String packageName = "com.childmonitor";
 
-    /** OAuth access token with androidpublisher / Play Integrity scope (short-lived). */
-    private String googleCloudAccessToken = "";
+  /** OAuth access token with androidpublisher / Play Integrity scope (short-lived). */
+  private String googleCloudAccessToken = "";
 
-    /** Service account JSON for Play Integrity API (preferred in production). */
-    private String serviceAccountFile = "";
+  /** Service account JSON for Play Integrity API (preferred in production). */
+  private String serviceAccountFile = "";
 
-    /** Reject sideload / unknown recognition verdicts. */
-    private boolean requirePlayRecognized = false;
+  /** Reject sideload / unknown recognition verdicts. */
+  private boolean requirePlayRecognized = false;
 
-    /** Require MEETS_STRONG_INTEGRITY device verdict (hardware-backed). */
-    private boolean requireStrongIntegrity = false;
+  /** Require MEETS_STRONG_INTEGRITY device verdict (hardware-backed). */
+  private boolean requireStrongIntegrity = false;
 }

@@ -6,7 +6,7 @@ Production readiness initiative unifying stream session lifecycle across parent 
 
 ## 1. Architecture Audit
 
-### Parent (`parent-app`)
+### Parent (`parent`)
 
 | Component | Before | Risk |
 |-----------|--------|------|
@@ -14,7 +14,7 @@ Production readiness initiative unifying stream session lifecycle across parent 
 | ICE handling | 3s poll on disconnect; full `reconnectParentViewer()` only | No `restartIce`; premature failure |
 | Session state | `activeRoomId` only | No correlation ID or phase tracking |
 
-### Child JS (`child-app/src`)
+### Child JS (`child/src`)
 
 | Component | Before | Risk |
 |-----------|--------|------|
@@ -22,7 +22,7 @@ Production readiness initiative unifying stream session lifecycle across parent 
 | `streamingService.ts` | `nativeStreamActive` flag (never set `true`) | Divergence from native publisher |
 | Signaling | Native STOMP owner (P1-6) + HTTP poll fallback | OK |
 
-### Child Native (`child-app/android`)
+### Child Native (`child/android`)
 
 | Component | Before | Risk |
 |-----------|--------|------|
@@ -104,15 +104,15 @@ ICE disconnected/failed
 
 | File | Change |
 |------|--------|
-| `parent-app/src/services/streamSessionOwner.ts` | **NEW** — scoped listener registry, session phases |
-| `parent-app/src/services/iceRecovery.ts` | **NEW** — ICE restart controller |
-| `parent-app/src/services/webrtcService.ts` | Listener registry, ICE recovery, correlation IDs |
-| `parent-app/src/screens/LiveMonitoringScreen.tsx` | `registerStreamListeners` + cleanup |
-| `child-app/src/services/streamSessionOwner.ts` | **NEW** — JS session owner |
-| `child-app/src/services/iceRecovery.ts` | **NEW** — ICE recovery |
-| `child-app/src/services/webrtcService.ts` | ICE recovery, native registry bridge |
-| `child-app/src/services/streamingService.ts` | Remove `nativeStreamActive`; native reconcile |
-| `child-app/src/nativeModules/index.ts` | Session registry bridge methods |
+| `parent/src/services/streamSessionOwner.ts` | **NEW** — scoped listener registry, session phases |
+| `parent/src/services/iceRecovery.ts` | **NEW** — ICE restart controller |
+| `parent/src/services/webrtcService.ts` | Listener registry, ICE recovery, correlation IDs |
+| `parent/src/screens/LiveMonitoringScreen.tsx` | `registerStreamListeners` + cleanup |
+| `child/src/services/streamSessionOwner.ts` | **NEW** — JS session owner |
+| `child/src/services/iceRecovery.ts` | **NEW** — ICE recovery |
+| `child/src/services/webrtcService.ts` | ICE recovery, native registry bridge |
+| `child/src/services/streamingService.ts` | Remove `nativeStreamActive`; native reconcile |
+| `child/src/nativeModules/index.ts` | Session registry bridge methods |
 | `StreamSessionRegistry.kt` | Lifecycle phases, correlation ID, reconcile |
 | `NativeStreamPublisher.kt` | ICE restart, markActive |
 | `StreamSessionWatchdog.kt` | **NEW** — orphan cleanup |

@@ -11,8 +11,8 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.hmac")
 public class HmacProperties {
 
-    /** When false, device HMAC headers are optional (local dev). */
-    private boolean required = false;
+  /** When false, device HMAC headers are optional (local dev). */
+  private boolean required = false;
 
-    private long maxTimestampSkewSeconds = 300;
+  private long maxTimestampSkewSeconds = 300;
 }

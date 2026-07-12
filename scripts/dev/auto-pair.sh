@@ -99,12 +99,14 @@ echo "    Paired deviceId: $DEVICE_ID"
 
 CHILD_API="${CHILD_API_BASE:-http://127.0.0.1:8080}"
 echo "==> Push credentials to child via adb broadcast..."
-"$ADB" -s "$PHONE" shell am broadcast \
+# Use one remote shell string so spaces in parentDisplayName are not parsed as adb `pkg=`.
+"$ADB" -s "$PHONE" shell "am broadcast \
+  -n com.childmonitor/.debug.DebugPairingReceiver \
   -a com.childmonitor.DEBUG_APPLY_PAIR \
-  --es apiBaseUrl "$CHILD_API" \
-  --es deviceToken "$DEVICE_TOKEN" \
-  --es deviceHmacKey "$DEVICE_HMAC" \
-  --es parentDisplayName "$PARENT_NAME" \
+  --es apiBaseUrl '${CHILD_API}' \
+  --es deviceToken '${DEVICE_TOKEN}' \
+  --es deviceHmacKey '${DEVICE_HMAC}' \
+  --es parentDisplayName '${PARENT_NAME}'" \
   >/dev/null
 
 sleep 2

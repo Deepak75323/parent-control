@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TEMPLATE — overwritten by build.gradle on every release build using CI env vars:
+    CERT_HOST           — production API hostname without scheme or port (e.g. api.example.com)
+    CERT_PIN_PRIMARY    — base64-encoded SHA-256 SPKI fingerprint of the leaf certificate
+    CERT_PIN_BACKUP     — base64-encoded SHA-256 SPKI fingerprint of the backup cert (intermediate
+                          CA or pre-generated next-leaf) — must differ from PRIMARY
+    CERT_PIN_EXPIRATION — pin-set expiration date in YYYY-MM-DD format (default: 2027-07-01)
+
+  To generate a pin from a live host:
+    openssl s_client -connect <host>:443 </dev/null 2>/dev/null \
+      | openssl x509 -pubkey -noout \
+      | openssl pkey -pubin -outform DER \
+      | openssl dgst -sha256 -binary \
+      | base64
+
+  NEVER ship this placeholder file — the release build fails if CERT_PIN_PRIMARY is empty.
+-->
+<network-security-config>
+
+    <!-- Block all cleartext traffic in release builds. -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!--
+      Certificate pinning for the production API host.
+      Android validates that the server's certificate chain contains at least
+      one public key matching one of the listed pins.  Listing two pins means
+      the primary OR the backup must match — if the leaf is rotated but the
+      backup (CA / next-leaf) pin is already present here, the app continues
+      to work without a forced update.
+    -->
+    <domain-config>
+        <domain includeSubdomains="true">REPLACE_WITH_CERT_HOST</domain>
+        <pin-set expiration="2027-07-01">
+            <!-- Primary: leaf certificate SPKI SHA-256 — rotate this on cert renewal -->
+            <pin digest="SHA-256">REPLACE_WITH_BASE64_SPKI_PIN_PRIMARY=</pin>
+            <!-- Backup: intermediate CA or pre-generated next-leaf SPKI SHA-256 -->
+            <pin digest="SHA-256">REPLACE_WITH_BASE64_SPKI_PIN_BACKUP=</pin>
+        </pin-set>
+    </domain-config>
+
+</network-security-config>

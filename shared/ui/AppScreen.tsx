@@ -12,30 +12,18 @@ import {
   ViewStyle,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {Colors, Typography, Spacing, Radii, Elevation, Layout} from '../theme/design';
 
-// ── Design tokens ──────────────────────────────────────────────────────────
-const C = {
-  primary: '#4F46E5',
-  primaryDark: '#3730A3',
-  primaryLight: '#818CF8',
-  primarySurface: '#EEF2FF',
-  accent: '#7C3AED',
-  success: '#059669',
-  successLight: '#D1FAE5',
-  warning: '#D97706',
-  warningLight: '#FEF3C7',
-  danger: '#DC2626',
-  dangerLight: '#FEE2E2',
-  bg: '#F7F7FF',
-  surface: '#FFFFFF',
-  border: '#E8E8F0',
-  borderLight: '#F1F0FF',
-  textPrimary: '#0F172A',
-  textSecondary: '#475569',
-  textTertiary: '#94A3B8',
-  textOnDark: '#FFFFFF',
-  textOnDarkSoft: '#C7D2FE',
-};
+function HeroGradientLayers() {
+  return (
+    <>
+      <View style={styles.heroGradientBase} />
+      <View style={styles.heroGradientOverlay} />
+      <View style={styles.heroBubble1} />
+      <View style={styles.heroBubble2} />
+    </>
+  );
+}
 
 export function ScreenShell({
   children,
@@ -87,8 +75,7 @@ export function HeroBlock({
 }) {
   return (
     <View style={styles.hero}>
-      <View style={styles.heroBubble1} />
-      <View style={styles.heroBubble2} />
+      <HeroGradientLayers />
       {eyebrow ? <Text style={styles.heroEyebrow}>{eyebrow}</Text> : null}
       <Text style={styles.heroTitle}>{title}</Text>
       {subtitle ? <Text style={styles.heroSub}>{subtitle}</Text> : null}
@@ -110,8 +97,7 @@ export function HeroIconBlock({
 }) {
   return (
     <View style={[styles.hero, styles.heroCentered]}>
-      <View style={styles.heroBubble1} />
-      <View style={styles.heroBubble2} />
+      <HeroGradientLayers />
       <View style={styles.heroIconWrap}>
         <Text style={styles.heroIconEmoji}>{icon}</Text>
       </View>
@@ -160,7 +146,7 @@ export function MenuRow({
         <Text style={[styles.menuTitle, danger && styles.dangerText]}>{title}</Text>
         {subtitle ? <Text style={styles.menuSub}>{subtitle}</Text> : null}
       </View>
-      <Text style={[styles.chevron, danger && {color: C.danger}]}>›</Text>
+      <Text style={[styles.chevron, danger && {color: Colors.danger}]}>›</Text>
     </Pressable>
   );
 }
@@ -205,7 +191,7 @@ export function FormField({label, style, ...inputProps}: {label: string} & TextI
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         style={[styles.fieldInput, style]}
-        placeholderTextColor={C.textTertiary}
+        placeholderTextColor={Colors.textTertiary}
         {...inputProps}
       />
     </View>
@@ -319,8 +305,8 @@ export function ProgressBar({
 export function StatusBadge({granted}: {granted: boolean}) {
   return (
     <View style={[styles.statusBadge, granted ? styles.statusBadgeOk : styles.statusBadgePending]}>
-      <View style={[styles.statusBadgeDot, {backgroundColor: granted ? C.success : C.warning}]} />
-      <Text style={[styles.statusBadgeText, {color: granted ? C.success : C.warning}]}>
+      <View style={[styles.statusBadgeDot, {backgroundColor: granted ? Colors.success : Colors.warning}]} />
+      <Text style={[styles.statusBadgeText, {color: granted ? Colors.success : Colors.warning}]}>
         {granted ? 'Granted' : 'Tap to grant'}
       </Text>
     </View>
@@ -423,7 +409,7 @@ export function LoadingCenter({label}: {label?: string}) {
   return (
     <SafeAreaView style={styles.loadingRoot}>
       <View style={styles.loadingSpinnerWrap}>
-        <ActivityIndicator size="large" color={C.primary} />
+        <ActivityIndicator size="large" color={Colors.primaryContainer} />
       </View>
       {label ? <Text style={styles.loadingLabel}>{label}</Text> : null}
     </SafeAreaView>
@@ -432,318 +418,280 @@ export function LoadingCenter({label}: {label?: string}) {
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 export const appScreenStyles = StyleSheet.create({
-  root: {flex: 1, backgroundColor: C.bg},
+  root: {flex: 1, backgroundColor: Colors.background},
   flex: {flex: 1},
-  scrollContent: {padding: 16, paddingBottom: 40},
+  scrollContent: {padding: Layout.screenPadding, paddingBottom: Layout.sectionGap},
 
-  // Back
   backRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 6,
+    paddingHorizontal: Layout.screenPadding,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
   },
   backBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: C.primarySurface,
+    width: 36,
+    height: 36,
+    borderRadius: Radii.sm,
+    backgroundColor: Colors.primarySurface,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    marginRight: Spacing.sm,
   },
-  backBtnText: {fontSize: 20, color: C.primary, fontWeight: '700', lineHeight: 26},
-  backText: {fontSize: 14, fontWeight: '700', color: C.primary},
+  backBtnText: {fontSize: 20, color: Colors.primaryContainer, fontWeight: '700', lineHeight: 26},
+  backText: {...Typography.smallLabel, color: Colors.primaryContainer, fontWeight: '700'},
 
-  // Hero
   hero: {
-    backgroundColor: C.primary,
-    borderRadius: 22,
-    padding: 20,
-    marginBottom: 16,
+    borderRadius: Radii.xl,
+    padding: Layout.gutter,
+    marginBottom: Layout.componentInternal,
     overflow: 'hidden',
     position: 'relative',
+    ...Elevation.hero,
   },
-  heroBubble1: {position: 'absolute', width: 200, height: 200, borderRadius: 100, backgroundColor: C.primaryDark, opacity: 0.3, top: -70, right: -50},
-  heroBubble2: {position: 'absolute', width: 130, height: 130, borderRadius: 65, backgroundColor: C.primaryLight, opacity: 0.12, bottom: -40, left: -30},
-  heroCentered: {alignItems: 'center', padding: 28},
+  heroGradientBase: {...StyleSheet.absoluteFillObject, backgroundColor: Colors.primaryContainer},
+  heroGradientOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: '35%',
+    backgroundColor: Colors.accent,
+    opacity: 0.88,
+  },
+  heroBubble1: {position: 'absolute', width: 200, height: 200, borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.08)', top: -70, right: -50},
+  heroBubble2: {position: 'absolute', width: 130, height: 130, borderRadius: 65, backgroundColor: 'rgba(255,255,255,0.06)', bottom: -40, left: -30},
+  heroCentered: {alignItems: 'center', padding: Layout.gutter},
   heroIconWrap: {
     width: 64,
     height: 64,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: Radii.lg,
+    backgroundColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 14,
+    marginBottom: Layout.componentInternal,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: 'rgba(255,255,255,0.25)',
+    zIndex: 1,
   },
   heroIconEmoji: {fontSize: 30},
-  heroEyebrow: {color: C.textOnDarkSoft, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4},
-  heroEyebrowCentered: {color: C.textOnDarkSoft, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6},
-  heroTitle: {color: '#fff', fontSize: 22, fontWeight: '800', letterSpacing: -0.3},
-  heroTitleCentered: {color: '#fff', fontSize: 24, fontWeight: '800', letterSpacing: -0.3, textAlign: 'center', marginBottom: 8},
-  heroSub: {color: C.textOnDarkSoft, fontSize: 14, marginTop: 8, lineHeight: 21},
-  heroSubCentered: {color: C.textOnDarkSoft, fontSize: 14, textAlign: 'center', lineHeight: 21},
+  heroEyebrow: {...Typography.caption, color: Colors.textOnDarkSoft, marginBottom: Spacing.half, zIndex: 1},
+  heroEyebrowCentered: {...Typography.caption, color: Colors.textOnDarkSoft, marginBottom: 6, zIndex: 1},
+  heroTitle: {...Typography.sectionTitle, color: Colors.textOnDark, zIndex: 1},
+  heroTitleCentered: {...Typography.sectionTitle, color: Colors.textOnDark, textAlign: 'center', marginBottom: Spacing.sm, zIndex: 1},
+  heroSub: {...Typography.body, color: Colors.textOnDarkSoft, marginTop: Spacing.sm, zIndex: 1},
+  heroSubCentered: {...Typography.body, color: Colors.textOnDarkSoft, textAlign: 'center', zIndex: 1},
 
-  // Card
   card: {
-    backgroundColor: C.surface,
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.xl,
+    padding: Layout.componentInternal,
+    marginBottom: Layout.componentInternal,
     borderWidth: 1,
-    borderColor: C.borderLight,
-    shadowColor: C.primary,
-    shadowOffset: {width: 0, height: 3},
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+    borderColor: Colors.border,
+    ...Elevation.card,
   },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: C.textTertiary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 12,
-    marginTop: 4,
-  },
+  sectionTitle: {...Typography.caption, marginBottom: Layout.componentInternal, marginTop: Spacing.half},
 
-  // Menu row
   menuRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 13,
-    paddingHorizontal: 4,
+    minHeight: Layout.listRowHeight,
+    paddingVertical: Layout.componentInternal,
+    paddingHorizontal: Spacing.half,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.borderLight,
+    borderBottomColor: Colors.borderLight,
   },
   menuRowLast: {borderBottomWidth: 0},
   menuRowPressed: {opacity: 0.7},
-  menuIconWrap: {width: 38, height: 38, borderRadius: 11, backgroundColor: C.primarySurface, alignItems: 'center', justifyContent: 'center', marginRight: 12},
-  menuIconWrapDanger: {backgroundColor: '#FEE2E2'},
+  menuIconWrap: {width: 40, height: 40, borderRadius: Radii.md, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center', marginRight: Layout.componentInternal},
+  menuIconWrapDanger: {backgroundColor: Colors.dangerLight},
   menuIcon: {fontSize: 18},
   menuText: {flex: 1},
-  menuTitle: {fontSize: 15, fontWeight: '700', color: C.textPrimary},
-  menuSub: {fontSize: 12, color: C.textTertiary, marginTop: 2},
-  chevron: {fontSize: 22, color: C.border, fontWeight: '300'},
-  dangerText: {color: C.danger},
+  menuTitle: {...Typography.cardTitle, fontSize: 15},
+  menuSub: {...Typography.smallLabel, color: Colors.textTertiary, marginTop: 2},
+  chevron: {fontSize: 22, color: Colors.outline, fontWeight: '300'},
+  dangerText: {color: Colors.danger},
 
-  // Action tile
   actionTile: {
     flex: 1,
     alignSelf: 'stretch',
-    backgroundColor: C.surface,
-    borderRadius: 18,
-    padding: 14,
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.xl,
+    padding: Layout.componentInternal,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: C.borderLight,
+    borderColor: Colors.border,
     minHeight: 90,
     justifyContent: 'center',
-    shadowColor: C.primary,
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    ...Elevation.card,
   },
-  actionTileAccent: {backgroundColor: C.primarySurface, borderColor: '#C7D2FE'},
-  actionTileDanger: {backgroundColor: '#FEF2F2', borderColor: '#FECACA'},
+  actionTileAccent: {backgroundColor: Colors.primarySurface, borderColor: Colors.outlineVariant},
+  actionTileDanger: {backgroundColor: Colors.dangerLight, borderColor: `${Colors.error}33`},
   actionTileDisabled: {opacity: 0.45},
-  actionTilePressed: {backgroundColor: '#F8F7FF'},
-  actionIconWrap: {width: 44, height: 44, borderRadius: 13, backgroundColor: C.primarySurface, alignItems: 'center', justifyContent: 'center', marginBottom: 8},
-  actionIconWrapAccent: {backgroundColor: '#DDD6FE'},
-  actionIconWrapDanger: {backgroundColor: '#FEE2E2'},
+  actionTilePressed: {backgroundColor: Colors.surfaceContainerLow},
+  actionIconWrap: {width: 44, height: 44, borderRadius: Radii.md, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm},
+  actionIconWrapAccent: {backgroundColor: Colors.accentSurface},
+  actionIconWrapDanger: {backgroundColor: Colors.dangerLight},
   actionIcon: {fontSize: 22},
-  actionLabel: {fontSize: 12, fontWeight: '700', color: C.textSecondary, textAlign: 'center'},
+  actionLabel: {...Typography.smallLabel, fontWeight: '700', textAlign: 'center'},
 
-  // Form field
-  fieldWrap: {marginBottom: 14},
-  fieldLabel: {fontSize: 13, fontWeight: '700', color: C.textSecondary, marginBottom: 6},
+  fieldWrap: {marginBottom: Layout.componentInternal},
+  fieldLabel: {...Typography.smallLabel, color: Colors.textSecondary, marginBottom: Spacing.sm},
   fieldInput: {
-    borderWidth: 1.5,
-    borderColor: C.border,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radii.md,
+    paddingHorizontal: Layout.componentInternal,
+    paddingVertical: Spacing.md,
     fontSize: 15,
-    color: C.textPrimary,
-    backgroundColor: C.surface,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.background,
+    minHeight: Layout.touchTargetMin,
   },
 
-  // Primary button
   primaryBtn: {
-    backgroundColor: C.primary,
-    borderRadius: 16,
-    paddingVertical: 15,
+    backgroundColor: Colors.primaryContainer,
+    borderRadius: Radii.md,
+    minHeight: Layout.touchTargetMin,
+    paddingVertical: Spacing.md,
     alignItems: 'center',
-    marginTop: 8,
-    shadowColor: C.primary,
-    shadowOffset: {width: 0, height: 4},
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 5,
+    justifyContent: 'center',
+    marginTop: Spacing.sm,
+    ...Elevation.cardHigh,
   },
-  primaryBtnDanger: {backgroundColor: C.danger, shadowColor: C.danger},
+  primaryBtnDanger: {backgroundColor: Colors.danger, shadowColor: Colors.danger},
   primaryBtnDisabled: {opacity: 0.5, shadowOpacity: 0},
-  primaryBtnPressed: {opacity: 0.88},
-  primaryBtnText: {color: '#fff', fontWeight: '800', fontSize: 15, letterSpacing: 0.1},
+  primaryBtnPressed: {opacity: 0.9},
+  primaryBtnText: {...Typography.cardTitle, color: Colors.textOnDark, fontSize: 15},
 
-  // Secondary button
   secondaryBtn: {
-    backgroundColor: C.primarySurface,
-    borderRadius: 14,
-    paddingVertical: 13,
+    backgroundColor: Colors.primarySurface,
+    borderRadius: Radii.md,
+    minHeight: Layout.touchTargetMin,
+    paddingVertical: Spacing.md,
     alignItems: 'center',
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#C7D2FE',
+    justifyContent: 'center',
+    marginTop: Spacing.sm,
+    borderWidth: 1.5,
+    borderColor: Colors.primarySurface,
   },
-  secondaryBtnPressed: {backgroundColor: '#E0E7FF'},
-  secondaryBtnText: {color: C.primary, fontWeight: '700', fontSize: 14},
+  secondaryBtnPressed: {backgroundColor: Colors.accentSurface},
+  secondaryBtnText: {color: Colors.primary, fontWeight: '700', fontSize: 14},
 
-  // Link
-  linkBtn: {marginTop: 14, paddingVertical: 8, alignItems: 'center'},
-  linkBtnText: {color: C.primary, fontWeight: '700', fontSize: 14},
+  linkBtn: {marginTop: Layout.componentInternal, paddingVertical: Spacing.sm, alignItems: 'center'},
+  linkBtnText: {color: Colors.primaryContainer, fontWeight: '700', fontSize: 14},
 
-  // Error
   errorBox: {
-    backgroundColor: '#FEF2F2',
-    borderRadius: 13,
-    padding: 12,
-    marginBottom: 14,
+    backgroundColor: `${Colors.error}1A`,
+    borderRadius: Radii.md,
+    padding: Layout.componentInternal,
+    marginBottom: Layout.componentInternal,
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: `${Colors.error}33`,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: Spacing.sm,
   },
   errorIcon: {fontSize: 15, marginTop: 1},
-  errorText: {color: '#991B1B', fontSize: 14, lineHeight: 20, flex: 1},
+  errorText: {color: Colors.error, ...Typography.body, flex: 1},
 
-  // Note
   noteCard: {
-    backgroundColor: '#FFFBEB',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 14,
+    backgroundColor: Colors.warningLight,
+    borderRadius: Radii.md,
+    padding: Layout.componentInternal,
+    marginBottom: Layout.componentInternal,
     borderWidth: 1,
     borderColor: '#FDE68A',
     borderLeftWidth: 3,
-    borderLeftColor: C.warning,
+    borderLeftColor: Colors.warning,
   },
   noteTitle: {fontSize: 13, fontWeight: '700', color: '#92400E', marginBottom: 4},
   noteBody: {fontSize: 13, color: '#A16207', lineHeight: 19},
 
-  // Progress
   progressBox: {
-    backgroundColor: C.surface,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 14,
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.md,
+    padding: Layout.componentInternal,
+    marginBottom: Layout.componentInternal,
     borderWidth: 1,
-    borderColor: C.borderLight,
+    borderColor: Colors.border,
   },
-  progressRow: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10},
-  progressLabel: {fontSize: 13, fontWeight: '600', color: C.textSecondary},
-  progressPct: {fontSize: 13, fontWeight: '800', color: C.primary},
-  progressTrack: {height: 7, backgroundColor: C.primarySurface, borderRadius: 4, overflow: 'hidden'},
-  progressFill: {height: '100%', backgroundColor: C.success, borderRadius: 4},
+  progressRow: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md},
+  progressLabel: {...Typography.smallLabel, fontWeight: '600'},
+  progressPct: {...Typography.smallLabel, fontWeight: '800', color: Colors.primaryContainer},
+  progressTrack: {height: 8, backgroundColor: Colors.primarySurface, borderRadius: Radii.xs, overflow: 'hidden'},
+  progressFill: {height: '100%', backgroundColor: Colors.success, borderRadius: Radii.xs},
 
-  // Status badge
-  statusBadge: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 100},
-  statusBadgeOk: {backgroundColor: '#D1FAE5'},
-  statusBadgePending: {backgroundColor: '#FEF3C7'},
+  statusBadge: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 9, paddingVertical: 4, borderRadius: Radii.pill},
+  statusBadgeOk: {backgroundColor: Colors.successLight},
+  statusBadgePending: {backgroundColor: Colors.warningLight},
   statusBadgeDot: {width: 6, height: 6, borderRadius: 3, marginRight: 5},
   statusBadgeText: {fontSize: 11, fontWeight: '700'},
 
-  // Stat card
   statCard: {
     flex: 1,
-    backgroundColor: C.surface,
-    borderRadius: 18,
-    padding: 14,
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.xl,
+    padding: Layout.componentInternal,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: C.borderLight,
-    shadowColor: C.primary,
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: Colors.border,
+    ...Elevation.card,
   },
-  statValue: {fontSize: 26, fontWeight: '900', color: C.primary, letterSpacing: -0.5},
-  statValueGreen: {color: C.success},
-  statValueAlert: {color: C.danger},
-  statLabel: {fontSize: 11, color: C.textTertiary, marginTop: 3, fontWeight: '600'},
+  statValue: {...Typography.display, fontSize: 26, color: Colors.primaryContainer},
+  statValueGreen: {color: Colors.success},
+  statValueAlert: {color: Colors.danger},
+  statLabel: {...Typography.smallLabel, color: Colors.textTertiary, marginTop: 3},
 
-  // Empty state
   emptyCard: {
-    backgroundColor: C.surface,
-    borderRadius: 22,
-    padding: 32,
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.xl,
+    padding: Layout.gutter,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: C.borderLight,
-    marginTop: 8,
+    borderColor: Colors.border,
+    marginTop: Spacing.sm,
+    ...Elevation.card,
   },
-  emptyIconWrap: {width: 76, height: 76, borderRadius: 38, backgroundColor: C.primarySurface, alignItems: 'center', justifyContent: 'center', marginBottom: 14},
+  emptyIconWrap: {width: 76, height: 76, borderRadius: 38, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center', marginBottom: Layout.componentInternal},
   emptyIcon: {fontSize: 34},
-  emptyTitle: {fontSize: 17, fontWeight: '800', color: C.textPrimary},
-  emptyBody: {fontSize: 13, color: C.textTertiary, textAlign: 'center', marginTop: 6, lineHeight: 20},
+  emptyTitle: {...Typography.cardTitle},
+  emptyBody: {...Typography.smallLabel, color: Colors.textTertiary, textAlign: 'center', marginTop: 6, lineHeight: 20},
 
-  // Modal
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    justifyContent: 'flex-end',
-    padding: 0,
-  },
-  modalCard: {
-    backgroundColor: C.surface,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 24,
-    paddingTop: 12,
-  },
-  modalHandle: {width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 20},
-  modalTitle: {fontSize: 18, fontWeight: '800', color: C.textPrimary, marginBottom: 8},
-  modalBody: {fontSize: 14, color: C.textSecondary, lineHeight: 21, marginBottom: 24},
-  modalActions: {flexDirection: 'row', gap: 12},
-  modalCancel: {flex: 1, backgroundColor: C.primarySurface, borderRadius: 14, paddingVertical: 14, alignItems: 'center'},
-  modalCancelText: {color: C.primary, fontWeight: '700', fontSize: 15},
+  modalBackdrop: {flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'flex-end'},
+  modalCard: {backgroundColor: Colors.surface, borderTopLeftRadius: Radii.xl, borderTopRightRadius: Radii.xl, padding: Layout.gutter, paddingTop: Spacing.md},
+  modalHandle: {width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.border, alignSelf: 'center', marginBottom: Layout.gutter},
+  modalTitle: {...Typography.cardTitle, marginBottom: Spacing.sm},
+  modalBody: {...Typography.body, marginBottom: Layout.gutter},
+  modalActions: {flexDirection: 'row', gap: Layout.componentInternal},
+  modalCancel: {flex: 1, backgroundColor: Colors.primarySurface, borderRadius: Radii.md, minHeight: Layout.touchTargetMin, alignItems: 'center', justifyContent: 'center'},
+  modalCancelText: {color: Colors.primaryContainer, fontWeight: '700', fontSize: 15},
   modalConfirm: {
     flex: 1.5,
-    backgroundColor: C.primary,
-    borderRadius: 14,
-    paddingVertical: 14,
+    backgroundColor: Colors.primaryContainer,
+    borderRadius: Radii.md,
+    minHeight: Layout.touchTargetMin,
     alignItems: 'center',
-    shadowColor: C.primary,
-    shadowOffset: {width: 0, height: 4},
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 5,
+    justifyContent: 'center',
+    ...Elevation.cardHigh,
   },
-  modalConfirmDanger: {backgroundColor: C.danger, shadowColor: C.danger},
-  modalConfirmText: {color: '#fff', fontWeight: '800', fontSize: 15},
+  modalConfirmDanger: {backgroundColor: Colors.danger, shadowColor: Colors.danger},
+  modalConfirmText: {color: Colors.textOnDark, fontWeight: '800', fontSize: 15},
 
-  // Meta
   metaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 10,
+    paddingVertical: Spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.borderLight,
+    borderBottomColor: Colors.borderLight,
   },
-  metaLabel: {fontSize: 13, color: C.textSecondary, fontWeight: '500'},
-  metaValue: {fontSize: 13, fontWeight: '700', color: C.textPrimary, maxWidth: '60%', textAlign: 'right'},
+  metaLabel: {...Typography.smallLabel, fontWeight: '500'},
+  metaValue: {...Typography.smallLabel, fontWeight: '700', color: Colors.textPrimary, maxWidth: '60%', textAlign: 'right'},
 
-  // Loading
-  loadingRoot: {flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg},
-  loadingSpinnerWrap: {width: 70, height: 70, borderRadius: 20, backgroundColor: C.primarySurface, alignItems: 'center', justifyContent: 'center', marginBottom: 14},
-  loadingLabel: {marginTop: 4, color: C.textTertiary, fontSize: 14, fontWeight: '500'},
+  loadingRoot: {flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background},
+  loadingSpinnerWrap: {width: 70, height: 70, borderRadius: Radii.lg, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center', marginBottom: Layout.componentInternal},
+  loadingLabel: {...Typography.body, color: Colors.textTertiary, marginTop: 4},
 });
 
 const styles = appScreenStyles;

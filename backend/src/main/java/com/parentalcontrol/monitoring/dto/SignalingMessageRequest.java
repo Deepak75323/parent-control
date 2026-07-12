@@ -2,19 +2,20 @@ package com.parentalcontrol.monitoring.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import lombok.Data;
-
+import jakarta.validation.constraints.Size;
 import java.util.UUID;
+import lombok.Data;
 
 @Data
 public class SignalingMessageRequest {
 
-    @NotNull
-    private UUID sessionId;
+  @NotNull private UUID sessionId;
 
-    @NotBlank
-    private String messageType;
+  @NotBlank
+  @Size(max = 64)
+  private String messageType;
 
-    @NotBlank
-    private String payload;
+  @NotBlank
+  @Size(max = 65536)
+  private String payload;
 }

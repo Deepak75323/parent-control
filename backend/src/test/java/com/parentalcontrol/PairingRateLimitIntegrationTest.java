@@ -1,5 +1,8 @@
 package com.parentalcontrol;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -12,29 +15,26 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class PairingRateLimitIntegrationTest {
 
-    @DynamicPropertySource
-    static void configure(DynamicPropertyRegistry registry) {
-        IntegrationTestSupport.configureLocalInfra(registry, "parental_control_pair_rate_test");
-        registry.add("app.rate-limit.enabled", () -> "true");
-        registry.add("app.rate-limit.auth-requests-per-minute", () -> "2");
-        registry.add("app.hmac.required", () -> "false");
-    }
+  @DynamicPropertySource
+  static void configure(DynamicPropertyRegistry registry) {
+    IntegrationTestSupport.configureLocalInfra(registry, "parental_control_pair_rate_test");
+    registry.add("app.rate-limit.enabled", () -> "true");
+    registry.add("app.rate-limit.auth-requests-per-minute", () -> "2");
+    registry.add("app.hmac.required", () -> "false");
+  }
 
-    @Autowired
-    private MockMvc mockMvc;
+  @Autowired private MockMvc mockMvc;
 
-    @Test
-    @Order(1)
-    void pairingEndpointEnforcesRateLimit() throws Exception {
-        String body = """
+  @Test
+  @Order(1)
+  void pairingEndpointEnforcesRateLimit() throws Exception {
+    String body =
+        """
                 {
                   "pairingCode": "INVALID1",
                   "deviceName": "Bot",
@@ -46,19 +46,16 @@ class PairingRateLimitIntegrationTest {
                 }
                 """;
 
-        mockMvc.perform(post("/api/v1/device/pair")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(post("/api/v1/device/pair").contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isBadRequest());
 
-        mockMvc.perform(post("/api/v1/device/pair")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(post("/api/v1/device/pair").contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isBadRequest());
 
-        mockMvc.perform(post("/api/v1/device/pair")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isTooManyRequests());
-    }
+    mockMvc
+        .perform(post("/api/v1/device/pair").contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isTooManyRequests());
+  }
 }

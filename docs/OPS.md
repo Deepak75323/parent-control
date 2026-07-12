@@ -5,8 +5,8 @@
 ```
 parentalControlApp/
 ├── backend/          → parental-control-backend
-├── parent-app/       → parental-control-parent-app
-├── child-app/        → parental-control-child-app
+├── parent/       → parental-control-parent
+├── child/        → parental-control-child
 └── docker-compose.yml
 ```
 
@@ -23,8 +23,8 @@ Creates three folders with git history optional (subtree) and copies README temp
 | Workflow | Path |
 |----------|------|
 | Backend | `.github/workflows/backend-ci.yml` |
-| Parent app | `.github/workflows/parent-app-ci.yml` |
-| Child app | `.github/workflows/child-app-ci.yml` |
+| Parent app | `.github/workflows/parent-ci.yml` |
+| Child app | `.github/workflows/child-ci.yml` |
 
 ## Podman (full stack)
 

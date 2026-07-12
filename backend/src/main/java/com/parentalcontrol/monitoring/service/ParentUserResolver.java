@@ -1,20 +1,19 @@
 package com.parentalcontrol.monitoring.service;
 
 import com.parentalcontrol.device.domain.Device;
-import com.parentalcontrol.user.repository.ParentProfileRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
-
+import com.parentalcontrol.user.dao.ParentProfileDao;
 import java.util.Optional;
 import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
 public class ParentUserResolver {
 
-    private final ParentProfileRepository parentProfileRepository;
+  private final ParentProfileDao parentProfileRepository;
 
-    public Optional<UUID> resolveParentUserId(Device device) {
-        return parentProfileRepository.findUserIdByProfileId(device.getParentProfileId());
-    }
+  public Optional<UUID> resolveParentUserId(Device device) {
+    return parentProfileRepository.findUserIdByProfileId(device.getParentProfileId());
+  }
 }

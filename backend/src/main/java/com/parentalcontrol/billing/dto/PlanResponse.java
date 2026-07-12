@@ -6,7 +6,7 @@ import lombok.Data;
 @Data
 @Builder
 public class PlanResponse {
-    private String planId;
-    private int maxDevices;
-    private boolean liveStreamingAllowed;
+  private String planId;
+  private int maxDevices;
+  private boolean liveStreamingAllowed;
 }

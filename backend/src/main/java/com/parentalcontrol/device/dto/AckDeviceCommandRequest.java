@@ -4,6 +4,6 @@ import lombok.Data;
 
 @Data
 public class AckDeviceCommandRequest {
-    private boolean success = true;
-    private String errorMessage;
+  private boolean success = true;
+  private String errorMessage;
 }

@@ -58,7 +58,7 @@ fi
 log "Build & install child (FCM enabled) on $PHONE..."
 if "$ADB" devices | grep -q "$PHONE"; then
   (
-    cd "$ROOT/child-app"
+    cd "$ROOT/child"
     npx react-native run-android --port 8082 --deviceId "$PHONE" --no-packager
   )
 else
@@ -68,7 +68,7 @@ fi
 log "Restart parent on $EMU..."
 if "$ADB" devices | grep -q "$EMU"; then
   (
-    cd "$ROOT/parent-app"
+    cd "$ROOT/parent"
     npx react-native run-android --port 8081 --deviceId "$EMU" --no-packager
   ) || true
   "$ADB" -s "$EMU" shell am force-stop com.parentscaffold 2>/dev/null || true

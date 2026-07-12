@@ -6,7 +6,7 @@ import lombok.Data;
 @Data
 @Builder
 public class ParentPinStatusResponse {
-    private boolean pinConfigured;
-    private boolean verified;
-    private boolean silentStreamUnlocked;
+  private boolean pinConfigured;
+  private boolean verified;
+  private boolean silentStreamUnlocked;
 }

@@ -106,7 +106,7 @@
 
 | ID | Severity | Finding | CWE | Evidence |
 |----|----------|---------|-----|----------|
-| **C1** | **Critical** | Parent JWT/refresh in AsyncStorage | CWE-922 | `parent-app/src/services/authStorage.ts` |
+| **C1** | **Critical** | Parent JWT/refresh in AsyncStorage | CWE-922 | `parent/src/services/authStorage.ts` |
 | **C2** | **Critical** | K8s API secrets as plain env (JWT, FCM, TURN, encryption key) | CWE-522 | `helm/.../templates/deployment.yaml` |
 | **C3** | **High** | Signaling child POST bypasses HMAC (interceptor not registered) | CWE-306 | `WebMvcConfig` vs `DeviceSecurityInterceptor.HMAC_PATH_PREFIXES` |
 | **C4** | **High** | Pairing brute-force: rate limit code exists but interceptor only on `/auth/**` | CWE-307 | `AuthRateLimitInterceptor` + `WebMvcConfig` |

@@ -107,9 +107,9 @@ sequenceDiagram
 
 ## Key files
 
-- `child-app/android/.../MonitoringRevokeManager.kt`
-- `child-app/src/services/monitoringRevokeHandler.ts`
-- `child-app/src/screens/ChildLoginScreen.tsx`
-- `parent-app/src/screens/DeviceDetailScreen.tsx`
+- `child/android/.../MonitoringRevokeManager.kt`
+- `child/src/services/monitoringRevokeHandler.ts`
+- `child/src/screens/ChildLoginScreen.tsx`
+- `parent/src/screens/DeviceDetailScreen.tsx`
 - `backend/.../ErrorCode.java` (`REPAIR_REQUIRED`)
 - `backend/.../DeviceTokenValidationService.java`

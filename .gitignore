@@ -14,10 +14,10 @@ dist/
 
 # Node / React Native
 node_modules/
-parent-app/node_modules/
-child-app/node_modules/
-parent-app/.env
-child-app/.env
+parent/node_modules/
+child/node_modules/
+parent/.env
+child/.env
 backend/.env
 .expo/
 android/app/build/
@@ -37,7 +37,7 @@ logs/
 # Secrets
 **/application-local.yml
 **/application-secrets.yml
-child-app/android/app/google-services.json
+child/android/app/google-services.json
 backend/secrets/
 backend/firebase-service-account.json
 **/*firebase-adminsdk*.json

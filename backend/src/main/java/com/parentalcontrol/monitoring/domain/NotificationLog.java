@@ -4,14 +4,13 @@ import com.parentalcontrol.common.domain.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-
-import java.time.Instant;
-import java.util.UUID;
 
 @Entity
 @Table(name = "notification_logs")
@@ -22,16 +21,16 @@ import java.util.UUID;
 @AllArgsConstructor
 public class NotificationLog extends BaseEntity {
 
-    @Column(name = "device_id", nullable = false)
-    private UUID deviceId;
+  @Column(name = "device_id", nullable = false)
+  private UUID deviceId;
 
-    @Column(name = "package_name")
-    private String packageName;
+  @Column(name = "package_name")
+  private String packageName;
 
-    private String title;
+  private String title;
 
-    private String body;
+  private String body;
 
-    @Column(name = "posted_at", nullable = false)
-    private Instant postedAt;
+  @Column(name = "posted_at", nullable = false)
+  private Instant postedAt;
 }

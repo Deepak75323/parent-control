@@ -11,9 +11,9 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.encryption")
 public class EncryptionProperties {
 
-    /** Encrypt device HMAC keys and other secrets at rest. */
-    private boolean enabled = false;
+  /** Encrypt device HMAC keys and other secrets at rest. */
+  private boolean enabled = false;
 
-    /** Min 32 chars in production — use APP_ENCRYPTION_KEY env. */
-    private String key = "dev-only-change-in-production-32chars!!";
+  /** Min 32 chars in production — use APP_ENCRYPTION_KEY env. */
+  private String key = "";
 }

@@ -1,11 +1,10 @@
 package com.parentalcontrol.policy.dto;
 
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.util.UUID;
 
 @Data
 @Builder
@@ -13,8 +12,8 @@ import java.util.UUID;
 @AllArgsConstructor
 public class PolicyRealtimeEvent {
 
-    private String eventType;
-    private UUID deviceId;
-    private String policyVersion;
-    private String message;
+  private String eventType;
+  private UUID deviceId;
+  private String policyVersion;
+  private String message;
 }

@@ -11,13 +11,13 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.kafka")
 public class KafkaProperties {
 
-    private boolean enabled = false;
+  private boolean enabled = false;
 
-    private String topicNotifications = "pcp.monitoring.notifications";
+  private String topicNotifications = "pcp.monitoring.notifications";
 
-    private String topicLocation = "pcp.monitoring.location";
+  private String topicLocation = "pcp.monitoring.location";
 
-    private String topicUsageStats = "pcp.monitoring.usage-stats";
+  private String topicUsageStats = "pcp.monitoring.usage-stats";
 
-    private String topicHeartbeat = "pcp.monitoring.heartbeat";
+  private String topicHeartbeat = "pcp.monitoring.heartbeat";
 }

@@ -6,11 +6,9 @@ import lombok.Data;
 @Data
 public class InstalledAppItemRequest {
 
-    @NotBlank
-    private String packageName;
+  @NotBlank private String packageName;
 
-    @NotBlank
-    private String appLabel;
+  @NotBlank private String appLabel;
 
-    private String appCategory;
+  private String appCategory;
 }

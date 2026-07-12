@@ -4,14 +4,13 @@ import com.parentalcontrol.common.domain.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-
-import java.time.Instant;
-import java.util.UUID;
 
 @Entity
 @Table(name = "device_installed_apps")
@@ -22,18 +21,18 @@ import java.util.UUID;
 @AllArgsConstructor
 public class DeviceInstalledApp extends BaseEntity {
 
-    @Column(name = "device_id", nullable = false)
-    private UUID deviceId;
+  @Column(name = "device_id", nullable = false)
+  private UUID deviceId;
 
-    @Column(name = "package_name", nullable = false)
-    private String packageName;
+  @Column(name = "package_name", nullable = false)
+  private String packageName;
 
-    @Column(name = "app_label", nullable = false)
-    private String appLabel;
+  @Column(name = "app_label", nullable = false)
+  private String appLabel;
 
-    @Column(name = "app_category")
-    private String appCategory;
+  @Column(name = "app_category")
+  private String appCategory;
 
-    @Column(name = "synced_at", nullable = false)
-    private Instant syncedAt;
+  @Column(name = "synced_at", nullable = false)
+  private Instant syncedAt;
 }

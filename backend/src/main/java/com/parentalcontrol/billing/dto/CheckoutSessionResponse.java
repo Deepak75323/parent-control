@@ -6,6 +6,6 @@ import lombok.Data;
 @Data
 @Builder
 public class CheckoutSessionResponse {
-    private String checkoutUrl;
-    private String planId;
+  private String checkoutUrl;
+  private String planId;
 }

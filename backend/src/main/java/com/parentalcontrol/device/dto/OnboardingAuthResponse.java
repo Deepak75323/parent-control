@@ -7,6 +7,7 @@ import lombok.Value;
 @Builder
 public class OnboardingAuthResponse {
   boolean authenticated;
+
   /** Returned on successful recovery or password match against an active pairing code. */
   String pairingCode;
 }

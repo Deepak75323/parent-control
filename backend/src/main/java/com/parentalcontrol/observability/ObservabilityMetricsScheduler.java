@@ -8,12 +8,12 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class ObservabilityMetricsScheduler {
 
-    private final DeviceHealthObservabilityService deviceHealthObservabilityService;
-    private final StreamObservabilityService streamObservabilityService;
+  private final DeviceHealthObservabilityService deviceHealthObservabilityService;
+  private final StreamObservabilityService streamObservabilityService;
 
-    @Scheduled(fixedDelayString = "${app.observability.gauge-refresh-ms:60000}")
-    public void refreshGauges() {
-        deviceHealthObservabilityService.refreshFleetGauges();
-        streamObservabilityService.refreshActiveSessionGauge();
-    }
+  @Scheduled(fixedDelayString = "${app.observability.gauge-refresh-ms:60000}")
+  public void refreshGauges() {
+    deviceHealthObservabilityService.refreshFleetGauges();
+    streamObservabilityService.refreshActiveSessionGauge();
+  }
 }

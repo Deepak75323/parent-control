@@ -264,6 +264,6 @@ adb logcat -d | grep OEM_VALIDATION
 | Behavior matrix | `infra/oem/behavior-matrix.yaml` |
 | Certification runner | `scripts/validation/oem/run-certification.sh` |
 | Xiaomi suite | `scripts/validation/xiaomi/` |
-| Android OEM code | `child-app/.../oem/` |
+| Android OEM code | `child/.../oem/` |
 | Backend ingest | `POST /api/v1/admin/certification/report` |
-| Setup wizard | `child-app/src/screens/PermissionSetupScreen.tsx` |
+| Setup wizard | `child/src/screens/PermissionSetupScreen.tsx` |

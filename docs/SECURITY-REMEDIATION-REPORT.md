@@ -19,14 +19,14 @@
 
 | File | Lines | Role |
 |------|-------|------|
-| `parent-app/android/.../ParentSecureAuthStore.kt` | 1–52 | AES-256-GCM EncryptedSharedPreferences |
-| `parent-app/android/.../ParentNativeModule.kt` | 19–44 | RN bridge: `saveSecureAuth` / `loadSecureAuth` / `clearSecureAuth` |
-| `parent-app/src/services/parentSecureAuthBridge.ts` | 1–19 | Runtime bridge resolution |
-| `parent-app/src/services/authStorage.ts` | 49–57 | Secure path preferred; AsyncStorage only as iOS / fallback |
+| `parent/android/.../ParentSecureAuthStore.kt` | 1–52 | AES-256-GCM EncryptedSharedPreferences |
+| `parent/android/.../ParentNativeModule.kt` | 19–44 | RN bridge: `saveSecureAuth` / `loadSecureAuth` / `clearSecureAuth` |
+| `parent/src/services/parentSecureAuthBridge.ts` | 1–19 | Runtime bridge resolution |
+| `parent/src/services/authStorage.ts` | 49–57 | Secure path preferred; AsyncStorage only as iOS / fallback |
 
 **Vulnerable code (before):**
 ```typescript
-// parent-app/src/services/authStorage.ts (pre-fix)
+// parent/src/services/authStorage.ts (pre-fix)
 const AUTH_KEY = 'pcp_parent_auth_v1';
 await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(auth));
 ```
@@ -65,7 +65,7 @@ Malware or backup extraction on a parent device could read `AsyncStorage` XML/SQ
 ### Tests
 | Type | File | Coverage |
 |------|------|----------|
-| Unit | `parent-app/src/__tests__/authStorage.test.ts` | Save/load/migrate/clear via mocked bridge |
+| Unit | `parent/src/__tests__/authStorage.test.ts` | Save/load/migrate/clear via mocked bridge |
 | Integration | Manual: install parent debug APK, login, verify `parent_secure_auth_prefs` encrypted |
 | Regression | `authStorage.test.ts` — asserts AsyncStorage not used when bridge present |
 
@@ -389,7 +389,7 @@ Added opt-in (default **enabled**) NetworkPolicy templates with namespace-scoped
 
 **Parent (before):**
 ```xml
-<!-- parent-app/android/app/src/main/AndroidManifest.xml (pre-fix, line 11) -->
+<!-- parent/android/app/src/main/AndroidManifest.xml (pre-fix, line 11) -->
 android:usesCleartextTraffic="true"
 ```
 No `network_security_config`.
@@ -398,11 +398,11 @@ No `network_security_config`.
 
 | File | Lines | Change |
 |------|-------|--------|
-| `parent-app/.../AndroidManifest.xml` | 10–11 | Added `networkSecurityConfig`; removed global cleartext |
-| `parent-app/.../src/debug/res/xml/network_security_config.xml` | 1–16 | Dev cleartext domains only |
-| `parent-app/.../src/release/res/xml/network_security_config.xml` | 1–14 | Cert pin template |
-| `child-app/.../src/release/res/xml/network_security_config.xml` | 1–14 | Release pins enabled (placeholder) |
-| `child-app/.../src/main/res/xml/network_security_config.xml` | 7–11 | `cleartextTrafficPermitted="false"` base |
+| `parent/.../AndroidManifest.xml` | 10–11 | Added `networkSecurityConfig`; removed global cleartext |
+| `parent/.../src/debug/res/xml/network_security_config.xml` | 1–16 | Dev cleartext domains only |
+| `parent/.../src/release/res/xml/network_security_config.xml` | 1–14 | Cert pin template |
+| `child/.../src/release/res/xml/network_security_config.xml` | 1–14 | Release pins enabled (placeholder) |
+| `child/.../src/main/res/xml/network_security_config.xml` | 7–11 | `cleartextTrafficPermitted="false"` base |
 
 **Fixed parent manifest:**
 ```xml
@@ -453,10 +453,10 @@ cd backend && mvn test -Dtest=StompAuthChannelInterceptorTest
 cd backend && mvn test -Dtest=SecurityIntegrationTest,PairingRateLimitIntegrationTest
 
 # Parent Jest
-cd parent-app && CI=true npm test -- --testPathPattern=authStorage --watchAll=false
+cd parent && CI=true npm test -- --testPathPattern=authStorage --watchAll=false
 
 # Parent Android compile
-cd parent-app/android && ./gradlew :app:compileDebugKotlin
+cd parent/android && ./gradlew :app:compileDebugKotlin
 ```
 
 ## Operator Checklist (Post-Deploy)

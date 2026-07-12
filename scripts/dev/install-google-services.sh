@@ -12,7 +12,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-DEST="$ROOT/child-app/android/app/google-services.json"
+DEST="$ROOT/child/android/app/google-services.json"
 
 if [[ "${1:-}" != "" ]]; then
   if [[ ! -f "$1" ]]; then
@@ -39,5 +39,5 @@ fi
 echo "No google-services.json source provided." >&2
 echo "  ./scripts/dev/install-google-services.sh /path/to/google-services.json" >&2
 echo "  or set FIREBASE_GOOGLE_SERVICES_JSON_B64 / FIREBASE_GOOGLE_SERVICES_JSON" >&2
-echo "Template: child-app/android/app/google-services.json.example" >&2
+echo "Template: child/android/app/google-services.json.example" >&2
 exit 1

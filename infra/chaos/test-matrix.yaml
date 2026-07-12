@@ -58,7 +58,7 @@ categories:
       recovery_expectation: Heartbeat clears stale granted flag; parent alert
       pass_criteria:
         stale_flag_cleared_within_sec: 30
-      automation: child-app instrumented tests
+      automation: child instrumented tests
 
     - id: AND-07
       name: FGS timeout (Android 15)

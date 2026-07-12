@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Java 21 backend running with Flyway V3 applied
-- Child app rebuilt with `io.getstream:stream-webrtc-android` (see `child-app/android/app/build.gradle`)
+- Child app rebuilt with `io.getstream:stream-webrtc-android` (see `child/android/app/build.gradle`)
 - Android device or emulator **without** Google accounts (for Device Owner)
 - USB debugging enabled
 

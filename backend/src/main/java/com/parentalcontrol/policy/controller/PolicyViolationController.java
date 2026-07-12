@@ -1,6 +1,7 @@
 package com.parentalcontrol.policy.controller;
 
 import com.parentalcontrol.common.api.ApiResponse;
+import com.parentalcontrol.common.constant.ApiConstants;
 import com.parentalcontrol.policy.dto.PolicyViolationRequest;
 import com.parentalcontrol.policy.dto.PolicyViolationResponse;
 import com.parentalcontrol.policy.service.ViolationService;
@@ -15,18 +16,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/events")
+@RequestMapping(ApiConstants.EVENTS)
 @RequiredArgsConstructor
 @Tag(name = "Events", description = "Child device events")
 @SecurityRequirement(name = "bearerAuth")
 public class PolicyViolationController {
 
-    private final ViolationService violationService;
+  private final ViolationService violationService;
 
-    @PostMapping("/policy-violations")
-    @Operation(summary = "Report a policy violation from child device")
-    public ApiResponse<PolicyViolationResponse> reportViolation(
-            @Valid @RequestBody PolicyViolationRequest request) {
-        return ApiResponse.ok(violationService.recordViolation(request));
-    }
+  @PostMapping("/policy-violations")
+  @Operation(summary = "Report a policy violation from child device")
+  public ApiResponse<PolicyViolationResponse> reportViolation(
+      @Valid @RequestBody PolicyViolationRequest request) {
+    return ApiResponse.ok(violationService.recordViolation(request));
+  }
 }

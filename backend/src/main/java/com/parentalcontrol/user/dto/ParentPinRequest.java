@@ -7,7 +7,7 @@ import lombok.Data;
 @Data
 public class ParentPinRequest {
 
-    @NotBlank
-    @Size(min = 4, max = 64)
-    private String pin;
+  @NotBlank
+  @Size(min = 4, max = 64)
+  private String pin;
 }

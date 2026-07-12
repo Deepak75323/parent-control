@@ -180,7 +180,7 @@ Full catalog: [`infra/chaos/test-matrix.yaml`](../infra/chaos/test-matrix.yaml)
 - **ADB scripts** under `scripts/chaos/scenarios/android/` for process kill, force-stop, reboot, WorkManager delay.
 - **OEM matrix** via `scripts/validation/xiaomi/` (battery, handoff, background restrictions).
 - **Device farm:** Firebase Test Lab / internal farm with `DEVICE_SERIAL`, `DEVICE_ID`, `PARENT_TOKEN` env vars.
-- **Instrumented tests:** MediaProjection recovery, command idempotency (child-app/androidTest).
+- **Instrumented tests:** MediaProjection recovery, command idempotency (child/androidTest).
 
 ### Backend automation
 

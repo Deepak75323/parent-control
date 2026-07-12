@@ -22,28 +22,32 @@ import lombok.Setter;
 @AllArgsConstructor
 public class User extends BaseEntity {
 
-    @Column(nullable = false, unique = true)
-    private String email;
+  @Column(nullable = false, unique = true)
+  private String email;
 
-    @Column(name = "password_hash", nullable = false)
-    private String passwordHash;
+  @Column(name = "password_hash", nullable = false)
+  private String passwordHash;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private Role role;
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false)
+  private Role role;
 
-    @Column(name = "email_verified", nullable = false)
-    @Builder.Default
-    private boolean emailVerified = false;
+  @Column(name = "email_verified", nullable = false)
+  @Builder.Default
+  private boolean emailVerified = false;
 
-    @Column(name = "consent_accepted", nullable = false)
-    @Builder.Default
-    private boolean consentAccepted = false;
+  @Column(name = "consent_accepted", nullable = false)
+  @Builder.Default
+  private boolean consentAccepted = false;
 
-    @Column(name = "parent_pin_hash")
-    private String parentPinHash;
+  @Column(name = "parent_pin_hash")
+  private String parentPinHash;
 
-    @Column(name = "silent_stream_pin_unlocked", nullable = false)
-    @Builder.Default
-    private boolean silentStreamPinUnlocked = false;
+  @Column(name = "silent_stream_pin_unlocked", nullable = false)
+  @Builder.Default
+  private boolean silentStreamPinUnlocked = false;
+
+  /** Access/refresh tokens issued at or before this instant are rejected. */
+  @Column(name = "tokens_invalidated_after")
+  private java.time.Instant tokensInvalidatedAfter;
 }

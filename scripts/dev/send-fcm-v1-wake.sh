@@ -11,7 +11,7 @@ TOKEN="${2:-${DEVICE_FCM_TOKEN:-}}"
 COMMAND_ID="${3:-}"
 COMMAND_TYPE="${4:-}"
 
-SA_FILE="${FCM_SERVICE_ACCOUNT_FILE:-$ROOT/backend/secrets/parental-control-app-25a49-firebase-adminsdk-fbsvc-0f7ad3e8f0.json}"
+SA_FILE="${FCM_SERVICE_ACCOUNT_FILE:-$ROOT/backend/secrets/firebase-service-account.json}"
 if [[ ! -f "$SA_FILE" ]]; then
   echo "Service account not found: $SA_FILE" >&2
   exit 1

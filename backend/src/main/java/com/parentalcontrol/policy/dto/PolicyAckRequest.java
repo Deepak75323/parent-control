@@ -6,6 +6,5 @@ import lombok.Data;
 @Data
 public class PolicyAckRequest {
 
-    @NotBlank
-    private String policyVersion;
+  @NotBlank private String policyVersion;
 }

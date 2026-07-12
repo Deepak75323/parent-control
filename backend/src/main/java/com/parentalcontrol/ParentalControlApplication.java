@@ -5,12 +5,13 @@ import com.parentalcontrol.config.DeviceCommandProperties;
 import com.parentalcontrol.config.DeviceTrustProperties;
 import com.parentalcontrol.config.FcmProperties;
 import com.parentalcontrol.config.ObservabilityProperties;
+import com.parentalcontrol.config.PasswordResetProperties;
 import com.parentalcontrol.config.PlayIntegrityProperties;
 import com.parentalcontrol.config.SecurityProperties;
 import com.parentalcontrol.config.StompBrokerProperties;
 import com.parentalcontrol.config.StompClusterProperties;
-import com.parentalcontrol.config.WebrtcProperties;
 import com.parentalcontrol.config.WebSocketProperties;
+import com.parentalcontrol.config.WebrtcProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
@@ -22,22 +23,23 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EntityScan(basePackages = "com.parentalcontrol")
 @EnableJpaRepositories(basePackages = "com.parentalcontrol")
 @EnableConfigurationProperties({
-        JwtProperties.class,
-        WebSocketProperties.class,
-        StompBrokerProperties.class,
-        StompClusterProperties.class,
-        WebrtcProperties.class,
-        FcmProperties.class,
-        PlayIntegrityProperties.class,
-        DeviceTrustProperties.class,
-        ObservabilityProperties.class,
-        DeviceCommandProperties.class,
-        SecurityProperties.class
+  JwtProperties.class,
+  WebSocketProperties.class,
+  StompBrokerProperties.class,
+  StompClusterProperties.class,
+  WebrtcProperties.class,
+  FcmProperties.class,
+  PlayIntegrityProperties.class,
+  DeviceTrustProperties.class,
+  ObservabilityProperties.class,
+  PasswordResetProperties.class,
+  DeviceCommandProperties.class,
+  SecurityProperties.class
 })
 @EnableScheduling
 public class ParentalControlApplication {
 
-    public static void main(String[] args) {
-        SpringApplication.run(ParentalControlApplication.class, args);
-    }
+  public static void main(String[] args) {
+    SpringApplication.run(ParentalControlApplication.class, args);
+  }
 }

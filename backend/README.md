@@ -15,10 +15,10 @@ Spring Boot **3.4.5** / Java **21** API for the parental control platform: REST,
 
 cd backend
 cp .env.example .env
-# Recommended for local dev: BILLING_ENFORCEMENT=false, HMAC_REQUIRED=false, KAFKA_ENABLED=false
+# Local dev uses spring profile `dev` (application-dev.properties) — relaxed security defaults.
 
 mvn clean install -DskipTests
-mvn spring-boot:run
+SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run
 ```
 
 | URL | Description |
@@ -69,17 +69,11 @@ Details: [docs/API.md](../docs/API.md) · Live docs: Swagger UI when server is r
 
 ## Configuration
 
-Defaults in `src/main/resources/application.yml`; overrides via environment or `backend/.env`:
+Defaults in `src/main/resources/application.properties`; overrides via environment or `backend/.env` (copy from `backend/.env.example`):
 
-```env
-SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/parental_control
-SPRING_DATASOURCE_USERNAME=pcp
-SPRING_DATASOURCE_PASSWORD=pcp_secret
-SPRING_DATA_REDIS_HOST=localhost
-JWT_SECRET=change-me-in-production-use-256-bit-minimum-secret-key!!
-HMAC_REQUIRED=false
-BILLING_ENFORCEMENT=false
-KAFKA_ENABLED=false
+```bash
+cp .env.example .env
+# Set JWT_SECRET, SPRING_DATASOURCE_PASSWORD, and other secrets before running.
 ```
 
 See [docs/DEVELOPER_ONBOARDING.md §8](../docs/DEVELOPER_ONBOARDING.md#8-environment-variables) for the full table.

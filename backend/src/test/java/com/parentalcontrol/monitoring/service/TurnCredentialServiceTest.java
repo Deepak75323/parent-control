@@ -1,14 +1,13 @@
 package com.parentalcontrol.monitoring.service;
 
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class TurnCredentialServiceTest {
 
-  private static final String SECRET = "pcp_dev_turn_secret_32chars_minimum";
+  private static final String SECRET = "test-turn-secret-" + UUID.randomUUID() + UUID.randomUUID();
 
   @Test
   void computeCredential_isDeterministicForUsername() {

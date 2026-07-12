@@ -1,15 +1,14 @@
 package com.parentalcontrol.device.dto;
 
 import com.parentalcontrol.device.domain.DeviceCommandType;
+import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
-
-import java.util.UUID;
 
 @Data
 @Builder
 public class PendingDeviceCommandResponse {
-    private UUID id;
-    private DeviceCommandType commandType;
-    private String payload;
+  private UUID id;
+  private DeviceCommandType commandType;
+  private String payload;
 }

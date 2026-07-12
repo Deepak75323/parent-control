@@ -7,8 +7,8 @@ A lawful parental monitoring platform with three applications sharing one Spring
 | Component | Stack | Role |
 |-----------|-------|------|
 | **backend/** | Spring Boot 3, PostgreSQL, STOMP WebSocket | REST API, persistence, real-time events |
-| **parent-app/** | React Native | Parent dashboard, live updates, alerts |
-| **child-app/** | React Native + Android native | Device agent: capture & sync monitoring data |
+| **parent/** | React Native | Parent dashboard, live updates, alerts |
+| **child/** | React Native + Android native | Device agent: capture & sync monitoring data |
 
 ---
 
@@ -34,12 +34,12 @@ parentalControlApp/
 │       ├── user/            # Parent/child profiles
 │       ├── config/          # Security, WebSocket, OpenAPI
 │       └── common/          # ApiResponse, JWT, exceptions
-├── parent-app/              # React Native parent UI
+├── parent/                  # React Native parent UI
 │   └── src/
 │       ├── screens/         # Dashboard, devices, notifications, location, alerts
 │       ├── services/        # REST + WebSocket (STOMP)
 │       └── store/           # Auth + realtime Zustand stores
-├── child-app/               # React Native child UI + Android native
+├── child/                   # React Native child UI + Android native
 │   ├── src/services/        # syncService, API client
 │   └── android/             # NotificationListener, ForegroundService, BootReceiver
 ├── docs/                    # Architecture, API, deployment, security
@@ -50,7 +50,7 @@ parentalControlApp/
 
 ## 3. Phase 1 deliverables (complete)
 
-- Monorepo layout (`backend/`, `parent-app/`, `child-app/`)
+- Monorepo layout (`backend/`, `parent/`, `child/`)
 - PostgreSQL schema + Flyway `V1__initial_schema.sql`
 - Parent registration / login / JWT access + refresh
 - Device pairing code (15 min TTL) + QR payload
@@ -324,7 +324,7 @@ mvn spring-boot:run
 ### Parent app
 
 ```bash
-cd parent-app
+cd parent
 npm install
 cp .env.example .env
 npm start
@@ -335,10 +335,10 @@ npm run android
 ### Child app
 
 ```bash
-cd child-app
+cd child
 npm install
 cp .env.example .env
-# Generate android/ if missing: npx @react-native-community/cli init (see child-app/README.md)
+# Generate android/ if missing: npx @react-native-community/cli init (see child/README.md)
 # Merge android/app/src/main/AndroidManifest.xml services into your RN manifest
 npm run android
 ```
@@ -431,7 +431,7 @@ cd backend && mvn test
 | Three separate Git repos | Use `scripts/split-repos.sh` when ready |
 | iOS | **Not planned** — Android child agent only |
 | FCM instant command delivery | Optional — install `google-services.json`, set `FCM_ENABLED` + `FCM_SERVER_KEY`; validate with `./scripts/dev/validate-fcm-doze.sh` |
-| Device Owner | Optional; ADB or QR — see child-app/README.md |
+| Device Owner | Optional; ADB or QR — see child/README.md |
 
 ---
 
@@ -440,10 +440,25 @@ cd backend && mvn test
 | Project | Command |
 |---------|---------|
 | Backend | `cd backend && mvn spring-boot:run` |
-| Parent | `cd parent-app && npm run android` |
-| Child | `cd child-app && npm run android` |
+| Parent | `cd parent && npm run android` |
+| Child | `cd child && npm run android` |
 | All infra | `./scripts/dev/compose.sh up -d` |
 
 ## Legal
 
 For **lawful parental monitoring** with informed consent only. Comply with local privacy laws and app-store policies.
+
+---
+
+## Secret management and rotation
+
+**Before deploying**, copy `.env.example` to `.env` (and per-app `backend/.env`, `parent/.env`, `child/.env`) and set strong unique values for every secret. Never commit `.env` files.
+
+| Rule | Detail |
+|------|--------|
+| Server-only | `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `FCM_SERVER_KEY`, database passwords, OAuth client secrets |
+| Never client-side | Stripe secret keys, Supabase service role keys, JWT signing secrets |
+| Mobile apps | Only public-safe config (API base URLs). `TAMPER_MASTER_PIN` is dev-only and must be empty in release builds |
+| No `REACT_APP_` / `NEXT_PUBLIC_` for secrets | These prefixes expose values to the browser bundle |
+
+**Git history warning:** This repository previously contained hardcoded credentials (including a tamper master PIN and local database passwords). Those values remain in git history even after removal. **Rotate every secret that was ever committed** — treat old values as compromised. Use new JWT signing keys, database passwords, TURN secrets, Stripe keys, Firebase service accounts, and tamper PINs before any production deployment.

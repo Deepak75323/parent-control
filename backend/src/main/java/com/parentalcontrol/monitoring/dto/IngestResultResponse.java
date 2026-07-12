@@ -7,5 +7,5 @@ import lombok.Data;
 @Builder
 public class IngestResultResponse {
 
-    private int accepted;
+  private int accepted;
 }

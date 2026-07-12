@@ -8,12 +8,11 @@ import lombok.Data;
 @Data
 public class CreateTimeExtensionRequest {
 
-    @NotBlank
-    private String packageName;
+  @NotBlank private String packageName;
 
-    private String appLabel;
+  private String appLabel;
 
-    @Min(5)
-    @Max(240)
-    private int requestedMinutes = 30;
+  @Min(5)
+  @Max(240)
+  private int requestedMinutes = 30;
 }

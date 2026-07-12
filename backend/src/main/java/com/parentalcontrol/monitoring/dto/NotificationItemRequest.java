@@ -1,17 +1,21 @@
 package com.parentalcontrol.monitoring.dto;
 
 import jakarta.validation.constraints.NotNull;
-import lombok.Data;
-
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
+import lombok.Data;
 
 @Data
 public class NotificationItemRequest {
 
-    private String packageName;
-    private String title;
-    private String body;
+  @Size(max = 256)
+  private String packageName;
 
-    @NotNull
-    private Instant postedAt;
+  @Size(max = 512)
+  private String title;
+
+  @Size(max = 4096)
+  private String body;
+
+  @NotNull private Instant postedAt;
 }

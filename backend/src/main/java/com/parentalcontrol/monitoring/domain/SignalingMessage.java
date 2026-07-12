@@ -6,14 +6,13 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-
-import java.time.Instant;
-import java.util.UUID;
 
 @Entity
 @Table(name = "signaling_messages")
@@ -24,26 +23,26 @@ import java.util.UUID;
 @AllArgsConstructor
 public class SignalingMessage {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
+  @Id
+  @GeneratedValue(strategy = GenerationType.UUID)
+  private UUID id;
 
-    @Column(name = "room_id", nullable = false)
-    private String roomId;
+  @Column(name = "room_id", nullable = false)
+  private String roomId;
 
-    @Column(name = "session_id")
-    private UUID sessionId;
+  @Column(name = "session_id")
+  private UUID sessionId;
 
-    @Column(name = "sender_role", nullable = false)
-    private String senderRole;
+  @Column(name = "sender_role", nullable = false)
+  private String senderRole;
 
-    @Column(name = "message_type", nullable = false)
-    private String messageType;
+  @Column(name = "message_type", nullable = false)
+  private String messageType;
 
-    @Column(nullable = false)
-    private String payload;
+  @Column(nullable = false)
+  private String payload;
 
-    @Column(name = "created_at", nullable = false)
-    @Builder.Default
-    private Instant createdAt = Instant.now();
+  @Column(name = "created_at", nullable = false)
+  @Builder.Default
+  private Instant createdAt = Instant.now();
 }

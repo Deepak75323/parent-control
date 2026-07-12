@@ -1,5 +1,6 @@
 package com.parentalcontrol.config;
 
+import com.parentalcontrol.common.constant.ApiConstants;
 import com.parentalcontrol.common.domain.Role;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -21,67 +22,67 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+  private final JwtAuthenticationFilter jwtAuthenticationFilter;
+  private final AdminEndpointProperties adminEndpointProperties;
+  private final RestSecurityErrorHandlers restSecurityErrorHandlers;
 
-    private static final String[] PUBLIC_PATHS = {
-            "/api/v1/auth/**",
-            "/api/v1/device/pair",
-            "/api/v1/onboarding/**",
-            "/api/v1/billing/webhooks/**",
-            "/swagger-ui/**",
-            "/swagger-ui.html",
-            "/api-docs/**",
-            "/v3/api-docs/**",
-            "/actuator/health",
-            "/actuator/health/**",
-            "/actuator/info",
-            "/actuator/prometheus",
-            "/ws",
-            "/ws/**",
-            "/ws-native",
-            "/ws-native/**"
-    };
+  @Bean
+  public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    http.cors(cors -> {})
+        .csrf(AbstractHttpConfigurer::disable)
+        .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .authorizeHttpRequests(
+            auth ->
+                auth.requestMatchers(ApiConstants.PUBLIC_PATHS)
+                    .permitAll()
+                    .requestMatchers(HttpMethod.POST, ApiConstants.DEVICE_HEARTBEAT)
+                    .hasAuthority(Role.ROLE_CHILD_DEVICE.name())
+                    .requestMatchers(HttpMethod.POST, ApiConstants.DEVICE_TELEMETRY_ANT)
+                    .hasAuthority(Role.ROLE_CHILD_DEVICE.name())
+                    .requestMatchers(
+                        ApiConstants.DEVICE_ANT, ApiConstants.CHILD_ANT, ApiConstants.EVENTS_ANT)
+                    .hasAuthority(Role.ROLE_CHILD_DEVICE.name())
+                    .requestMatchers(ApiConstants.MONITORING_SIGNALING_ANT)
+                    .hasAnyAuthority(Role.ROLE_PARENT.name(), Role.ROLE_CHILD_DEVICE.name())
+                    .requestMatchers(HttpMethod.GET, ApiConstants.MONITORING_WEBRTC_CONFIG)
+                    .hasAnyAuthority(Role.ROLE_PARENT.name(), Role.ROLE_CHILD_DEVICE.name())
+                    .requestMatchers(HttpMethod.POST, ApiConstants.MONITORING_WEBRTC_ICE_REPORT)
+                    .hasAnyAuthority(Role.ROLE_PARENT.name(), Role.ROLE_CHILD_DEVICE.name())
+                    .requestMatchers(
+                        ApiConstants.DEVICES_ANT,
+                        ApiConstants.MONITORING_ANT,
+                        ApiConstants.ALERTS_ANT,
+                        ApiConstants.POLICIES_ANT,
+                        ApiConstants.AUDIT_ANT,
+                        ApiConstants.PARENT_ANT,
+                        ApiConstants.BILLING_ANT,
+                        ApiConstants.TIME_EXTENSION_REQUESTS_ANT,
+                        ApiConstants.AUTH_ACCOUNT)
+                    .hasAuthority(Role.ROLE_PARENT.name())
+                    .requestMatchers(ApiConstants.ADMIN_ANT)
+                    .access(
+                        (authentication, ctx) ->
+                            adminEndpointProperties.isEndpointsEnabled()
+                                ? new org.springframework.security.authorization
+                                    .AuthorizationDecision(
+                                    authentication.get().getAuthorities().stream()
+                                        .anyMatch(
+                                            a -> a.getAuthority().equals(Role.ROLE_ADMIN.name())))
+                                : new org.springframework.security.authorization
+                                    .AuthorizationDecision(false))
+                    .anyRequest()
+                    .authenticated())
+        .exceptionHandling(
+            ex ->
+                ex.authenticationEntryPoint(restSecurityErrorHandlers)
+                    .accessDeniedHandler(restSecurityErrorHandlers))
+        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
-    @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        http
-                .csrf(AbstractHttpConfigurer::disable)
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(PUBLIC_PATHS).permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/device/heartbeat")
-                            .hasAuthority(Role.ROLE_CHILD_DEVICE.name())
-                        .requestMatchers(HttpMethod.POST, "/api/v1/device/telemetry/**")
-                            .hasAuthority(Role.ROLE_CHILD_DEVICE.name())
-                        .requestMatchers("/api/v1/device/**", "/api/v1/child/**",
-                                "/api/v1/events/**")
-                            .hasAuthority(Role.ROLE_CHILD_DEVICE.name())
-                        .requestMatchers("/api/v1/monitoring/signaling/**")
-                            .hasAnyAuthority(Role.ROLE_PARENT.name(), Role.ROLE_CHILD_DEVICE.name())
-                        .requestMatchers(HttpMethod.GET, "/api/v1/monitoring/webrtc-config")
-                            .hasAnyAuthority(Role.ROLE_PARENT.name(), Role.ROLE_CHILD_DEVICE.name())
-                        .requestMatchers(HttpMethod.POST, "/api/v1/monitoring/webrtc-ice-report")
-                            .hasAnyAuthority(Role.ROLE_PARENT.name(), Role.ROLE_CHILD_DEVICE.name())
-                        .requestMatchers("/api/v1/devices/**", "/api/v1/monitoring/**",
-                                "/api/v1/alerts/**", "/api/v1/policies/**", "/api/v1/audit/**",
-                                "/api/v1/parent/**", "/api/v1/billing/**",
-                                "/api/v1/time-extension-requests/**")
-                            .hasAuthority(Role.ROLE_PARENT.name())
-                        .requestMatchers("/api/v1/admin/**")
-                            .hasAuthority(Role.ROLE_ADMIN.name())
-                        .requestMatchers(HttpMethod.POST, "/api/v1/admin/chaos/**")
-                            .hasAuthority(Role.ROLE_ADMIN.name())
-                        .requestMatchers(HttpMethod.POST, "/api/v1/admin/certification/**")
-                            .hasAuthority(Role.ROLE_ADMIN.name())
-                        .anyRequest().authenticated()
-                )
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+    return http.build();
+  }
 
-        return http.build();
-    }
-
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder(12);
-    }
+  @Bean
+  public PasswordEncoder passwordEncoder() {
+    return new BCryptPasswordEncoder(12);
+  }
 }

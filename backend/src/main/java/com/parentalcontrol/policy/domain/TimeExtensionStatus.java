@@ -1,8 +1,8 @@
 package com.parentalcontrol.policy.domain;
 
 public enum TimeExtensionStatus {
-    PENDING,
-    APPROVED,
-    DENIED,
-    EXPIRED
+  PENDING,
+  APPROVED,
+  DENIED,
+  EXPIRED
 }

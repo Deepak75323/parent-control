@@ -82,7 +82,7 @@ test_process_death_recovery() {
 
 run_unit_tests() {
   log "running JVM Android 16 platform tests..."
-  (cd "$ROOT/child-app/android" && ./gradlew :app:testDebugUnitTest \
+  (cd "$ROOT/child/android" && ./gradlew :app:testDebugUnitTest \
     --tests 'com.childmonitor.platform.Android16*' -q) \
     >"$REPORT_DIR/unit-tests-${TIMESTAMP}.log" 2>&1 || {
     log "unit tests failed — see $REPORT_DIR/unit-tests-${TIMESTAMP}.log"

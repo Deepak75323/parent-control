@@ -1,6 +1,7 @@
 package com.parentalcontrol.device.controller;
 
 import com.parentalcontrol.common.api.ApiResponse;
+import com.parentalcontrol.common.constant.ApiConstants;
 import com.parentalcontrol.device.dto.OnboardingAuthRequest;
 import com.parentalcontrol.device.dto.OnboardingAuthResponse;
 import com.parentalcontrol.device.dto.OnboardingRecoveryRequest;
@@ -16,7 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/onboarding")
+@RequestMapping(ApiConstants.ONBOARDING)
 @RequiredArgsConstructor
 @Tag(name = "Child onboarding", description = "Pre-pairing child app authentication")
 public class OnboardingController {

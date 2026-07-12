@@ -75,7 +75,7 @@ cat <<EOF
 Dev stack ready
 ========================================
 Backend:      $API
-Parent login: $EMAIL  (same as parent-app/.env DEV_AUTO_EMAIL)
+Parent login: $EMAIL  (same as parent/.env DEV_AUTO_EMAIL)
 Pairing code: ${CODE}  (expires in 15 min, one use)
 
 Child phone (USB — recommended):
@@ -88,7 +88,7 @@ Parent emulator:
   1. Open parent app → Devices → Generate pairing code (or use code above)
   2. Must be logged in as $EMAIL
 
-Wi‑Fi only (no USB): set DEV_LAN_HOST in child-app/.env to your Mac IP
+Wi‑Fi only (no USB): set DEV_LAN_HOST in child/.env to your Mac IP
   Mac LAN IP: ${LAN_IP:-not detected — use USB or check Wi‑Fi}
 ========================================
 EOF

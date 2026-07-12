@@ -7,7 +7,7 @@ import lombok.Data;
 @Data
 public class SetDefaultChildLoginPasswordRequest {
 
-    @NotBlank
-    @Size(min = 4, max = 128)
-    private String childLoginPassword;
+  @NotBlank
+  @Size(min = 4, max = 128)
+  private String childLoginPassword;
 }

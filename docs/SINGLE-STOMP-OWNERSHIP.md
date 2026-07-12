@@ -121,7 +121,7 @@ sequenceDiagram
 |-------|--------|
 | **1** | Ship native owner + bridge (this PR) |
 | **2** | Monitor `stomp_ownership.message_deduplicated` — should trend down after dedup stabilizes |
-| **3** | Remove `@stomp/stompjs` from child-app `package.json` if no other usages |
+| **3** | Remove `@stomp/stompjs` from child `package.json` if no other usages |
 | **4** | Chaos: NET-06 multi-pod + background/foreground suite |
 
 **Rollback:** Revert to dual-client requires restoring `deviceWebSocket.ts` Client — not recommended.

@@ -1,0 +1,21 @@
+package com.parentalcontrol.auth.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import java.io.Serial;
+import java.io.Serializable;
+import lombok.Data;
+
+@Data
+public class ResetPasswordRequest implements Serializable {
+
+  @Serial private static final long serialVersionUID = 1L;
+
+  @NotBlank
+  @Size(min = 32, max = 256)
+  private String token;
+
+  @NotBlank
+  @Size(min = 8, max = 128)
+  private String password;
+}

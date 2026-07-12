@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "374086217786",
+    "project_id": "parental-control-app-25a49",
+    "storage_bucket": "parental-control-app-25a49.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:374086217786:android:202a35ea95378babe5c503",
+        "android_client_info": {
+          "package_name": "com.childmonitor"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUOvNcBEbUBnyGROxKfadmUYqSeqG0qqc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

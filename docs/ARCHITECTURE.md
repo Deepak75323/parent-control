@@ -66,8 +66,8 @@ flowchart TB
 | Folder | Responsibility |
 |--------|----------------|
 | **backend/** | Single Spring Boot app — auth, users, devices, monitoring (phased) |
-| **parent-app/** | React Native parent UI |
-| **child-app/** | React Native child agent + Android native modules |
+| **parent/** | React Native parent UI |
+| **child/** | React Native child agent + Android native modules |
 | **docs/** | Architecture, API, deployment, security |
 
 ### Backend packages (`com.parentalcontrol`)

@@ -38,8 +38,8 @@ Complete guide for new developers setting up the **backend**, **parent app**, an
 | Component | Path | Purpose |
 |-----------|------|---------|
 | **Backend API** | `backend/` | Single Spring Boot service: auth, device registry, monitoring ingest, policies, WebRTC signaling, billing, audit, remote commands |
-| **Parent app** | `parent-app/` | React Native dashboard for parents: register/login, pair devices, view notifications/location/usage, manage policies, live WebRTC monitoring, subscription, audit log |
-| **Child app** | `child-app/` | React Native UI + **Android native agent**: captures notifications/location/usage, enforces policies, streams media, runs foreground service, optional Device Owner / kiosk |
+| **Parent app** | `parent/` | React Native dashboard for parents: register/login, pair devices, view notifications/location/usage, manage policies, live WebRTC monitoring, subscription, audit log |
+| **Child app** | `child/` | React Native UI + **Android native agent**: captures notifications/location/usage, enforces policies, streams media, runs foreground service, optional Device Owner / kiosk |
 
 **Legal scope:** Lawful parental monitoring with **informed consent** on parent registration and child pairing. Android child agent only — **no iOS**.
 
@@ -238,8 +238,8 @@ The child app supports **FCM high-priority data wakes** when `google-services.js
 ```
 parentalControlApp/
 ├── backend/                 # Spring Boot API
-├── parent-app/              # React Native parent dashboard
-├── child-app/               # React Native + Android native agent
+├── parent/              # React Native parent dashboard
+├── child/               # React Native + Android native agent
 ├── docs/                    # Architecture, API, security, this guide
 ├── helm/                    # Kubernetes chart for API
 ├── scripts/                 # split-repos.sh, export-openapi.sh
@@ -263,7 +263,9 @@ backend/
 │   ├── config/               # Security, WebSocket, Kafka, rate limit
 │   └── common/               # JWT, exceptions, encryption helpers
 ├── src/main/resources/
-│   ├── application.yml       # Defaults + env placeholders
+│   ├── application.properties       # Defaults + env placeholders
+│   ├── application-dev.properties   # Local dev profile
+│   ├── application-prod.properties  # Production profile
 │   └── db/migration/         # Flyway V1–V5
 ├── src/test/java/            # Testcontainers integration tests
 ├── pom.xml
@@ -272,10 +274,10 @@ backend/
 └── README.md                 # Quick start (links here)
 ```
 
-### Parent app (`parent-app/`)
+### Parent app (`parent/`)
 
 ```
-parent-app/
+parent/
 ├── src/
 │   ├── screens/              # Login, Dashboard, Devices, Policies, LiveMonitoring, etc.
 │   ├── navigation/           # RootNavigator, auth stack
@@ -288,10 +290,10 @@ parent-app/
 └── android/                  # ⚠️ Must be bootstrapped — see Section 5
 ```
 
-### Child app (`child-app/`)
+### Child app (`child/`)
 
 ```
-child-app/
+child/
 ├── src/
 │   ├── screens/              # Setup, Permissions, Pairing, DeviceOwner, ServiceStatus
 │   ├── services/             # syncService, api client
@@ -382,41 +384,29 @@ set -a && source .env && set +a
 
 Or rely on Spring’s `${VAR}` resolution from the environment when starting Maven.
 
-### 4.4 Example `application.yml` (committed defaults)
+### 4.4 Example `application.properties` (committed defaults)
 
-Key sections from `backend/src/main/resources/application.yml`:
+Key sections from `backend/src/main/resources/application.properties` and `application-dev.properties`:
 
-```yaml
-spring:
-  datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parental_control}
-    username: ${SPRING_DATASOURCE_USERNAME:pcp}
-    password: ${SPRING_DATASOURCE_PASSWORD:pcp_secret}
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
-  data:
-    redis:
-      host: ${SPRING_DATA_REDIS_HOST:localhost}
-      port: ${SPRING_DATA_REDIS_PORT:6379}
+```properties
+spring.profiles.default=dev
+server.port=8080
 
-server:
-  port: 8080
+spring.datasource.url=${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/parental_control}
+spring.datasource.username=${SPRING_DATASOURCE_USERNAME:pcp}
+spring.datasource.password=${SPRING_DATASOURCE_PASSWORD:}
+spring.data.redis.host=${SPRING_DATA_REDIS_HOST:localhost}
+spring.data.redis.port=${SPRING_DATA_REDIS_PORT:6379}
 
-app:
-  hmac:
-    required: ${HMAC_REQUIRED:false}
-  billing:
-    enforcement-enabled: ${BILLING_ENFORCEMENT:true}
-    trial-days: 14
-  kafka:
-    enabled: ${KAFKA_ENABLED:false}
-  jwt:
-    secret: ${JWT_SECRET:change-me-in-production-use-256-bit-minimum-secret-key!!}
-    access-token-expiration-ms: 900000
+app.hmac.required=${HMAC_REQUIRED:false}
+app.billing.enforcement-enabled=${BILLING_ENFORCEMENT:false}
+app.billing.trial-days=14
+app.kafka.enabled=${KAFKA_ENABLED:false}
+app.jwt.secret=${JWT_SECRET:}
+app.jwt.access-token-expiration-ms=900000
 ```
 
-> **Note:** Default `BILLING_ENFORCEMENT` in YAML is `true`; override with `.env` `false` for local testing.
+> **Note:** The `dev` profile sets `BILLING_ENFORCEMENT=false` by default. Production uses `application-prod.properties` with strict enforcement.
 
 ### 4.5 Database migrations (Flyway)
 
@@ -523,13 +513,13 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 ### 5.2 Install dependencies
 
 ```bash
-cd parent-app
+cd parent
 npm install
 ```
 
 ### 5.3 Bootstrap Android project (required once)
 
-The repo may only contain `parent-app/android/README.md`. Generate RN **0.76.5** Android shell:
+The repo may only contain `parent/android/README.md`. Generate RN **0.76.5** Android shell:
 
 ```bash
 npx @react-native-community/cli@latest init ParentScaffold \
@@ -537,19 +527,19 @@ npx @react-native-community/cli@latest init ParentScaffold \
   --directory /tmp/pcp-parent-scaffold \
   --skip-install
 
-cp -R /tmp/pcp-parent-scaffold/android parent-app/
-chmod +x parent-app/android/gradlew
-echo "sdk.dir=$HOME/Library/Android/sdk" > parent-app/android/local.properties
+cp -R /tmp/pcp-parent-scaffold/android parent/
+chmod +x parent/android/gradlew
+echo "sdk.dir=$HOME/Library/Android/sdk" > parent/android/local.properties
 ```
 
-Do **not** overwrite `parent-app/src/`, `App.tsx`, or `package.json`.
+Do **not** overwrite `parent/src/`, `App.tsx`, or `package.json`.
 
 ### 5.4 Configure API URLs
 
-Edit `parent-app/src/utils/config.ts` or set env before Metro (defaults are emulator-friendly):
+Edit `parent/src/utils/config.ts` or set env before Metro (defaults are emulator-friendly):
 
 ```typescript
-// parent-app/src/utils/config.ts — defaults
+// parent/src/utils/config.ts — defaults
 apiBaseUrl: 'http://10.0.2.2:8080',
 wsNativeUrl: 'ws://10.0.2.2:8080/ws-native',
 ```
@@ -561,7 +551,7 @@ apiBaseUrl: 'http://192.168.1.42:8080',
 wsNativeUrl: 'ws://192.168.1.42:8080/ws-native',
 ```
 
-Copy `parent-app/.env.example` for reference (requires `react-native-config` if you wire it later):
+Copy `parent/.env.example` for reference (requires `react-native-config` if you wire it later):
 
 ```env
 API_BASE_URL=http://10.0.2.2:8080
@@ -592,14 +582,14 @@ emulator -avd Pixel_7_API_34 &
 **Terminal 1:**
 
 ```bash
-cd parent-app
+cd parent
 npm start
 ```
 
 **Terminal 2:**
 
 ```bash
-cd parent-app
+cd parent
 npm run android
 ```
 
@@ -641,7 +631,7 @@ Parent app is a standard app — no notification listener. Needs network only fo
 ### 6.1 Install dependencies
 
 ```bash
-cd child-app
+cd child
 npm install
 ```
 
@@ -656,21 +646,21 @@ npx @react-native-community/cli@latest init ChildScaffold \
   --skip-install
 
 # Backup custom native code
-cp -R child-app/android/app/src/main/java/com/childmonitor /tmp/childmonitor-backup
-cp child-app/android/app/src/main/AndroidManifest.xml /tmp/child-manifest-backup.xml
+cp -R child/android/app/src/main/java/com/childmonitor /tmp/childmonitor-backup
+cp child/android/app/src/main/AndroidManifest.xml /tmp/child-manifest-backup.xml
 
 # Copy Gradle root files
-cp /tmp/pcp-child-scaffold/android/gradlew child-app/android/
-cp /tmp/pcp-child-scaffold/android/gradlew.bat child-app/android/
-cp /tmp/pcp-child-scaffold/android/build.gradle child-app/android/
-cp /tmp/pcp-child-scaffold/android/settings.gradle child-app/android/
-cp /tmp/pcp-child-scaffold/android/gradle.properties child-app/android/
-cp -R /tmp/pcp-child-scaffold/android/gradle child-app/android/
-chmod +x child-app/android/gradlew
+cp /tmp/pcp-child-scaffold/android/gradlew child/android/
+cp /tmp/pcp-child-scaffold/android/gradlew.bat child/android/
+cp /tmp/pcp-child-scaffold/android/build.gradle child/android/
+cp /tmp/pcp-child-scaffold/android/settings.gradle child/android/
+cp /tmp/pcp-child-scaffold/android/gradle.properties child/android/
+cp -R /tmp/pcp-child-scaffold/android/gradle child/android/
+chmod +x child/android/gradlew
 
 # Restore manifest + Kotlin
-cp /tmp/child-manifest-backup.xml child-app/android/app/src/main/AndroidManifest.xml
-cp -R /tmp/childmonitor-backup child-app/android/app/src/main/java/com/childmonitor
+cp /tmp/child-manifest-backup.xml child/android/app/src/main/AndroidManifest.xml
+cp -R /tmp/childmonitor-backup child/android/app/src/main/java/com/childmonitor
 ```
 
 Set in `android/app/build.gradle`:
@@ -699,7 +689,7 @@ override fun getPackages(): List<ReactPackage> =
 ```
 
 ```bash
-echo "sdk.dir=$HOME/Library/Android/sdk" > child-app/android/local.properties
+echo "sdk.dir=$HOME/Library/Android/sdk" > child/android/local.properties
 ```
 
 ### 6.3 Required AndroidManifest entries (already in repo)
@@ -750,7 +740,7 @@ See [TESTING_DEVICE_OWNER.md](./TESTING_DEVICE_OWNER.md).
 Use a **second** emulator or device (not the same as parent):
 
 ```bash
-cd child-app
+cd child
 npm start          # terminal 1
 npm run android    # terminal 2
 ```
@@ -758,7 +748,7 @@ npm run android    # terminal 2
 ### 6.8 Child API URL
 
 ```typescript
-// child-app/src/utils/config.ts
+// child/src/utils/config.ts
 apiBaseUrl: 'http://10.0.2.2:8080',
 ```
 
@@ -886,7 +876,7 @@ podman exec pcp-redis redis-cli ping
 | `WS_NATIVE_URL` | RN STOMP WebSocket | `ws://10.0.2.2:8080/ws-native` |
 | `ENABLE_SSL_PINNING` | Force HTTPS + pins | `false` (dev) |
 
-Default source: `parent-app/src/utils/config.ts` (env vars need Metro/babel setup to override).
+Default source: `parent/src/utils/config.ts` (env vars need Metro/babel setup to override).
 
 ### 8.3 Child app
 
@@ -904,11 +894,11 @@ HMAC secret is returned at pair time and stored in `MonitoringPrefs` (Android), 
 ### 9.1 Parent / child debug APK
 
 ```bash
-cd parent-app/android
+cd parent/android
 ./gradlew :app:assembleDebug
 # Output: android/app/build/outputs/apk/debug/app-debug.apk
 
-cd child-app/android
+cd child/android
 ./gradlew :app:assembleDebug
 ```
 
@@ -970,8 +960,8 @@ Helm chart: `helm/parental-control-api/`
 | Workflow | Trigger | Action |
 |----------|---------|--------|
 | `backend-ci.yml` | `backend/**` | `mvn compile`, `mvn test` (Testcontainers) |
-| `parent-app-ci.yml` | `parent-app/**` | npm lint/test |
-| `child-app-ci.yml` | `child-app/**` | npm lint |
+| `parent-ci.yml` | `parent/**` | npm lint/test |
+| `child-ci.yml` | `child/**` | npm lint |
 | `ci.yml` | Root | Meta / combined checks |
 
 Recommendation: add `package-lock.json`, Android bootstrap in CI, and emulator e2e as follow-up.
@@ -1171,7 +1161,7 @@ fix/*         → bug fixes
 feat(parent): add subscription screen
 fix(backend): correct HMAC skew validation
 docs: update developer onboarding
-chore(ci): add package-lock for parent-app
+chore(ci): add package-lock for parent
 ```
 
 Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `build`, `ci`
@@ -1188,12 +1178,12 @@ cd parentalControlApp && ./scripts/dev/compose.sh up -d postgres redis
 cd backend && cp .env.example .env && mvn spring-boot:run
 
 # Parent (after android bootstrap)
-cd parent-app && npm start
-cd parent-app && npm run android
+cd parent && npm start
+cd parent && npm run android
 
 # Child (after android bootstrap, 2nd device)
-cd child-app && npm start
-cd child-app && npm run android
+cd child && npm start
+cd child && npm run android
 
 # Health
 curl http://localhost:8080/actuator/health

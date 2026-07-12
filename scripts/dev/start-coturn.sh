@@ -4,7 +4,11 @@
 set -euo pipefail
 
 LAN_IP="${LAN_IP:-$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo 127.0.0.1)}"
-TURN_SECRET="${TURN_SECRET:-pcp_dev_turn_secret_32chars_minimum}"
+if [[ -z "${TURN_SECRET:-}" ]]; then
+  echo "Set TURN_SECRET (min 32 chars) in .env or export before running" >&2
+  exit 1
+fi
+TURN_SECRET="${TURN_SECRET}"
 TURN_REALM="${TURN_REALM:-pcp}"
 MIN_PORT="${TURN_MIN_PORT:-49160}"
 MAX_PORT="${TURN_MAX_PORT:-49200}"

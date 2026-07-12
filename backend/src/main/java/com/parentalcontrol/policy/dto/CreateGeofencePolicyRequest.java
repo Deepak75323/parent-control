@@ -4,32 +4,25 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
-import lombok.Data;
-
 import java.util.List;
 import java.util.UUID;
+import lombok.Data;
 
 @Data
 public class CreateGeofencePolicyRequest {
 
-    @NotBlank
-    private String name;
+  @NotBlank private String name;
 
-    @NotEmpty
-    private List<UUID> deviceIds;
+  @NotEmpty private List<UUID> deviceIds;
 
-    @NotBlank
-    private String geofenceName;
+  @NotBlank private String geofenceName;
 
-    @NotNull
-    private Double latitude;
+  @NotNull private Double latitude;
 
-    @NotNull
-    private Double longitude;
+  @NotNull private Double longitude;
 
-    @Positive
-    private double radiusM;
+  @Positive private double radiusM;
 
-    private boolean alertOnEnter = true;
-    private boolean alertOnExit = true;
+  private boolean alertOnEnter = true;
+  private boolean alertOnExit = true;
 }

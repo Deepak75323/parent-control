@@ -54,7 +54,7 @@ See [`infra/android/android16-risk-matrix.yaml`](../infra/android/android16-risk
 
 | File | Change |
 |------|--------|
-| `child-app/android/build.gradle` | `compileSdkVersion` / `targetSdkVersion` → **36** |
+| `child/android/build.gradle` | `compileSdkVersion` / `targetSdkVersion` → **36** |
 | `platform/AndroidPlatform.kt` | **NEW** — central API capability detection |
 | `platform/Android16FeatureFlags.kt` | **NEW** — runtime migration flags |
 | `platform/Android16CompatibilityLayer.kt` | **NEW** — BAL/edge-to-edge/boot fallbacks |
@@ -171,7 +171,7 @@ chmod +x scripts/validation/android16/run-android16-validation.sh
 
 ```bash
 # Compile
-cd child-app/android && ./gradlew :app:compileDebugKotlin
+cd child/android && ./gradlew :app:compileDebugKotlin
 
 # Unit tests
 ./gradlew :app:testDebugUnitTest --tests 'com.childmonitor.platform.Android16*'

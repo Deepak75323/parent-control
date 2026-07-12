@@ -1,9 +1,15 @@
 package com.parentalcontrol;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parentalcontrol.device.dao.DeviceDao;
 import com.parentalcontrol.device.domain.Device;
-import com.parentalcontrol.device.repository.DeviceRepository;
+import java.util.UUID;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -17,43 +23,36 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class DeviceAccessibilityServiceIntegrationTest {
 
-    @DynamicPropertySource
-    static void configure(DynamicPropertyRegistry registry) {
-        IntegrationTestSupport.configureLocalInfra(registry, "parental_control_accessibility_test");
-        registry.add("app.hmac.required", () -> "false");
-    }
+  @DynamicPropertySource
+  static void configure(DynamicPropertyRegistry registry) {
+    IntegrationTestSupport.configureLocalInfra(registry, "parental_control_accessibility_test");
+    registry.add("app.hmac.required", () -> "false");
+  }
 
-    @Autowired
-    private MockMvc mockMvc;
+  @Autowired private MockMvc mockMvc;
 
-    @Autowired
-    private ObjectMapper objectMapper;
+  @Autowired private ObjectMapper objectMapper;
 
-    @Autowired
-    private DeviceRepository deviceRepository;
+  @Autowired private DeviceDao deviceRepository;
 
-    private static String parentToken;
-    private static String deviceToken;
-    private static UUID deviceId;
+  private static String parentToken;
+  private static String deviceToken;
+  private static UUID deviceId;
 
-    @Test
-    @Order(1)
-    void setupPairing() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
+  @Test
+  @Order(1)
+  void setupPairing() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
                                 {
                                   "email": "a11y@example.com",
                                   "password": "SecurePass123!",
@@ -62,23 +61,37 @@ class DeviceAccessibilityServiceIntegrationTest {
                                   "consentAccepted": "true"
                                 }
                                 """))
-                .andExpect(status().isCreated());
+        .andExpect(status().isCreated());
 
-        MvcResult login = mockMvc.perform(post("/api/v1/auth/login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
+    MvcResult login =
+        mockMvc
+            .perform(
+                post("/api/v1/auth/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        """
                                 {"email": "a11y@example.com", "password": "SecurePass123!"}
                                 """))
-                .andExpect(status().isOk())
-                .andReturn();
-        parentToken = objectMapper.readTree(login.getResponse().getContentAsString())
-                .get("data").get("accessToken").asText();
+            .andExpect(status().isOk())
+            .andReturn();
+    parentToken =
+        objectMapper
+            .readTree(login.getResponse().getContentAsString())
+            .get("data")
+            .get("accessToken")
+            .asText();
 
-        String pairingCode = IntegrationTestSupport.createPairingCode(mockMvc, objectMapper, parentToken);
+    String pairingCode =
+        IntegrationTestSupport.createPairingCode(mockMvc, objectMapper, parentToken);
 
-        MvcResult pair = mockMvc.perform(post("/api/v1/device/pair")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(String.format("""
+    MvcResult pair =
+        mockMvc
+            .perform(
+                post("/api/v1/device/pair")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        String.format(
+                            """
                                 {
                                   "pairingCode": "%s",
                                   "deviceName": "A11y Phone",
@@ -86,21 +99,25 @@ class DeviceAccessibilityServiceIntegrationTest {
                                   "osVersion": "14",
                                   "androidId": "a11y-android-001"
                                 }
-                                """, pairingCode)))
-                .andExpect(status().isOk())
-                .andReturn();
-        JsonNode pairData = objectMapper.readTree(pair.getResponse().getContentAsString()).get("data");
-        deviceToken = pairData.get("deviceToken").asText();
-        deviceId = UUID.fromString(pairData.get("deviceId").asText());
-    }
+                                """,
+                            pairingCode)))
+            .andExpect(status().isOk())
+            .andReturn();
+    JsonNode pairData = objectMapper.readTree(pair.getResponse().getContentAsString()).get("data");
+    deviceToken = pairData.get("deviceToken").asText();
+    deviceId = UUID.fromString(pairData.get("deviceId").asText());
+  }
 
-    @Test
-    @Order(2)
-    void heartbeat_updatesAccessibilityServiceConnected() throws Exception {
-        mockMvc.perform(post("/api/v1/device/heartbeat")
-                        .header("Authorization", "Bearer " + deviceToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
+  @Test
+  @Order(2)
+  void heartbeat_updatesAccessibilityServiceConnected() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/device/heartbeat")
+                .header("Authorization", "Bearer " + deviceToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
                                 {
                                   "batteryLevel": 80,
                                   "charging": false,
@@ -109,15 +126,18 @@ class DeviceAccessibilityServiceIntegrationTest {
                                   "accessibilityServiceConnected": true
                                 }
                                 """))
-                .andExpect(status().isOk());
+        .andExpect(status().isOk());
 
-        Device device = deviceRepository.findById(deviceId).orElseThrow();
-        assertThat(device.isAccessibilityServiceConnected()).isTrue();
+    Device device = deviceRepository.findById(deviceId).orElseThrow();
+    assertThat(device.isAccessibilityServiceConnected()).isTrue();
 
-        mockMvc.perform(post("/api/v1/device/heartbeat")
-                        .header("Authorization", "Bearer " + deviceToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
+    mockMvc
+        .perform(
+            post("/api/v1/device/heartbeat")
+                .header("Authorization", "Bearer " + deviceToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
                                 {
                                   "batteryLevel": 80,
                                   "charging": false,
@@ -126,13 +146,14 @@ class DeviceAccessibilityServiceIntegrationTest {
                                   "accessibilityServiceConnected": false
                                 }
                                 """))
-                .andExpect(status().isOk());
+        .andExpect(status().isOk());
 
-        device = deviceRepository.findById(deviceId).orElseThrow();
-        assertThat(device.isAccessibilityServiceConnected()).isFalse();
+    device = deviceRepository.findById(deviceId).orElseThrow();
+    assertThat(device.isAccessibilityServiceConnected()).isFalse();
 
-        mockMvc.perform(get("/api/v1/devices/" + deviceId)
-                        .header("Authorization", "Bearer " + parentToken))
-                .andExpect(status().isOk());
-    }
+    mockMvc
+        .perform(
+            get("/api/v1/devices/" + deviceId).header("Authorization", "Bearer " + parentToken))
+        .andExpect(status().isOk());
+  }
 }

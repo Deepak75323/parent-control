@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TEMPLATE — overwritten by build.gradle on every release build using CI env vars:
+    CERT_HOST           — production API hostname without scheme or port (e.g. api.example.com)
+    CERT_PIN_PRIMARY    — base64-encoded SHA-256 SPKI fingerprint of the leaf certificate
+    CERT_PIN_BACKUP     — base64-encoded SHA-256 SPKI fingerprint of the backup cert
+    CERT_PIN_EXPIRATION — pin-set expiration date in YYYY-MM-DD format (default: 2027-07-01)
+
+  See child/android/app/build.gradle for pin generation instructions.
+  NEVER ship this placeholder file — the release build fails if CERT_PIN_PRIMARY is empty.
+-->
+<network-security-config>
+
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config>
+        <domain includeSubdomains="true">REPLACE_WITH_CERT_HOST</domain>
+        <pin-set expiration="2027-07-01">
+            <pin digest="SHA-256">REPLACE_WITH_BASE64_SPKI_PIN_PRIMARY=</pin>
+            <pin digest="SHA-256">REPLACE_WITH_BASE64_SPKI_PIN_BACKUP=</pin>
+        </pin-set>
+    </domain-config>
+
+</network-security-config>

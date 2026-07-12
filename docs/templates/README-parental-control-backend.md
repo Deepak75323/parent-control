@@ -20,7 +20,7 @@ Spring Boot API for the parental control platform: authentication, device pairin
 | Streaming | WebRTC signaling, ICE config, screen-capture audit |
 | Compliance | Consent tracking, parent PIN, audit logs |
 
-**Consumers:** `parental-control-parent-app`, `parental-control-child-app` (no shared code—OpenAPI only).
+**Consumers:** `parental-control-parent`, `parental-control-child` (no shared code—OpenAPI only).
 
 ---
 
@@ -63,8 +63,9 @@ parental-control-backend/
 │   ├── policy/
 │   └── audit/
 ├── src/main/resources/
-│   ├── application.yml
-│   ├── application-prod.yml
+│   ├── application.properties
+│   ├── application-dev.properties
+│   ├── application-prod.properties
 │   └── db/migration/
 ├── src/test/java/
 ├── docker/
@@ -282,8 +283,8 @@ On each release:
 
 | Repo | Role |
 |------|------|
-| [parental-control-parent-app](https://github.com/YOUR_ORG/parental-control-parent-app) | Parent dashboard & live viewer |
-| [parental-control-child-app](https://github.com/YOUR_ORG/parental-control-child-app) | Android child agent |
+| [parental-control-parent](https://github.com/YOUR_ORG/parental-control-parent) | Parent dashboard & live viewer |
+| [parental-control-child](https://github.com/YOUR_ORG/parental-control-child) | Android child agent |
 
 ---
 

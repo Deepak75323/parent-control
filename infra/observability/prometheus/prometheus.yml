@@ -16,9 +16,9 @@ scrape_configs:
     scrape_interval: 15s
     static_configs:
       - targets: ['backend:8080']
-    authorization:
-      type: Bearer
-      credentials: dev_metrics_token
+    # Bearer token for /actuator/prometheus — set via METRICS_SCRAPE_TOKEN in .env and
+    # configure credentials in your deployment (Prometheus does not expand env vars in YAML).
+    # Leave authorization unset when OBSERVABILITY_PROMETHEUS_PUBLIC=true (local dev only).
 
   - job_name: otel-collector
     static_configs:

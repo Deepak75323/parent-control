@@ -4,13 +4,12 @@ import com.parentalcontrol.common.domain.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-
-import java.util.UUID;
 
 @Entity
 @Table(name = "policy_assignments")
@@ -21,13 +20,13 @@ import java.util.UUID;
 @AllArgsConstructor
 public class PolicyAssignment extends BaseEntity {
 
-    @Column(name = "policy_id", nullable = false)
-    private UUID policyId;
+  @Column(name = "policy_id", nullable = false)
+  private UUID policyId;
 
-    @Column(name = "device_id", nullable = false)
-    private UUID deviceId;
+  @Column(name = "device_id", nullable = false)
+  private UUID deviceId;
 
-    @Builder.Default
-    @Column(nullable = false)
-    private Boolean active = true;
+  @Builder.Default
+  @Column(nullable = false)
+  private Boolean active = true;
 }

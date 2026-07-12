@@ -6,6 +6,6 @@ import lombok.Value;
 @Value
 @Builder
 public class DefaultChildLoginPasswordStatusResponse {
-    boolean configured;
-    int linkedDeviceCount;
+  boolean configured;
+  int linkedDeviceCount;
 }

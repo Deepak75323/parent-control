@@ -7,18 +7,18 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app.observability")
 public class ObservabilityProperties {
 
-    /** Allow unauthenticated GET /actuator/prometheus (dev only). */
-    private boolean prometheusPublic = false;
+  /** Allow unauthenticated GET /actuator/prometheus (dev only). */
+  private boolean prometheusPublic = false;
 
-    /** Shared secret for Prometheus scrape via X-Metrics-Token header. */
-    private String metricsScrapeToken = "";
+  /** Shared secret for Prometheus scrape via X-Metrics-Token header. */
+  private String metricsScrapeToken = "";
 
-    /** Emit structured JSON logs (prod default). */
-    private boolean jsonLogging = false;
+  /** Emit structured JSON logs (prod default). */
+  private boolean jsonLogging = false;
 
-    /** OTLP trace export enabled. */
-    private boolean tracingEnabled = false;
+  /** OTLP trace export enabled. */
+  private boolean tracingEnabled = false;
 
-    /** Trace sampling probability 0.0–1.0. */
-    private double traceSamplingProbability = 0.1;
+  /** Trace sampling probability 0.0–1.0. */
+  private double traceSamplingProbability = 0.1;
 }

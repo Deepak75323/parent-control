@@ -2,7 +2,7 @@
 
 ## Phase 1 — Foundation ✅ Complete
 
-- [x] Monorepo: `backend/`, `parent-app/`, `child-app/`
+- [x] Monorepo: `backend/`, `parent/`, `child/`
 - [x] Single Spring Boot backend module
 - [x] PostgreSQL schema + Flyway `V1__initial_schema.sql`
 - [x] Parent registration/login with JWT access + refresh

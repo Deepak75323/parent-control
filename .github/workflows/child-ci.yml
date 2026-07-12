@@ -1,0 +1,25 @@
+name: Child App CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['child/**', '.github/workflows/child-ci.yml']
+  pull_request:
+    branches: [main, develop]
+    paths: ['child/**']
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: child
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: npm
+          cache-dependency-path: child/package-lock.json
+      - run: npm ci
+      - run: npm run lint

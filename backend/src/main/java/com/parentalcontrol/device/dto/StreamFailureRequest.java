@@ -4,5 +4,5 @@ import lombok.Data;
 
 @Data
 public class StreamFailureRequest {
-    private String reason;
+  private String reason;
 }

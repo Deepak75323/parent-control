@@ -47,7 +47,7 @@ if ! curl -sf -m 5 "$API/actuator/health" >/dev/null; then
 fi
 curl -sf -m 5 "$API/actuator/health" >/dev/null || {
   echo "Backend still down. Run manually:" >&2
-  echo "  cd backend && BILLING_ENFORCEMENT=false mvn spring-boot:run -DskipTests" >&2
+  echo "  cd backend && SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run -DskipTests" >&2
   exit 1
 }
 log "Backend OK"
@@ -68,13 +68,13 @@ sleep 1
 
 log "Start Metro — parent :8081, child :8082..."
 (
-  cd "$ROOT/parent-app"
+  cd "$ROOT/parent"
   npm start -- --port 8081
 ) > /tmp/pcp-parent-metro.log 2>&1 &
 PARENT_METRO_PID=$!
 
 (
-  cd "$ROOT/child-app"
+  cd "$ROOT/child"
   npm start -- --port 8082
 ) > /tmp/pcp-child-metro.log 2>&1 &
 CHILD_METRO_PID=$!
@@ -83,13 +83,13 @@ sleep 5
 
 log "Build & install child on phone ($PHONE)..."
 (
-  cd "$ROOT/child-app"
+  cd "$ROOT/child"
   npx react-native run-android --port 8082 --deviceId "$PHONE" --no-packager
 )
 
 log "Build & install parent on emulator ($EMU)..."
 (
-  cd "$ROOT/parent-app"
+  cd "$ROOT/parent"
   npx react-native run-android --port 8081 --deviceId "$EMU" --no-packager
 )
 

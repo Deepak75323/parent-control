@@ -2,15 +2,15 @@
 # Install Firebase service account JSON for backend FCM HTTP v1.
 #
 # Download from Firebase Console → Project settings → Service accounts → Generate new private key
-# Use the SAME Firebase project as child-app google-services.json (project_id must match).
+# Use the SAME Firebase project as child google-services.json (project_id must match).
 #
 # Usage:
-#   ./scripts/dev/install-firebase-service-account.sh /path/to/parent-app-448bf-firebase-adminsdk-....json
+#   ./scripts/dev/install-firebase-service-account.sh /path/to/parent-448bf-firebase-adminsdk-....json
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DEST="$ROOT/backend/secrets/firebase-service-account.json"
-CHILD_GS="$ROOT/child-app/android/app/google-services.json"
+CHILD_GS="$ROOT/child/android/app/google-services.json"
 
 if [[ "${1:-}" == "" ]]; then
   echo "Usage: $0 /path/to/firebase-adminsdk-....json" >&2

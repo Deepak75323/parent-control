@@ -1,6 +1,6 @@
 # Release Validation Matrix
 
-Automated evidence: backend `mvn verify`, parent-app `npm test`.  
+Automated evidence: backend `mvn verify`, parent `npm test`.  
 Manual device rows require physical hardware — mark **Pending QA** until executed.
 
 ## E2E Matrix (RB2)
@@ -30,7 +30,7 @@ Manual device rows require physical hardware — mark **Pending QA** until execu
 
 | Check | Evidence |
 |-------|----------|
-| `google-services.json` optional with warning | `child-app/android/app/build.gradle` |
+| `google-services.json` optional with warning | `child/android/app/build.gradle` |
 | Token persist + upload | `FcmWakeHandler.onNewToken`, `FcmTokenRegistrar` |
 | High-priority data wake | `FcmWakeService` priority=high |
 | STREAM_REQUEST routes to coordinator | `FcmWakeHandler.handleMessage` + `NativeStreamingCoordinator.handleStreamRequestFromWake` |

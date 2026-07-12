@@ -1,6 +1,6 @@
 # Android 15 Foreground Service Timeout — Test Plan
 
-Target app: `com.childmonitor` (child-app)  
+Target app: `com.childmonitor` (child)  
 Target SDK: 35 (Android 15)  
 Device/emulator: Android 15 (API 35) required for full matrix; Android 14 for legacy-path regression.
 
@@ -140,7 +140,7 @@ adb shell device_config delete activity_manager data_sync_fgs_timeout_duration
 ## 10. Unit tests (local)
 
 ```bash
-cd child-app/android
+cd child/android
 ./gradlew :app:testDebugUnitTest --tests "com.childmonitor.monitoring.MonitoringBackoffPolicyTest"
 ```
 

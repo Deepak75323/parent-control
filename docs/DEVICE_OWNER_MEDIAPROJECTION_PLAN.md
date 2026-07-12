@@ -157,7 +157,7 @@ For schools/OEMs; defer unless you have enterprise customers.
 | Wire to poll | `streamingService.ts`: if `SCREEN` && `nativeModules.isDeviceOwner()`, call `nativeModules.startScreenStream(roomId, sessionId)` instead of `connectChildStream` |
 | Stop | `stopScreenStream(sessionId)` on session end / app destroy |
 
-**Dependencies:** Add `org.webrtc:google-webrtc` or reuse RN’s bundled `.so` (prefer **standalone** WebRTC module in `child-app/android` to avoid RN thread issues).
+**Dependencies:** Add `org.webrtc:google-webrtc` or reuse RN’s bundled `.so` (prefer **standalone** WebRTC module in `child/android` to avoid RN thread issues).
 
 **Acceptance:** Parent starts SCREEN → child shows no MediaProjection dialog (post M2 grant) → parent `LiveMonitoringScreen` shows video within 10s on LAN/emulator.
 
@@ -187,10 +187,10 @@ For schools/OEMs; defer unless you have enterprise customers.
 
 ---
 
-## 6. File / module checklist (child-app Android)
+## 6. File / module checklist (child Android)
 
 ```
-child-app/android/app/src/main/java/com/childmonitor/
+child/android/app/src/main/java/com/childmonitor/
 ├── deviceowner/
 │   ├── DeviceOwnerManager.kt
 │   ├── ProvisioningSuccessActivity.kt
@@ -203,11 +203,11 @@ child-app/android/app/src/main/java/com/childmonitor/
 ├── ChildDeviceAdminReceiver.kt           # extend for DO policies
 └── native/ChildMonitorNativeModule.kt    # new @ReactMethod entries
 
-child-app/android/app/src/main/res/xml/
+child/android/app/src/main/res/xml/
 ├── device_admin_policies.xml             # add lock-task, wipe policies if needed
 └── device_owner_provisioning.xml         # QR provisioning (Option B)
 
-child-app/src/
+child/src/
 ├── screens/DeviceOwnerSetupScreen.tsx
 └── services/streamingService.ts          # branch SCREEN → native
 ```
@@ -321,7 +321,7 @@ Do **not** remove Device Admin path; DO is an **upgrade** path for parents who a
 - [Device owner overview](https://developer.android.com/work/dpc/build-dpc)
 - [MediaProjection](https://developer.android.com/media/grow/media-projection)
 - [ScreenCaptureAndroid (WebRTC)](https://webrtc.github.io/webrtc-org/native-code/android/)
-- Existing: `child-app/.../TamperProtectionManager.kt`, `streamingService.ts`, `StreamingService.java`
+- Existing: `child/.../TamperProtectionManager.kt`, `streamingService.ts`, `StreamingService.java`
 
 ---
 

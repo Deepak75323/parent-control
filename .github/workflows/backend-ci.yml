@@ -23,6 +23,8 @@ jobs:
           cache: maven
       - name: Compile
         run: mvn -B -DskipTests compile
+      - name: Spotless check
+        run: mvn -B spotless:check
       - name: Set up Podman for Testcontainers
         run: |
           sudo apt-get update
