@@ -32,10 +32,15 @@ public class DeviceCertificationService {
     if (request.getOemSetupComplete() != null) {
       device.setOemSetupComplete(request.getOemSetupComplete());
     }
-    if (request.getOemDiagnostics() != null) {
-      device.setOemDiagnosticsJson(request.getOemDiagnostics());
-      device.setOemFailureClassifications(
-          extractFailureClassifications(request.getOemDiagnostics()));
+
+    Map<String, Object> diagnostics =
+        request.getOemDiagnostics() != null
+            ? new java.util.LinkedHashMap<>(request.getOemDiagnostics())
+            : new java.util.LinkedHashMap<>();
+    mergeMonitoringFields(diagnostics, request);
+    if (!diagnostics.isEmpty() || request.getOemDiagnostics() != null) {
+      device.setOemDiagnosticsJson(diagnostics);
+      device.setOemFailureClassifications(extractFailureClassifications(diagnostics));
     }
 
     oemObservabilityService.recordHeartbeatOem(
@@ -44,6 +49,30 @@ public class DeviceCertificationService {
         device.getAndroid16ReadinessScore(),
         device.isOemSetupComplete(),
         device.getOemFailureClassifications());
+  }
+
+  private void mergeMonitoringFields(Map<String, Object> diagnostics, HeartbeatRequest request) {
+    if (request.getMonitoringMode() != null) {
+      diagnostics.put("monitoringMode", request.getMonitoringMode());
+    }
+    if (request.getMonitoringDegraded() != null) {
+      diagnostics.put("monitoringDegraded", request.getMonitoringDegraded());
+    }
+    if (request.getMonitoringDegradedReason() != null) {
+      diagnostics.put("monitoringDegradedReason", request.getMonitoringDegradedReason());
+    }
+    if (request.getStandbyBucket() != null) {
+      diagnostics.put("standbyBucket", request.getStandbyBucket());
+    }
+    if (request.getDataSyncFgsUsedMs() != null) {
+      diagnostics.put("dataSyncFgsUsedMs", request.getDataSyncFgsUsedMs());
+    }
+    if (request.getDataSyncFgsDailyCapMs() != null) {
+      diagnostics.put("dataSyncFgsDailyCapMs", request.getDataSyncFgsDailyCapMs());
+    }
+    if (request.getDataSyncFgsExhausted() != null) {
+      diagnostics.put("dataSyncFgsExhausted", request.getDataSyncFgsExhausted());
+    }
   }
 
   public void applyCertificationResult(Device device, String status, int score, String vendor) {

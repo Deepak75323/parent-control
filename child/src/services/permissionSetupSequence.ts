@@ -106,7 +106,11 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
         return {mode: 'settings'};
       },
     },
-    {
+  ];
+
+  // P1-05: Full-screen intent is only a real special access on Android 14+.
+  if (await nativeModules.isFullScreenIntentRequired()) {
+    steps.push({
       key: 'fullScreenIntent',
       title: 'Full-screen notifications',
       check: () => nativeModules.isFullScreenIntentGranted(),
@@ -118,8 +122,8 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
         );
         return {mode: 'settings'};
       },
-    },
-  ];
+    });
+  }
 
   if (requiresOem) {
     const vendorName = await nativeModules.getOemVendorDisplayName();
@@ -229,6 +233,7 @@ export async function confirmOemBackgroundSetup(): Promise<boolean> {
 /** Mirrors PermissionSetupScreen — every required setup permission must be granted. */
 export async function isSetupPermissionsComplete(): Promise<boolean> {
   const requiresOem = await nativeModules.requiresOemBackgroundSetup();
+  const fsiRequired = await nativeModules.isFullScreenIntentRequired();
   const [
     notification,
     usage,
@@ -251,7 +256,7 @@ export async function isSetupPermissionsComplete(): Promise<boolean> {
     nativeModules.isMediaProjectionGranted(),
     nativeModules.isAccessibilityEnabled(),
     nativeModules.isOverlayGranted(),
-    nativeModules.isFullScreenIntentGranted(),
+    fsiRequired ? nativeModules.isFullScreenIntentGranted() : Promise.resolve(true),
     nativeModules.isBatteryOptimizationExempt(),
     requiresOem ? nativeModules.isOemAutostartPromptDone() : Promise.resolve(true),
     nativeModules.isDeviceAdminActive(),

@@ -21,6 +21,7 @@ class MediaProjectionTokenStoreTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        MediaProjectionTokenStore.resetEncryptedPrefsForTests()
         MediaProjectionTokenStore.clear(context)
     }
 
@@ -37,11 +38,7 @@ class MediaProjectionTokenStoreTest {
 
     @Test
     fun lostAfterProcessRestart_whenPrefsFlagWithoutMemory() {
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("consent_granted", true)
-            .putBoolean("ever_granted", true)
-            .putInt("result_code", -1)
-            .commit()
+        MediaProjectionTokenStore.seedPersistedGrantedWithoutBinderForTests(context)
 
         assertEquals(
             MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH,
@@ -53,10 +50,7 @@ class MediaProjectionTokenStoreTest {
 
     @Test
     fun requiresReconsent_afterSessionInvalidated() {
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("consent_granted", true)
-            .putBoolean("ever_granted", true)
-            .commit()
+        MediaProjectionTokenStore.seedPersistedGrantedWithoutBinderForTests(context)
 
         MediaProjectionTokenStore.invalidateSession(context)
 
@@ -79,11 +73,7 @@ class MediaProjectionTokenStoreTest {
 
     @Test
     fun loadIntent_triggersRecoveryWhenBinderLostAfterProcessDeath() {
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("consent_granted", true)
-            .putBoolean("ever_granted", true)
-            .putInt("result_code", -1)
-            .commit()
+        MediaProjectionTokenStore.seedPersistedGrantedWithoutBinderForTests(context)
 
         assertEquals(null, MediaProjectionTokenStore.loadIntent(context))
         assertEquals(
@@ -152,11 +142,7 @@ class MediaProjectionTokenStoreTest {
 
     @Test
     fun lostAfterProcessDeath_needsRecovery() {
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("consent_granted", true)
-            .putBoolean("ever_granted", true)
-            .putInt("result_code", -1)
-            .commit()
+        MediaProjectionTokenStore.seedPersistedGrantedWithoutBinderForTests(context)
         val state = MediaProjectionTokenStore.getConsentState(context)
         assertEquals(MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH, state)
         assertTrue(MediaProjectionTokenStore.needsScreenCaptureRecovery(context))
@@ -191,10 +177,7 @@ class MediaProjectionTokenStoreTest {
     @Test
     @Config(sdk = [26])
     fun lostAfterProcessDeath_api26() {
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("consent_granted", true)
-            .putInt("result_code", -1)
-            .commit()
+        MediaProjectionTokenStore.seedPersistedGrantedWithoutBinderForTests(context)
         assertEquals(
             MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH,
             MediaProjectionTokenStore.getConsentState(context),

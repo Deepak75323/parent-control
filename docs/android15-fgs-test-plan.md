@@ -148,6 +148,30 @@ cd child/android
 
 ---
 
+## 11. P1-08 — dataSync quota awareness & parent visibility (Android 15/16)
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 11.1 | Force `onTimeout` (lab config §2) | Log: `P1-08 monitoring mode` → `WORKMANAGER_ONLY`; `quota/timeout recorded` |
+| 11.2 | Parent alerts / WS | Alert type `MONITORING_DEGRADED`; heartbeat fields `monitoringDegraded=true`, `monitoringMode` |
+| 11.3 | Next periodic / FCM | Log: `FGS burst skipped (P1-08 degrade)`; `WorkManager monitoring cycle` still runs |
+| 11.4 | Metrics | Counter `device.monitoring.degraded.total` increments on backend |
+| 11.5 | Day rollover / quota clear | Mode returns toward `NORMAL` when tracker day resets and standby healthy |
+| 11.6 | Standby RARE (simulate via adb if available) | Mode `STANDBY_DEGRADED`; non-urgent FGS skipped; FCM/USER still allowed |
+
+**Pass criteria:** No crash trying to hold 24/7 dataSync FGS; WorkManager + FCM continue; parent is notified once on rising edge.
+
+**Unit tests:**
+
+```bash
+cd child/android
+./gradlew :app:testDebugUnitTest --tests "com.childmonitor.monitoring.DataSyncFgsQuotaTrackerTest" \
+  --tests "com.childmonitor.monitoring.MonitoringDegradationControllerTest" \
+  --tests "com.childmonitor.monitoring.MonitoringBackoffPolicyTest"
+```
+
+---
+
 ## Failure signatures to watch
 
 | Log / exception | Meaning |
@@ -171,3 +195,4 @@ cd child/android
 - [ ] Test 8 — Backoff
 - [ ] Test 9 — Legacy API 34
 - [ ] Test 10 — Unit tests
+- [ ] Test 11 — P1-08 quota / parent visibility

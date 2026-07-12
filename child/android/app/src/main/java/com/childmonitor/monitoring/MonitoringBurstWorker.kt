@@ -17,6 +17,7 @@ class MonitoringBurstWorker(
                 return Result.success()
             }
             Log.i(TAG, "WorkManager monitoring cycle")
+            MonitoringDegradationController.evaluate(applicationContext)
             MonitoringBurstEngine.runCycle(applicationContext, startCoordinator = true)
             MonitoringBurstEngine.teardownIfIdle(applicationContext)
             Result.success()

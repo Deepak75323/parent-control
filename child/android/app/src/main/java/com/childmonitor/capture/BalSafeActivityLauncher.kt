@@ -58,8 +58,11 @@ object BalSafeActivityLauncher {
         PcpFlowLogger.warn(
             PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
             "$tag BAL blocked — falling back to fullScreenIntent notification",
-            "",
+            "fsi=${FullScreenIntentHelper.validate(context).name}",
         )
+        if (!FullScreenIntentHelper.isGranted(context)) {
+            FullScreenIntentHelper.onDeniedDuringUse(context, "bal_fallback_$tag")
+        }
         StreamRequestNotificationHelper.post(context.applicationContext, intent)
     }
 

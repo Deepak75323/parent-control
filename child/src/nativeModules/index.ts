@@ -181,8 +181,34 @@ export const nativeModules = {
 
   isOverlayGranted: (): Promise<boolean> =>
     Native.isOverlayGranted?.() ?? Promise.resolve(false),
-  isFullScreenIntentGranted: (): Promise<boolean> =>
-    Native.isFullScreenIntentGranted?.() ?? Promise.resolve(true),
+  /** P1-05: never assume granted on Android 14+ when native is missing. */
+  isFullScreenIntentGranted: (): Promise<boolean> => {
+    if (Platform.OS === 'android' && Platform.Version >= 34) {
+      return Native.isFullScreenIntentGranted?.() ?? Promise.resolve(false);
+    }
+    return Promise.resolve(true);
+  },
+  isFullScreenIntentRequired: (): Promise<boolean> =>
+    Native.isFullScreenIntentRequired?.() ??
+    Promise.resolve(Platform.OS === 'android' && Platform.Version >= 34),
+  getFullScreenIntentStatus: (): Promise<{
+    status: string;
+    required: boolean;
+    granted: boolean;
+    needsRecovery: boolean;
+    wasRevoked: boolean;
+    api: number;
+  }> =>
+    Native.getFullScreenIntentStatus?.() ??
+    Promise.resolve({
+      status:
+        Platform.OS === 'android' && Platform.Version >= 34 ? 'DENIED' : 'NOT_REQUIRED',
+      required: Platform.OS === 'android' && Platform.Version >= 34,
+      granted: !(Platform.OS === 'android' && Platform.Version >= 34),
+      needsRecovery: false,
+      wasRevoked: false,
+      api: typeof Platform.Version === 'number' ? Platform.Version : 0,
+    }),
   openFullScreenIntentSettings: (): Promise<void> =>
     Native.openFullScreenIntentSettings?.() ?? Promise.resolve(),
 

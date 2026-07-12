@@ -151,6 +151,38 @@ public class AlertService {
         Map.of("batteryLevel", batteryLevel));
   }
 
+  /**
+   * P1-08 — parent visibility when child monitoring falls back from dataSync FGS
+   * (quota exhaustion / standby) to WorkManager + FCM.
+   */
+  @Transactional
+  public void checkMonitoringDegraded(
+      Device device, String mode, String reason, String standbyBucket) {
+    if (device == null) {
+      return;
+    }
+    String safeMode = mode != null ? mode : "UNKNOWN";
+    String safeReason = reason != null ? reason : "unspecified";
+    createAndPublish(
+        device,
+        AlertType.MONITORING_DEGRADED.code(),
+        AlertSeverity.WARNING,
+        "Background monitoring reduced",
+        device.getDeviceName()
+            + " switched to reduced monitoring ("
+            + safeMode
+            + "). "
+            + "Android limits all-day background sync; heartbeats continue via WorkManager/FCM. "
+            + "Reason: "
+            + safeReason
+            + (standbyBucket != null ? " · standby=" + standbyBucket : ""),
+        Map.of(
+            "deviceId", device.getId().toString(),
+            "monitoringMode", safeMode,
+            "reason", safeReason,
+            "standbyBucket", standbyBucket != null ? standbyBucket : "UNKNOWN"));
+  }
+
   @Transactional
   public AlertResponse createAndPublish(
       Device device,

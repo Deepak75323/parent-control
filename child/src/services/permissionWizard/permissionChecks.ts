@@ -34,6 +34,10 @@ export async function isPermissionGranted(id: PermissionId): Promise<boolean> {
         : true;
     case 'deviceAdmin':
       return nativeModules.isDeviceAdminActive();
+    case 'fullScreenIntent':
+      return Platform.OS === 'android' && Platform.Version >= 34
+        ? nativeModules.isFullScreenIntentGranted()
+        : true;
     case 'screenCapture':
       return (
         (await nativeModules.isMediaProjectionGranted()) &&

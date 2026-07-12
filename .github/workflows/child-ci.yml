@@ -23,3 +23,24 @@ jobs:
           cache-dependency-path: child/package-lock.json
       - run: npm ci
       - run: npm run lint
+
+  # P2-08: ensure VERSION_CODE is monotonically usable for Play uploads.
+  version-code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve versionCode
+        id: ver
+        run: |
+          CODE="${VERSION_CODE:-${GITHUB_RUN_NUMBER}}"
+          echo "version_code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Resolved VERSION_CODE=$CODE"
+          if ! [[ "$CODE" =~ ^[0-9]+$ ]] || [ "$CODE" -lt 1 ]; then
+            echo "VERSION_CODE must be a positive integer" >&2
+            exit 1
+          fi
+      - name: Document for release builds
+        run: |
+          echo "Pass to Gradle: VERSION_CODE=${{ steps.ver.outputs.version_code }} VERSION_NAME=1.0.${{ steps.ver.outputs.version_code }}"
+          echo "child/android: ./gradlew :app:assembleRelease -Pandroid.injected.version.code is NOT used;"
+          echo "defaultConfig reads env VERSION_CODE / GITHUB_RUN_NUMBER (see app/build.gradle)."

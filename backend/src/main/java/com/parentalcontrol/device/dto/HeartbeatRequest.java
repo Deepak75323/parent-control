@@ -70,6 +70,23 @@ public class HeartbeatRequest {
 
   private Boolean oemSetupComplete;
 
+  @Size(max = 64)
+  private String monitoringMode;
+
+  private Boolean monitoringDegraded;
+
+  @Size(max = 128)
+  private String monitoringDegradedReason;
+
+  @Size(max = 32)
+  private String standbyBucket;
+
+  private Long dataSyncFgsUsedMs;
+
+  private Long dataSyncFgsDailyCapMs;
+
+  private Boolean dataSyncFgsExhausted;
+
   @Size(max = 32)
   private java.util.Map<String, Object> oemDiagnostics;
 }

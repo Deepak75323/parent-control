@@ -27,8 +27,8 @@ class ScreenCaptureForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         PcpFlowLogger.log(PcpFlowLogger.Category.SERVICE_STATE, "onCreate", "ScreenCaptureForegroundService created")
-        // Do not call startForeground here — typed mediaProjection FGS requires an active
-        // MediaProjection on API 34+ (project_media). Promotion happens in onStartCommand.
+        // Do not call startForeground here — on API 34+ mediaProjection FGS requires prior
+        // user consent (project_media), then promote before getMediaProjection (P1-07).
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -53,10 +53,10 @@ class ScreenCaptureForegroundService : Service() {
             }
             ACTION_PREPARE -> {
                 val ok = if (ScreenCaptureController.canUseSilentCapture(applicationContext)) {
-                    // Warm path: obtain projection first, then typed mediaProjection FGS.
+                    // Warm path (API 34+): mediaProjection FGS first, then getMediaProjection.
                     enterForeground(prepareOnly = false)
                 } else {
-                    // Consent path: generic FGS only until user grants projection.
+                    // Consent path: generic dataSync FGS only until user grants projection.
                     enterForeground(prepareOnly = true)
                 }
                 if (!ok) {
@@ -106,13 +106,25 @@ class ScreenCaptureForegroundService : Service() {
     }
 
     /**
-     * API 34+ requires an explicit FGS type. This service declares dataSync|mediaProjection;
-     * bootstrap with dataSync before [MediaProjectionManager.getMediaProjection], then upgrade
-     * to mediaProjection once a projection instance exists (project_media capability).
+     * API 34+ requires an explicit FGS type. This service declares dataSync|mediaProjection.
+     *
+     * P1-07 ordering (Android 14–16):
+     * 1. Bootstrap with [FOREGROUND_SERVICE_TYPE_DATA_SYNC] within the 5s startForeground deadline.
+     * 2. Promote to [FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION] **before**
+     *    [MediaProjectionManager.getMediaProjection] (SecurityException otherwise).
+     * 3. Call getMediaProjection while the mediaProjection-typed FGS is active.
+     *
+     * Fresh consent: user grant allows step 2 immediately.
+     * Cached consent: same order — promote mediaProjection using the prior grant, then obtain.
      */
     private fun promoteBootstrapForeground(): Boolean {
-        if (instanceForegroundActive && foregroundOwner.get() === this) {
-            Log.d(TAG, "promoteBootstrapForeground skipped — this instance already owns foreground")
+        if (instanceForegroundActive && foregroundOwner.get() === this && !mediaProjectionTypeActive) {
+            Log.d(TAG, "promoteBootstrapForeground skipped — already dataSync owner")
+            return true
+        }
+        if (mediaProjectionTypeActive && foregroundOwner.get() === this) {
+            // Already on mediaProjection type — do not downgrade.
+            Log.d(TAG, "promoteBootstrapForeground skipped — mediaProjection type already active")
             return true
         }
         val notification = SilentNotificationHelper.buildForegroundNotification(this)
@@ -123,11 +135,16 @@ class ScreenCaptureForegroundService : Service() {
                     notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
                 )
+                mediaProjectionTypeActive = false
             } else {
                 startForeground(FOREGROUND_ID, notification)
             }
             claimForegroundOwnership("promoteBootstrapForeground")
             PcpFlowLogger.transitionState(StreamState.SERVICE_STARTED, "promoteBootstrapForeground")
+            StreamLifecycleLogger.log(
+                "FGS_BOOTSTRAP_DATA_SYNC",
+                "api=${Build.VERSION.SDK_INT} mediaProjectionType=$mediaProjectionTypeActive",
+            )
             true
         } catch (e: Exception) {
             Log.e(TAG, "promoteBootstrapForeground failed", e)
@@ -144,14 +161,23 @@ class ScreenCaptureForegroundService : Service() {
                     notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
                 )
+                mediaProjectionTypeActive = true
             } else if (!instanceForegroundActive || foregroundOwner.get() !== this) {
                 startForeground(FOREGROUND_ID, notification)
             }
             claimForegroundOwnership("promoteMediaProjectionForeground")
             PcpFlowLogger.transitionState(StreamState.SERVICE_STARTED, "promoteMediaProjectionForeground")
+            StreamLifecycleLogger.log(
+                "FGS_PROMOTED_MEDIA_PROJECTION",
+                "api=${Build.VERSION.SDK_INT} beforeObtain=true",
+            )
             true
         } catch (e: Exception) {
             Log.w(TAG, "promoteMediaProjectionForeground failed", e)
+            StreamLifecycleLogger.warn(
+                "FGS_PROMOTE_MEDIA_PROJECTION_FAILED",
+                "api=${Build.VERSION.SDK_INT} error=${e.message}",
+            )
             false
         }
     }
@@ -230,24 +256,41 @@ class ScreenCaptureForegroundService : Service() {
                         return false
                     }
                     Log.i(TAG, "Screen FGS warm with fresh consent (API ${Build.VERSION.SDK_INT})")
+                    StreamLifecycleLogger.log(
+                        "FGS_ORDER_OK",
+                        "path=fresh_consent api=${Build.VERSION.SDK_INT}",
+                    )
                     signalForegroundReady()
                     return true
                 }
 
-                // Reuse cached projection when warm — only call getMediaProjection when needed.
+                // P1-07: promote mediaProjection-typed FGS BEFORE getMediaProjection.
+                // Cached consent (stored token) still counts as prior user grant for typed FGS.
+                if (!promoteMediaProjectionForeground()) {
+                    Log.e(TAG, "Screen FGS mediaProjection promote failed before obtainProjection (cached)")
+                    StreamLifecycleLogger.warn(
+                        "FGS_ORDER_VIOLATION_AVOIDED",
+                        "cached_path promote_failed api=${Build.VERSION.SDK_INT}",
+                    )
+                    signalForegroundReady()
+                    return false
+                }
                 val cached = ScreenCaptureController.activeProjection()
                 val projection = cached ?: ScreenCaptureController.obtainProjection(applicationContext)
                 if (projection == null) {
-                    Log.w(TAG, "Projection null on API 34+ — consent may be invalid or FGS bootstrap failed")
+                    Log.w(TAG, "Projection null on API 34+ after mediaProjection FGS — consent may be invalid")
                     signalForegroundReady()
                     return false
                 }
-                if (!promoteMediaProjectionForeground()) {
-                    Log.e(TAG, "Screen FGS mediaProjection promote failed after obtainProjection")
-                    signalForegroundReady()
-                    return false
-                }
-                Log.i(TAG, "Screen FGS promoted mediaProjection (API ${Build.VERSION.SDK_INT})")
+                Log.i(
+                    TAG,
+                    "Screen FGS mediaProjection then obtain OK (API ${Build.VERSION.SDK_INT} " +
+                        "cached=${cached != null})",
+                )
+                StreamLifecycleLogger.log(
+                    "FGS_ORDER_OK",
+                    "path=cached api=${Build.VERSION.SDK_INT} reusedCached=${cached != null}",
+                )
                 signalForegroundReady()
                 return true
             }
@@ -328,18 +371,28 @@ class ScreenCaptureForegroundService : Service() {
     @Volatile
     private var instanceForegroundActive = false
 
+    /**
+     * True after [promoteMediaProjectionForeground] on this instance.
+     * dataSync bootstrap alone is not sufficient for [MediaProjectionManager.getMediaProjection]
+     * on API 34+ (P1-07).
+     */
+    @Volatile
+    private var mediaProjectionTypeActive = false
+
     private fun claimForegroundOwnership(reason: String) {
         val previous = foregroundOwner.getAndSet(this)
         instanceForegroundActive = true
         Log.i(
             TAG,
             "foreground ownership claimed reason=$reason instance=$this " +
-                "previousOwner=$previous active=${isForegroundActive()}",
+                "previousOwner=$previous active=${isForegroundActive()} " +
+                "mediaProjectionType=$mediaProjectionTypeActive",
         )
     }
 
     private fun releaseForegroundOwnership(reason: String) {
         instanceForegroundActive = false
+        mediaProjectionTypeActive = false
         val released = foregroundOwner.compareAndSet(this, null)
         Log.i(
             TAG,
@@ -370,6 +423,17 @@ class ScreenCaptureForegroundService : Service() {
         fun isForegroundActive(): Boolean {
             val owner = foregroundOwner.get() ?: return false
             return owner.instanceForegroundActive
+        }
+
+        /**
+         * True when the active screen FGS was promoted with
+         * [ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION].
+         * Required before [MediaProjectionManager.getMediaProjection] on API 34+ (P1-07).
+         */
+        @JvmStatic
+        fun isMediaProjectionTypeActive(): Boolean {
+            val owner = foregroundOwner.get() ?: return false
+            return owner.instanceForegroundActive && owner.mediaProjectionTypeActive
         }
 
         @Volatile
@@ -468,8 +532,32 @@ class ScreenCaptureForegroundService : Service() {
                 return false
             }
             if (isForegroundActive()) {
-                return ScreenCaptureController.activeProjection() != null ||
-                    ScreenCaptureController.obtainProjection(context.applicationContext) != null
+                val hasProjection = ScreenCaptureController.activeProjection() != null
+                val mpTypeOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+                    isMediaProjectionTypeActive()
+                if (hasProjection && mpTypeOk) {
+                    PermissionDebugLogger.exit(
+                        "ScreenCaptureForegroundService.startAndWait",
+                        "already_ready projection=true mpTypeOk=$mpTypeOk",
+                    )
+                    return true
+                }
+                if (mpTypeOk) {
+                    // mediaProjection-typed FGS (or pre-34) already active — obtain is safe.
+                    val ok = ScreenCaptureController.obtainProjection(context.applicationContext) != null
+                    PermissionDebugLogger.exit(
+                        "ScreenCaptureForegroundService.startAndWait",
+                        "fgs_ready obtain=$ok",
+                    )
+                    return ok
+                }
+                // dataSync-only FGS from consent prepare — fall through to ACTION_PREPARE so
+                // enterForeground promotes mediaProjection before getMediaProjection (P1-07).
+                Log.i(TAG, "startAndWait — upgrading dataSync FGS to mediaProjection before obtain")
+                StreamLifecycleLogger.log(
+                    "FGS_UPGRADE_DATA_SYNC_TO_MP",
+                    "api=${Build.VERSION.SDK_INT} hasProjection=$hasProjection",
+                )
             }
             if (!ScreenCaptureController.canUseSilentCapture(context)) {
                 return false
@@ -506,9 +594,27 @@ class ScreenCaptureForegroundService : Service() {
                     )
                     return false
                 }
-                val ok = ScreenCaptureController.activeProjection() != null ||
-                    ScreenCaptureController.obtainProjection(context.applicationContext) != null
-                PermissionDebugLogger.exit("ScreenCaptureForegroundService.startAndWait", "ok=$ok")
+                // On API 34+, enterForeground must have obtained while mediaProjection FGS was active.
+                val ok = when {
+                    ScreenCaptureController.activeProjection() != null -> true
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                        if (!isMediaProjectionTypeActive()) {
+                            StreamLifecycleLogger.warn(
+                                "FGS_ORDER_INCOMPLETE",
+                                "startAndWait finished without mediaProjection type",
+                            )
+                            false
+                        } else {
+                            ScreenCaptureController.obtainProjection(context.applicationContext) != null
+                        }
+                    }
+                    else ->
+                        ScreenCaptureController.obtainProjection(context.applicationContext) != null
+                }
+                PermissionDebugLogger.exit(
+                    "ScreenCaptureForegroundService.startAndWait",
+                    "ok=$ok mpType=${isMediaProjectionTypeActive()}",
+                )
                 return ok
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()

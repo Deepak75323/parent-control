@@ -15,6 +15,9 @@ export interface DeviceStatusLive {
   mediaProjectionConsentState?: string;
   silentScreenCapable?: boolean;
   protectionLevel?: string;
+  monitoringDegraded?: boolean;
+  monitoringMode?: string;
+  standbyBucket?: string;
 }
 
 interface StreamingStateLive {
@@ -162,6 +165,9 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
         mediaProjectionConsentState: d.mediaProjectionConsentState,
         silentScreenCapable: d.silentScreenCapable,
         protectionLevel: d.protectionLevel,
+        monitoringDegraded: d.monitoringDegraded,
+        monitoringMode: d.monitoringMode,
+        standbyBucket: d.standbyBucket,
       };
     });
     set({deviceStatuses: statuses});

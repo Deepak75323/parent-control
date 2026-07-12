@@ -14,6 +14,7 @@ import com.childmonitor.fcm.FcmTokenRegistrar
 import com.childmonitor.oem.OemDiagnosticsCollector
 import com.childmonitor.oem.OemSetupValidator
 import com.childmonitor.platform.AndroidPlatform
+import com.childmonitor.monitoring.MonitoringDegradationController
 import com.childmonitor.security.DeviceTrustSignalsCollector
 import com.childmonitor.telemetry.MobileTelemetryReporter
 import com.childmonitor.TamperProtectionManager
@@ -46,6 +47,7 @@ object HeartbeatSyncManager {
         val trustSignals = DeviceTrustSignalsCollector.collect(context)
         val oemDiagnostics = OemDiagnosticsCollector.collect(context)
         val readinessScore = OemSetupValidator.computeReadinessScore(context)
+        val monitoring = MonitoringDegradationController.heartbeatFields(context)
 
         return JSONObject()
             .apply {
@@ -71,6 +73,13 @@ object HeartbeatSyncManager {
                 },
             )
             .put("kioskModeActive", DeviceOwnerManager.isKioskActive(context))
+            .put("monitoringMode", monitoring["monitoringMode"])
+            .put("monitoringDegraded", monitoring["monitoringDegraded"])
+            .put("monitoringDegradedReason", monitoring["monitoringDegradedReason"])
+            .put("standbyBucket", monitoring["standbyBucket"])
+            .put("dataSyncFgsUsedMs", monitoring["dataSyncFgsUsedMs"])
+            .put("dataSyncFgsDailyCapMs", monitoring["dataSyncFgsDailyCapMs"])
+            .put("dataSyncFgsExhausted", monitoring["dataSyncFgsExhausted"])
             .apply {
                 if (foregroundApp != null) put("foregroundApp", foregroundApp)
                 if (!fcmToken.isNullOrBlank()) put("fcmToken", fcmToken)
@@ -142,5 +151,23 @@ object HeartbeatSyncManager {
         if (!MonitoringPrefs.isPaired(context)) return false
         val body = buildHeartbeatBody(context, accessibilityServiceConnectedOverride = connected)
         return postHeartbeat(context, body)
+    }
+
+    /**
+     * P1-08: immediate heartbeat when monitoring degrades (dataSync quota / standby).
+     * Backend raises a parent alert on rising edge.
+     */
+    fun syncMonitoringDegraded(context: Context): Boolean {
+        if (!MonitoringPrefs.isPaired(context)) return false
+        val body = buildHeartbeatBody(context)
+        val ok = postHeartbeat(context, body)
+        PcpFlowLogger.warn(
+            PcpFlowLogger.Category.SERVICE_STATE,
+            "monitoring degraded heartbeat",
+            "ok=$ok mode=${body.optString("monitoringMode")} " +
+                "reason=${body.optString("monitoringDegradedReason")} " +
+                "standby=${body.optString("standbyBucket")}",
+        )
+        return ok
     }
 }

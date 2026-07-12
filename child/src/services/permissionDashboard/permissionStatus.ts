@@ -4,6 +4,8 @@ import type {PermissionId, PermissionStatusMap} from './types';
 
 export async function loadPermissionStatus(): Promise<PermissionStatusMap> {
   const requiresAutoStart = await nativeModules.requiresOemBackgroundSetup();
+  const fullScreenRequired =
+    Platform.OS === 'android' && Platform.Version >= 34;
   const [
     location,
     microphone,
@@ -16,6 +18,7 @@ export async function loadPermissionStatus(): Promise<PermissionStatusMap> {
     battery,
     autoStart,
     deviceAdmin,
+    fullScreenIntent,
     screenCaptureRaw,
   ] = await Promise.all([
     nativeModules.isLocationGranted(),
@@ -31,6 +34,9 @@ export async function loadPermissionStatus(): Promise<PermissionStatusMap> {
     nativeModules.isBatteryOptimizationExempt(),
     requiresAutoStart ? nativeModules.isOemAutostartPromptDone() : Promise.resolve(true),
     nativeModules.isDeviceAdminActive(),
+    fullScreenRequired
+      ? nativeModules.isFullScreenIntentGranted()
+      : Promise.resolve(true),
     nativeModules.isMediaProjectionGranted(),
   ]);
 
@@ -48,6 +54,7 @@ export async function loadPermissionStatus(): Promise<PermissionStatusMap> {
     battery,
     autoStart,
     deviceAdmin,
+    fullScreenIntent,
     screenCapture,
   };
 }

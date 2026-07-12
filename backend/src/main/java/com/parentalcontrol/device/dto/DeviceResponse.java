@@ -41,4 +41,7 @@ public class DeviceResponse {
   private String certificationStatus;
   private Integer certificationScore;
   private Instant lastCertificationAt;
+  private Boolean monitoringDegraded;
+  private String monitoringMode;
+  private String standbyBucket;
 }

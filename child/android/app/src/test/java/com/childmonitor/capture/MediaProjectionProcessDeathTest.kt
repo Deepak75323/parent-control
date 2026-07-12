@@ -38,6 +38,7 @@ class MediaProjectionProcessDeathTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        MediaProjectionTokenStore.resetEncryptedPrefsForTests()
         MediaProjectionTokenStore.clear(context)
         MediaProjectionRecoveryManager.resetForTests()
         MediaProjectionLossHandler.resetForTests()
@@ -60,12 +61,7 @@ class MediaProjectionProcessDeathTest {
         // Simulate: consent was granted (prefs written), but process was killed.
         // The in-memory binder (inMemoryIntent) is gone — simulated by MediaProjectionTokenStore.clear()
         // + manually writing the "was granted" prefs.
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("consent_granted", true)
-            .putBoolean("ever_granted", true)
-            .putInt("result_code", -1)
-            .putString("consent_state", MediaProjectionConsentState.GRANTED_ACTIVE.name)
-            .commit()
+        MediaProjectionTokenStore.seedPersistedGrantedWithoutBinderForTests(context)
 
         // On next getConsentState() call (simulating app restart), binder is null → LOST.
         val state = MediaProjectionTokenStore.getConsentState(context)
@@ -79,10 +75,7 @@ class MediaProjectionProcessDeathTest {
     @Test
     @Config(sdk = [26])
     fun processDeath_api26_detectsLoss() {
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("consent_granted", true)
-            .putInt("result_code", -1)
-            .commit()
+        MediaProjectionTokenStore.seedPersistedGrantedWithoutBinderForTests(context)
         val state = MediaProjectionTokenStore.getConsentState(context)
         assertEquals(MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH, state)
     }
@@ -90,11 +83,7 @@ class MediaProjectionProcessDeathTest {
     @Test
     @Config(sdk = [35])
     fun processDeath_api35_detectsLoss() {
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("consent_granted", true)
-            .putBoolean("ever_granted", true)
-            .putInt("result_code", -1)
-            .commit()
+        MediaProjectionTokenStore.seedPersistedGrantedWithoutBinderForTests(context)
         val state = MediaProjectionTokenStore.getConsentState(context)
         assertEquals(MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH, state)
         assertTrue(state.blocksScreenShare())
@@ -109,11 +98,7 @@ class MediaProjectionProcessDeathTest {
     @Test
     @Config(sdk = [35])
     fun processDeath_api35_android16Compat_detectsLoss() {
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("consent_granted", true)
-            .putBoolean("ever_granted", true)
-            .putInt("result_code", -1)
-            .commit()
+        MediaProjectionTokenStore.seedPersistedGrantedWithoutBinderForTests(context)
         val state = MediaProjectionTokenStore.getConsentState(context)
         assertEquals(MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH, state)
         assertTrue(state.blocksScreenShare())
@@ -123,19 +108,16 @@ class MediaProjectionProcessDeathTest {
 
     @Test
     fun reboot_withPreviousGrant_transitionsToLost() {
-        // After reboot: prefs say "ever_granted=true" but no in-memory binder.
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("ever_granted", true)
-            .putBoolean("consent_granted", true)
-            .putInt("result_code", -1)
-            .commit()
+        // After reboot: prefs say granted but no in-memory binder.
+        MediaProjectionTokenStore.seedPersistedGrantedWithoutBinderForTests(context)
 
         val state = MediaProjectionTokenStore.getConsentState(context)
         assertEquals(MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH, state)
-        // Verify the state is now persisted (so next call returns the same result quickly).
-        val persistedState = context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE)
-            .getString("consent_state", null)
-        assertEquals(MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH.name, persistedState)
+        // State remains LOST on subsequent reads.
+        assertEquals(
+            MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH,
+            MediaProjectionTokenStore.getConsentState(context),
+        )
     }
 
     @Test
@@ -219,20 +201,12 @@ class MediaProjectionProcessDeathTest {
 
     @Test
     fun lowMemoryWarning_doesNotChangeConsentState() {
-        // Simulate GRANTED_ACTIVE (in-memory).
-        // We can only test the prefs side; in-memory projection requires real Android SDK.
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("ever_granted", true)
-            .putString("consent_state", MediaProjectionConsentState.GRANTED_ACTIVE.name)
-            .commit()
+        MediaProjectionTokenStore.seedPersistedGrantedWithoutBinderForTests(context)
+        val before = MediaProjectionTokenStore.getConsentState(context)
 
-        // Calling onLowMemoryWarning should only write telemetry, not change consent state.
         MediaProjectionLossHandler.onLowMemoryWarning(context)
 
-        // State was GRANTED_ACTIVE in prefs; without an in-memory binder it resolves to
-        // LOST_AFTER_PROCESS_DEATH — this simulates the process death scenario, not the
-        // low-memory handler itself changing the state.
-        // We verify: no explicit state mutation from onLowMemoryWarning().
+        assertEquals(before, MediaProjectionTokenStore.getConsentState(context))
         val telemetryPrefs = context.getSharedPreferences("media_projection_telemetry", Context.MODE_PRIVATE)
         val lastEvent = telemetryPrefs.getString("last_event_json", null)
         assertTrue("telemetry should record low_memory_warning", lastEvent?.contains("low_memory_warning") == true)

@@ -70,5 +70,7 @@ object AndroidPlatform {
         "screenFgsColdStartDelayMs" to screenFgsColdStartDelayMs(),
         "workManagerRecovery" to MonitoringWorkScheduler.isScheduled(context),
         "android16FeatureFlags" to Android16FeatureFlags.snapshot(context),
+        "monitoringDegradation" to
+            com.childmonitor.monitoring.MonitoringDegradationController.heartbeatFields(context),
     )
 }

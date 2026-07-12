@@ -20,6 +20,7 @@ object OemSetupWizard {
     private const val KEY_AUTOSTART_CONFIRMED = "wizard_autostart_confirmed"
     private const val KEY_BATTERY_SAVER_CONFIRMED = "wizard_battery_saver_confirmed"
     private const val KEY_RECENTS_LOCK_CONFIRMED = "wizard_recents_lock_confirmed"
+    private const val KEY_LOCK_SCREEN_CONFIRMED = "wizard_lock_screen_confirmed"
 
     data class Step(
         val id: String,
@@ -96,11 +97,26 @@ object OemSetupWizard {
                     autoVerifiable = false,
                 ),
             )
+            // P2-05: MIUI "Show on Lock screen" is required for reliable FSI / wake UX.
+            list.add(
+                Step(
+                    id = "lock_screen_show",
+                    title = "Show on Lock screen",
+                    description = "Lets monitoring alerts and wake intents appear when the phone is locked.",
+                    instructions = listOf(
+                        "Tap Open settings → Other permissions (or App permissions).",
+                        "Enable Show on Lock screen for $appLabel.",
+                        "Also enable Display pop-up windows while running in the background if listed.",
+                        "Return here and tap I've done this.",
+                    ),
+                    autoVerifiable = false,
+                ),
+            )
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-            !FullScreenIntentHelper.isGranted(context)
-        ) {
+        // P1-05: Always surface FSI on Android 14+ so fresh install, deny, and revoke
+        // are visible in the OEM wizard (auto-verifiable via canUseFullScreenIntent).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             list.add(
                 Step(
                     id = "fullscreen_intent",
@@ -148,6 +164,9 @@ object OemSetupWizard {
         "recents_lock" ->
             vendor() != OemVendor.XIAOMI ||
                 prefs(context).getBoolean(KEY_RECENTS_LOCK_CONFIRMED, false)
+        "lock_screen_show" ->
+            vendor() != OemVendor.XIAOMI ||
+                prefs(context).getBoolean(KEY_LOCK_SCREEN_CONFIRMED, false)
         "fullscreen_intent" ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 FullScreenIntentHelper.isGranted(context)
@@ -169,9 +188,9 @@ object OemSetupWizard {
                 ?: openAppDetails(appContext)
             "battery_saver" -> openAppDetails(appContext)
             "recents_lock" -> {
-                // No settings screen — show instructions only; optional nudge to recents via home.
                 Log.i(TAG, "recents_lock is manual-only")
             }
+            "lock_screen_show" -> openAppDetails(appContext)
             "fullscreen_intent" -> FullScreenIntentHelper.openSettings(appContext)
             else -> openAppDetails(appContext)
         }
@@ -186,6 +205,7 @@ object OemSetupWizard {
             }
             "battery_saver" -> editor.putBoolean(KEY_BATTERY_SAVER_CONFIRMED, true)
             "recents_lock" -> editor.putBoolean(KEY_RECENTS_LOCK_CONFIRMED, true)
+            "lock_screen_show" -> editor.putBoolean(KEY_LOCK_SCREEN_CONFIRMED, true)
         }
         editor.apply()
         Log.i(TAG, "manual step confirmed: $stepId")

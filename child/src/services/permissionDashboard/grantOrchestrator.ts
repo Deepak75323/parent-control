@@ -132,6 +132,9 @@ async function openPermission(id: PermissionId): Promise<void> {
         await nativeModules.requestDeviceAdmin();
       }
       break;
+    case 'fullScreenIntent':
+      await nativeModules.openFullScreenIntentSettings();
+      break;
     case 'screenCapture':
       if (!(await nativeModules.isAccessibilityEnabled())) {
         throw new Error('ACCESSIBILITY_REQUIRED');
@@ -181,6 +184,10 @@ async function isGranted(id: PermissionId): Promise<boolean> {
         : true;
     case 'deviceAdmin':
       return nativeModules.isDeviceAdminActive();
+    case 'fullScreenIntent':
+      return Platform.OS === 'android' && Platform.Version >= 34
+        ? nativeModules.isFullScreenIntentGranted()
+        : true;
     case 'screenCapture':
       return (
         (await nativeModules.isMediaProjectionGranted()) &&
@@ -312,6 +319,9 @@ export async function revokeOrManagePermission(id: PermissionId): Promise<void> 
       break;
     case 'autoStart':
       await nativeModules.openOemBackgroundSettings();
+      break;
+    case 'fullScreenIntent':
+      await nativeModules.openFullScreenIntentSettings();
       break;
   }
 }

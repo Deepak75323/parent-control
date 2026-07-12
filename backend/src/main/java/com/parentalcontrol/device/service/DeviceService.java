@@ -40,6 +40,7 @@ import com.parentalcontrol.user.service.DefaultChildLoginPasswordService;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -442,7 +443,21 @@ public class DeviceService {
           device.isDeviceOwnerActive() && device.isMediaProjectionGranted());
     }
 
+    boolean wasMonitoringDegradedBefore = wasMonitoringDegraded(device);
     deviceCertificationService.applyHeartbeatOemData(device, request);
+
+    if (Boolean.TRUE.equals(request.getMonitoringDegraded()) && !wasMonitoringDegradedBefore) {
+      alertService.checkMonitoringDegraded(
+          device,
+          request.getMonitoringMode(),
+          request.getMonitoringDegradedReason(),
+          request.getStandbyBucket());
+      deviceHealthObservabilityService.recordMonitoringDegraded(
+          request.getMonitoringMode(), request.getMonitoringDegradedReason());
+    } else if (Boolean.TRUE.equals(request.getMonitoringDegraded())) {
+      deviceHealthObservabilityService.recordMonitoringDegraded(
+          request.getMonitoringMode(), request.getMonitoringDegradedReason());
+    }
 
     device = deviceRepository.save(device);
     deviceHealthObservabilityService.recordHeartbeat(device);
@@ -453,6 +468,18 @@ public class DeviceService {
     monitoringKafkaPublisher.heartbeat(device.getId());
     alertService.checkLowBattery(device, device.getBatteryLevel());
     return toResponse(device);
+  }
+
+  private boolean wasMonitoringDegraded(Device device) {
+    Map<String, Object> diag = device.getOemDiagnosticsJson();
+    if (diag == null) {
+      return false;
+    }
+    Object raw = diag.get("monitoringDegraded");
+    if (raw instanceof Boolean b) {
+      return b;
+    }
+    return "true".equalsIgnoreCase(String.valueOf(raw));
   }
 
   private Device getOwnedDevice(UUID deviceId) {
@@ -506,7 +533,33 @@ public class DeviceService {
         .certificationStatus(device.getCertificationStatus())
         .certificationScore(device.getCertificationScore())
         .lastCertificationAt(device.getLastCertificationAt())
+        .monitoringDegraded(readMonitoringFlag(device, "monitoringDegraded"))
+        .monitoringMode(readMonitoringString(device, "monitoringMode"))
+        .standbyBucket(readMonitoringString(device, "standbyBucket"))
         .build();
+  }
+
+  private Boolean readMonitoringFlag(Device device, String key) {
+    Map<String, Object> diag = device.getOemDiagnosticsJson();
+    if (diag == null) {
+      return null;
+    }
+    Object raw = diag.get(key);
+    if (raw instanceof Boolean b) {
+      return b;
+    }
+    if (raw == null) {
+      return null;
+    }
+    return "true".equalsIgnoreCase(String.valueOf(raw));
+  }
+
+  private String readMonitoringString(Device device, String key) {
+    Map<String, Object> diag = device.getOemDiagnosticsJson();
+    if (diag == null || diag.get(key) == null) {
+      return null;
+    }
+    return String.valueOf(diag.get(key));
   }
 
   private String resolveProtectionLevel(Device device) {

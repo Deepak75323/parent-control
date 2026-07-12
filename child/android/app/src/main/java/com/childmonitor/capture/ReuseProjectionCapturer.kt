@@ -139,7 +139,7 @@ class ReuseProjectionCapturer(
             observer.onCapturerStarted(false)
             return
         }
-        if (!MediaProjectionCaptureGate.tryAcquire(captureOwnerId)) {
+        if (!MediaProjectionCaptureGate.tryAcquire(captureOwnerId, appContext)) {
             observer.onCapturerStarted(false)
             return
         }

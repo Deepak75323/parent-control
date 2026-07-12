@@ -33,6 +33,17 @@ public class RateLimitService {
         Duration.ofMinutes(1));
   }
 
+  /** P2-07: per-account login rate limit (email), in addition to IP and lockout. */
+  public void checkAuthEmail(String normalizedEmail) {
+    if (normalizedEmail == null || normalizedEmail.isBlank()) {
+      return;
+    }
+    check(
+        "ratelimit:auth-email:" + normalizedEmail.toLowerCase(),
+        properties.getAuthEmailRequestsPerMinute(),
+        Duration.ofMinutes(1));
+  }
+
   public void checkPairing(String clientKey) {
     check(
         "ratelimit:pair:" + clientKey,

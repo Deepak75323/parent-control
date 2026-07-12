@@ -9,7 +9,9 @@ public enum AlertType {
   DEVICE_ADMIN_DISABLED,
   CHILD_LOGIN_RECOVERY,
   LOW_BATTERY,
-  TIME_EXTENSION_REQUEST;
+  TIME_EXTENSION_REQUEST,
+  /** Android 15+ dataSync FGS quota / standby degradation (P1-08). */
+  MONITORING_DEGRADED;
 
   public String code() {
     return name();

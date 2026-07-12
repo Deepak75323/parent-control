@@ -33,6 +33,12 @@ public class RateLimitProperties {
   /** Parent pairing-code generation — per IP per minute. */
   private int pairingCodeCreationPerMinute = 10;
 
+  /**
+   * P2-07: Per-email login attempts per minute (distributed brute-force defence).
+   * Complements IP rate limit + account lockout.
+   */
+  private int authEmailRequestsPerMinute = 10;
+
   /** When true (production), rate limiting fails closed if Redis is unavailable. */
   private boolean failClosed = false;
 }

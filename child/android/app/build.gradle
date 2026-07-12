@@ -54,8 +54,9 @@ android {
         applicationId "com.childmonitor"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        def resolvedVersionCode = System.getenv("VERSION_CODE") ?: System.getenv("GITHUB_RUN_NUMBER") ?: "1"
+        versionCode resolvedVersionCode.toInteger()
+        versionName System.getenv("VERSION_NAME") ?: "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Certificate pinning — empty in debug, real values in release via CI env vars
         buildConfigField "String", "CERT_HOST",          "\"${certHost.replace("\"", "\\\"")}\""
@@ -240,8 +241,8 @@ dependencies {
     androidTestImplementation("androidx.test:rules:1.6.2")
 }
 
-// Native screen capture uses stream-webrtc-android; JS uses react-native-webrtc.
-// Both ship org.webrtc — keep Stream's AAR and drop Jitsi's duplicate.
+// P2-03: Dual WebRTC — Stream AAR for native capture; RN-WebRTC JS layer against Stream natives.
+// Compatibility matrix: docs/WEBRTC-NATIVE-COMPAT.md — bump either dep only after matrix update.
 configurations.configureEach {
     exclude group: "org.jitsi", module: "webrtc"
 }

@@ -35,6 +35,9 @@ public class SecurityConfig {
             auth ->
                 auth.requestMatchers(ApiConstants.PUBLIC_PATHS)
                     .permitAll()
+                    // P2-02: API docs must not be anonymously reachable in any environment.
+                    .requestMatchers(ApiConstants.DOCS_PATHS)
+                    .hasAuthority(Role.ROLE_ADMIN.name())
                     .requestMatchers(HttpMethod.POST, ApiConstants.DEVICE_HEARTBEAT)
                     .hasAuthority(Role.ROLE_CHILD_DEVICE.name())
                     .requestMatchers(HttpMethod.POST, ApiConstants.DEVICE_TELEMETRY_ANT)

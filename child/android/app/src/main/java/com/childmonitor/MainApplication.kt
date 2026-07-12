@@ -56,6 +56,10 @@ class MainApplication : Application(), ReactApplication {
     }
     startupExecutor.execute { ensureMonitoringServiceIfPaired() }
     SetupAccessNotificationHelper.sync(applicationContext)
+    // P1-05: reconcile USE_FULL_SCREEN_INTENT (Android 14+) — detect revoke after upgrade.
+    if (com.childmonitor.capture.FullScreenIntentHelper.isRequired()) {
+      com.childmonitor.capture.FullScreenIntentHelper.validateOnProcessStart(applicationContext)
+    }
   }
 
   /** Restart native monitoring when process starts (boot, FGS restart, or after swipe-kill). */

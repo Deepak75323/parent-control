@@ -1,7 +1,6 @@
 package com.childmonitor.platform
 
 import android.content.Context
-import com.childmonitor.MonitoringPrefs
 
 /**
  * Runtime feature flags for Android 16 migration — toggled via debug or remote config later.
@@ -10,7 +9,7 @@ object Android16FeatureFlags {
 
     private const val PREFS = "android16_feature_flags"
 
-    private const val KEY_STRICT_PROJECTION_GATE = "strict_projection_gate"
+    const val KEY_STRICT_PROJECTION_GATE = "strict_projection_gate"
     private const val KEY_EDGE_TO_EDGE = "edge_to_edge"
     private const val KEY_EXTENDED_FGS_DELAY = "extended_fgs_delay"
     private const val KEY_WORKMANAGER_RECOVERY = "workmanager_recovery"

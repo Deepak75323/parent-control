@@ -14,6 +14,7 @@ import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.exception.ErrorCode;
 import com.parentalcontrol.common.security.JwtProperties;
 import com.parentalcontrol.common.security.JwtTokenProvider;
+import com.parentalcontrol.common.security.RateLimitService;
 import com.parentalcontrol.common.util.SensitiveDataRedactor;
 import com.parentalcontrol.config.EmailVerificationProperties;
 import com.parentalcontrol.user.dao.ParentProfileDao;
@@ -52,6 +53,7 @@ public class AuthService {
   private final EmailVerificationService emailVerificationService;
   private final EmailVerificationProperties emailVerificationProperties;
   private final LoginAttemptService loginAttemptService;
+  private final RateLimitService rateLimitService;
 
   @Transactional
   public void logout(RefreshTokenRequest request) {
@@ -116,6 +118,8 @@ public class AuthService {
   public AuthResponse login(LoginRequest request) {
     String normalizedEmail = normalizeEmail(request.getEmail());
     log.info("[AUTH LOGIN] email={}", SensitiveDataRedactor.email(normalizedEmail));
+    // P2-07: per-email rate limit before any DB work (complements IP limit + lockout).
+    rateLimitService.checkAuthEmail(normalizedEmail);
     User user =
         userRepository
             .findByEmailIgnoreCase(normalizedEmail)

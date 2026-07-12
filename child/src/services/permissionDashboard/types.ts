@@ -10,6 +10,7 @@ export type PermissionId =
   | 'battery'
   | 'autoStart'
   | 'deviceAdmin'
+  | 'fullScreenIntent'
   | 'screenCapture';
 
 export type PermissionKind = 'runtime' | 'special' | 'screen';

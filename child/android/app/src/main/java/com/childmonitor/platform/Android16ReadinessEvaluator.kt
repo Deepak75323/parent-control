@@ -64,8 +64,20 @@ object Android16ReadinessEvaluator {
             com.childmonitor.monitoring.MonitoringWorkScheduler.isScheduled(context)
         if (!checks["workManagerRecovery"]!!) warnings.add("WORKMANAGER_NOT_SCHEDULED")
 
+        // P1-08: burst path + WorkManager must coexist; degradation is expected, not a blocker.
+        checks["dataSyncQuotaAware"] = AndroidPlatform.useBurstFgs()
+        if (com.childmonitor.monitoring.DataSyncFgsQuotaTracker.isExhausted(context)) {
+            warnings.add("DATASYNC_FGS_QUOTA_EXHAUSTED")
+        }
+        val standby = com.childmonitor.monitoring.StandbyBucketReader.bucketName(context)
+        if (com.childmonitor.monitoring.StandbyBucketReader.isSparseScheduling(standby)) {
+            warnings.add("STANDBY_BUCKET_SPARSE_$standby")
+        }
+
         checks["manifestFgsTypesDeclared"] = true // validated by Android16ManifestComplianceTest
-        checks["projectionGateReady"] = true // MediaProjectionCaptureGate present
+        // P2-09: gate must be wired and strict flag on for API 36 certification.
+        checks["projectionGateReady"] = Android16FeatureFlags.isStrictProjectionGateEnabled(context)
+        if (!checks["projectionGateReady"]!!) warnings.add("STRICT_PROJECTION_GATE_DISABLED")
 
         var score = 0
         if (checks["paired"] == true) score += 10
@@ -78,6 +90,8 @@ object Android16ReadinessEvaluator {
         if (checks["oemSetupComplete"] == true) score += 10
         if (checks["workManagerRecovery"] == true) score += 10
         if (checks["manifestFgsTypesDeclared"] == true) score += 5
+        if (checks["projectionGateReady"] == true) score += 5
+        score = score.coerceAtMost(100)
 
         return Report(
             score = score.coerceIn(0, 100),

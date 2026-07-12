@@ -3,6 +3,7 @@ package com.childmonitor.monitoring
 import android.content.Context
 import android.util.Log
 import com.childmonitor.MonitoringPrefs
+import com.childmonitor.NetworkRecoveryMonitor
 
 /**
  * Schedules tiered post-boot recovery so commands and policy enforcement resume
@@ -12,6 +13,10 @@ import com.childmonitor.MonitoringPrefs
  * 1. FAST (0s)      — heartbeat + commands + policy + STOMP
  * 2. RECOVERY (1m)  — full cycle + FGS burst via WorkManager
  * 3. FALLBACK (5m)  — full cycle + forced FGS attempt
+ *
+ * P1-03: After BOOT, starts [NetworkRecoveryMonitor] (ConnectivityManager.NetworkCallback)
+ * so network-up events still trigger FAST recovery on Android 10+ where the obsolete
+ * manifest CONNECTIVITY_ACTION receiver never fires.
  */
 object BootWakeChain {
 
@@ -31,6 +36,19 @@ object BootWakeChain {
 
         if (trigger == Trigger.BOOT) {
             BootRecoveryTelemetry.recordBootReceived(app, trigger.name)
+        }
+
+        // P1-03: NetworkCallback must be (re)registered for BOOT and any later
+        // post-boot trigger (USER_UNLOCK / APP_START) so delayed Wi‑Fi / cellular /
+        // airplane-mode restore still fires FAST recovery on Android 10–16.
+        when (trigger) {
+            Trigger.BOOT,
+            Trigger.USER_UNLOCK,
+            Trigger.APP_START,
+            -> NetworkRecoveryMonitor.start(app, reason = trigger.name.lowercase())
+            Trigger.FCM_ASSIST,
+            Trigger.NETWORK_AVAILABLE,
+            -> Unit
         }
 
         MonitoringWorkScheduler.ensurePeriodicMonitoring(app)

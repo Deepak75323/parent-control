@@ -11,8 +11,8 @@ Full migration deliverable for the parental control child app (`com.childmonitor
 
 | Platform area | Android 16 impact | Current mitigation |
 |---------------|-------------------|-------------------|
-| **Foreground services** | Continued typed FGS enforcement; dataSync 6h/24h cap; `onTimeout` mandatory | `MonitoringPlatform.useBurstFgs()`, `TypedStreamFgsTimeout` |
-| **MediaProjection** | Single VirtualDisplay per instance; FGS before `getMediaProjection`; no BOOT FGS | `MediaProjectionCaptureGate`, `ScreenCaptureForegroundService` |
+| **Foreground services** | Continued typed FGS enforcement; dataSync 6h/24h cap; `onTimeout` mandatory | `MonitoringPlatform.useBurstFgs()`, `TypedStreamFgsTimeout`, `DataSyncFgsQuotaTracker` + `MonitoringDegradationController` (P1-08) |
+| **MediaProjection** | Single VirtualDisplay per instance; FGS before `getMediaProjection`; no BOOT FGS | `MediaProjectionCaptureGate`, `ScreenCaptureForegroundService`, `MediaProjectionFgsOrdering` (P1-07) |
 | **Accessibility** | No new breaking changes; sideload restrictions unchanged | `AppBlockingAccessibilityService`, Device Owner |
 | **Background activity launch** | Stricter BAL checks for hidden child app | `Android16CompatibilityLayer.launchStreamBootstrap` → headless fallback |
 | **AlarmManager** | Exact alarms require permission (API 31+) | WorkManager replaces alarm-driven recovery |

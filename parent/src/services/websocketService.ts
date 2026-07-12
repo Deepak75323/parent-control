@@ -68,6 +68,9 @@ export function connectWebSocket(): void {
           mediaProjectionConsentState?: string;
           silentScreenCapable?: boolean;
           protectionLevel?: string;
+          monitoringDegraded?: boolean;
+          monitoringMode?: string;
+          standbyBucket?: string;
         }>(msg);
         const deviceId = normalizeDeviceId(event.deviceId);
         const store = useRealtimeStore.getState();
@@ -100,6 +103,9 @@ export function connectWebSocket(): void {
           mediaProjectionConsentState: event.mediaProjectionConsentState,
           silentScreenCapable: event.silentScreenCapable,
           protectionLevel: event.protectionLevel,
+          monitoringDegraded: event.monitoringDegraded,
+          monitoringMode: event.monitoringMode,
+          standbyBucket: event.standbyBucket,
         });
       });
 

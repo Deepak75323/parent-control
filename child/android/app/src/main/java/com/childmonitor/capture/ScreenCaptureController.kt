@@ -27,7 +27,7 @@ object ScreenCaptureController {
     @Volatile
     private var virtualDisplayActive: Boolean = false
 
-    /** True when getMediaProjection ran while ScreenCaptureForegroundService was active. */
+    /** True when getMediaProjection ran while mediaProjection-typed screen FGS was active. */
     @Volatile
     private var projectionObtainedWithFgs: Boolean = false
 
@@ -76,6 +76,26 @@ object ScreenCaptureController {
             return null
         }
 
+        // P1-07: Android 14+ requires FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION before
+        // MediaProjectionManager.getMediaProjection (SecurityException otherwise).
+        if (!MediaProjectionFgsOrdering.canCallGetMediaProjection(
+                Build.VERSION.SDK_INT,
+                ScreenCaptureForegroundService.isMediaProjectionTypeActive(),
+            )
+        ) {
+            CaptureFrameLogger.warn(
+                "OBTAIN_PROJECTION_BLOCKED_NO_MP_FGS",
+                "api=${Build.VERSION.SDK_INT} fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} " +
+                    "mpTypeActive=false — promote mediaProjection FGS first",
+            )
+            PcpFlowLogger.warn(
+                PcpFlowLogger.Category.MEDIA_PROJECTION,
+                "obtainProjection blocked — mediaProjection FGS not active (P1-07)",
+                "api=${Build.VERSION.SDK_INT}",
+            )
+            return null
+        }
+
         val code = resultCode ?: MediaProjectionTokenStore.loadResultCode(context) ?: run {
             PcpFlowLogger.warn(PcpFlowLogger.Category.MEDIA_PROJECTION, "obtainProjection — no resultCode")
             return null
@@ -88,11 +108,15 @@ object ScreenCaptureController {
         PcpFlowLogger.log(
             PcpFlowLogger.Category.MEDIA_PROJECTION,
             "obtainProjection — calling getMediaProjection",
-            "fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} freshIntent=${data != null}",
+            "fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} " +
+                "mpTypeActive=${ScreenCaptureForegroundService.isMediaProjectionTypeActive()} " +
+                "freshIntent=${data != null}",
         )
         CaptureFrameLogger.log(
             "OBTAIN_PROJECTION_ENTER",
-            "fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} freshIntent=${data != null}",
+            "fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} " +
+                "mpTypeActive=${ScreenCaptureForegroundService.isMediaProjectionTypeActive()} " +
+                "freshIntent=${data != null}",
         )
 
         return try {
@@ -103,12 +127,14 @@ object ScreenCaptureController {
                 PcpFlowLogger.warn(
                     PcpFlowLogger.Category.MEDIA_PROJECTION,
                     "getMediaProjection returned null",
-                    "fgsActive=${ScreenCaptureForegroundService.isForegroundActive()}",
+                    "fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} " +
+                        "mpTypeActive=${ScreenCaptureForegroundService.isMediaProjectionTypeActive()}",
                 )
                 Log.w(
                     TAG,
                     "getMediaProjection returned null — keeping stored consent " +
-                        "(fgsActive=${ScreenCaptureForegroundService.isForegroundActive()})",
+                        "(fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} " +
+                        "mpTypeActive=${ScreenCaptureForegroundService.isMediaProjectionTypeActive()})",
                 )
                 return null
             }
@@ -141,18 +167,19 @@ object ScreenCaptureController {
             }, null)
             activeProjection = projection
             consentBinderUsed = true
-            projectionObtainedWithFgs = ScreenCaptureForegroundService.isForegroundActive()
+            projectionObtainedWithFgs = ScreenCaptureForegroundService.isMediaProjectionTypeActive()
             PcpFlowLogger.log(PcpFlowLogger.Category.MEDIA_PROJECTION, "obtainProjection — SUCCESS")
             CaptureFrameLogger.log(
                 "OBTAIN_PROJECTION_SUCCESS",
                 "fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} " +
+                    "mpTypeActive=${ScreenCaptureForegroundService.isMediaProjectionTypeActive()} " +
                     "obtainedWithFgs=$projectionObtainedWithFgs",
             )
             if (!projectionObtainedWithFgs) {
                 CaptureFrameLogger.warn(
                     "OBTAIN_PROJECTION_BEFORE_FGS",
-                    "getMediaProjection succeeded but screen FGS was inactive — " +
-                        "createVirtualDisplay may fail on Android 14+",
+                    "getMediaProjection succeeded but mediaProjection FGS type was inactive — " +
+                        "P1-07 gate should have blocked this on API 34+",
                 )
             }
             projection

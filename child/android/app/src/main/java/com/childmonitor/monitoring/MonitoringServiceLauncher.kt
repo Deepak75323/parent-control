@@ -60,14 +60,29 @@ object MonitoringServiceLauncher {
         }
 
         if (MonitoringPlatform.useBurstFgs()) {
-            val bypassBackoff = force ||
+            val forceUrgent = force ||
                 reason == Reason.FCM ||
                 reason == Reason.USER ||
                 reason == Reason.BOOT_RECOVERY ||
                 reason == Reason.BOOT_FALLBACK ||
                 reason == Reason.USER_UNLOCK
+            val bypassBackoff = forceUrgent
             if (!MonitoringBackoffPolicy.canStartFgs(app, bypassBackoff)) {
                 Log.i(TAG, "FGS burst deferred (backoff) reason=$reason")
+                MonitoringBurstEngine.runCycle(app, startCoordinator = true)
+                MonitoringBurstEngine.teardownIfIdle(app)
+                return
+            }
+            // P1-08: skip dataSync FGS when quota/standby forces WorkManager-only path.
+            if (MonitoringDegradationController.shouldSkipBurstFgs(app, forceUrgent)) {
+                Log.i(
+                    TAG,
+                    "FGS burst skipped (P1-08 degrade) reason=$reason " +
+                        "mode=${MonitoringDegradationController.currentMode(app)}",
+                )
+                MonitoringBurstEngine.runCycle(app, startCoordinator = true)
+                MonitoringBurstEngine.teardownIfIdle(app)
+                MonitoringWorkScheduler.scheduleOneShot(app, 0L, "p1_08_degraded_${reason.name}")
                 return
             }
             startBurstFgs(app, reason)
@@ -91,6 +106,7 @@ object MonitoringServiceLauncher {
         } catch (e: Exception) {
             Log.e(TAG, "burst FGS start failed reason=$reason", e)
             MonitoringBackoffPolicy.recordFgsStartFailure(context.applicationContext)
+            MonitoringDegradationController.onFgsStartFailure(context.applicationContext)
         }
     }
 

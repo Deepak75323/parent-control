@@ -25,9 +25,10 @@ package com.childmonitor.capture
  * Device-specific notes:
  * - **MIUI/HyperOS**: BAL restrictions require accessibility-backed or full-screen-intent launch.
  * - **Samsung One UI**: Dialog titles differ per Android version; auto-approve handles this.
- * - **Android 14 (API 34)**: `getMediaProjection()` must be called inside a running
- *   `FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION` FGS.  The bootstrap sequence promotes
- *   a `DATA_SYNC` FGS first, then upgrades to `MEDIA_PROJECTION` after obtaining the token.
+ * - **Android 14 (API 34) / 15 / 16**: P1-07 ordering — after user grant (fresh or cached),
+ *   promote `FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION` **before** `getMediaProjection()`.
+ *   Bootstrap may use `DATA_SYNC` first for the 5s `startForeground` deadline, then upgrade
+ *   to `MEDIA_PROJECTION`, then obtain. Obtaining before the typed FGS causes `SecurityException`.
  * - **Android 15 (API 35)**: FGS timeout enforced; handled by [TypedStreamFgsTimeout].
  * - **Android 16 (API 36)**: One VirtualDisplay per MediaProjection; enforced by
  *   [MediaProjectionCaptureGate].

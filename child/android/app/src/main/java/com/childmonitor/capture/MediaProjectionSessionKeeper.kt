@@ -76,6 +76,7 @@ object MediaProjectionSessionKeeper {
         if (!MediaProjectionTokenStore.hasValidToken(app)) return false
         if (
             ScreenCaptureForegroundService.isForegroundActive() &&
+            ScreenCaptureForegroundService.isMediaProjectionTypeActive() &&
             ScreenCaptureController.activeProjection() != null
         ) {
             return true

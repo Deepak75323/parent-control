@@ -81,6 +81,18 @@ public class DeviceHealthObservabilityService {
         .increment();
   }
 
+  /** P1-08 — dataSync FGS quota / standby degradation events. */
+  public void recordMonitoringDegraded(String mode, String reason) {
+    meterRegistry
+        .counter(
+            "device.monitoring.degraded.total",
+            "mode",
+            mode != null ? mode : "unknown",
+            "reason",
+            reason != null ? reason : "unknown")
+        .increment();
+  }
+
   public void refreshFleetGauges() {
     var devices = deviceRepository.findAll();
     long online = 0;

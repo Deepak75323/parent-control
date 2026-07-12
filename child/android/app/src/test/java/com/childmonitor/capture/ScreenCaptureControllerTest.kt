@@ -45,4 +45,10 @@ class ScreenCaptureControllerTest {
         ScreenCaptureController.releaseProjection()
         assertFalse(ScreenCaptureController.isConsentExhausted())
     }
+
+    @Test
+    fun projectionObtainedWithFgs_falseByDefault() {
+        ScreenCaptureController.onFreshConsentSaved()
+        assertFalse(ScreenCaptureController.projectionObtainedWithFgs())
+    }
 }

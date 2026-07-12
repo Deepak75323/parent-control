@@ -921,29 +921,43 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
 
     @ReactMethod
     fun isFullScreenIntentGranted(promise: Promise) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val nm = reactContext.getSystemService(android.app.NotificationManager::class.java)
-            promise.resolve(nm.canUseFullScreenIntent())
-        } else {
-            promise.resolve(true)
+        try {
+            promise.resolve(com.childmonitor.capture.FullScreenIntentHelper.isGranted(reactContext))
+        } catch (e: Exception) {
+            promise.reject("FULL_SCREEN_INTENT_CHECK_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun isFullScreenIntentRequired(promise: Promise) {
+        promise.resolve(com.childmonitor.capture.FullScreenIntentHelper.isRequired())
+    }
+
+    @ReactMethod
+    fun getFullScreenIntentStatus(promise: Promise) {
+        try {
+            val helper = com.childmonitor.capture.FullScreenIntentHelper
+            val status = helper.validate(reactContext)
+            val map = Arguments.createMap()
+            map.putString("status", status.name)
+            map.putBoolean("required", helper.isRequired())
+            map.putBoolean("granted", status != com.childmonitor.capture.FullScreenIntentHelper.Status.DENIED)
+            map.putBoolean("needsRecovery", helper.needsRecovery(reactContext))
+            map.putBoolean("wasRevoked", helper.wasRevoked(reactContext))
+            map.putInt("api", Build.VERSION.SDK_INT)
+            promise.resolve(map)
+        } catch (e: Exception) {
+            promise.reject("FULL_SCREEN_INTENT_STATUS_ERROR", e)
         }
     }
 
     @ReactMethod
     fun openFullScreenIntentSettings(promise: Promise) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            try {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
-                    Uri.parse("package:${reactContext.packageName}"),
-                ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                reactContext.startActivity(intent)
-                promise.resolve(null)
-            } catch (e: Exception) {
-                promise.reject("FULL_SCREEN_INTENT_SETTINGS_ERROR", e)
-            }
-        } else {
+        try {
+            com.childmonitor.capture.FullScreenIntentHelper.openSettings(reactContext)
             promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("FULL_SCREEN_INTENT_SETTINGS_ERROR", e)
         }
     }
 
@@ -1727,15 +1741,8 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
                 promise.reject("NOT_CAPABLE", "One-time screen capture consent required — grant in Permissions setup")
                 return
             }
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                if (ScreenCaptureController.obtainProjection(reactContext) == null) {
-                    promise.reject(
-                        "NOT_CAPABLE",
-                        "Screen capture consent expired — re-grant in Permissions setup",
-                    )
-                    return
-                }
-            }
+            // P1-07: do not call getMediaProjection here — startStream → startAndWait promotes
+            // FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION first, then obtains inside the service.
             val started = ScreenCaptureForegroundService.startStream(reactContext, roomId, sessionId)
             if (!started) {
                 promise.reject("FOREGROUND_BLOCKED", "Cannot start screen capture from background — app must be in foreground")

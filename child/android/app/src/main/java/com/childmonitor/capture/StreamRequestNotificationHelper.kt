@@ -74,11 +74,18 @@ object StreamRequestNotificationHelper {
             .setShowWhen(false)
 
         // fullScreenIntent: system starts the activity automatically on lock/sleep screen
-        // without user interaction.  On Android 14+, USE_FULL_SCREEN_INTENT is needed.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
-            hasFullScreenIntentPermission(context)
-        ) {
+        // without user interaction.  On Android 14+, USE_FULL_SCREEN_INTENT must be validated
+        // via NotificationManager.canUseFullScreenIntent() — not just the manifest permission.
+        val fsiStatus = FullScreenIntentHelper.validate(context)
+        if (fsiStatus != FullScreenIntentHelper.Status.DENIED) {
             builder.setFullScreenIntent(pending, true)
+        } else {
+            FullScreenIntentHelper.onDeniedDuringUse(context, "stream_request_notification")
+            Log.w(
+                TAG,
+                "USE_FULL_SCREEN_INTENT denied — posting heads-up only (no fullScreenIntent) " +
+                    "api=${Build.VERSION.SDK_INT}",
+            )
         }
 
         try {
@@ -119,14 +126,5 @@ object StreamRequestNotificationHelper {
     private fun hasNotificationPermission(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
-    }
-
-    private fun hasFullScreenIntentPermission(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val nm = context.getSystemService(NotificationManager::class.java)
-            nm.canUseFullScreenIntent()
-        } else {
-            true
-        }
     }
 }

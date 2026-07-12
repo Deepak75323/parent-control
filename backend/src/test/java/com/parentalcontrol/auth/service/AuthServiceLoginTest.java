@@ -18,6 +18,7 @@ import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.exception.ErrorCode;
 import com.parentalcontrol.common.security.JwtProperties;
 import com.parentalcontrol.common.security.JwtTokenProvider;
+import com.parentalcontrol.common.security.RateLimitService;
 import com.parentalcontrol.config.EmailVerificationProperties;
 import com.parentalcontrol.user.dao.ParentProfileDao;
 import com.parentalcontrol.user.dao.UserDao;
@@ -46,6 +47,7 @@ class AuthServiceLoginTest {
   @Mock private EmailVerificationService emailVerificationService;
   @Mock private EmailVerificationProperties emailVerificationProperties;
   @Mock private LoginAttemptService loginAttemptService;
+  @Mock private RateLimitService rateLimitService;
 
   @InjectMocks private AuthService authService;
 

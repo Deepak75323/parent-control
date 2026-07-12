@@ -61,6 +61,9 @@ public class RealtimeEventService {
             .mediaProjectionConsentState(device.getMediaProjectionConsentState())
             .silentScreenCapable(device.isSilentScreenCapable())
             .protectionLevel(device.getProtectionLevel())
+            .monitoringDegraded(readDiagBool(device, "monitoringDegraded"))
+            .monitoringMode(readDiagString(device, "monitoringMode"))
+            .standbyBucket(readDiagString(device, "standbyBucket"))
             .build();
 
     messagingTemplate.convertAndSend("/topic/device/" + device.getId() + "/status", event);
@@ -70,6 +73,29 @@ public class RealtimeEventService {
             parentUserId ->
                 messagingTemplate.convertAndSendToUser(
                     parentUserId.toString(), "/queue/device-status", event));
+  }
+
+  private Boolean readDiagBool(Device device, String key) {
+    Map<String, Object> diag = device.getOemDiagnosticsJson();
+    if (diag == null) {
+      return null;
+    }
+    Object raw = diag.get(key);
+    if (raw instanceof Boolean b) {
+      return b;
+    }
+    if (raw == null) {
+      return null;
+    }
+    return "true".equalsIgnoreCase(String.valueOf(raw));
+  }
+
+  private String readDiagString(Device device, String key) {
+    Map<String, Object> diag = device.getOemDiagnosticsJson();
+    if (diag == null || diag.get(key) == null) {
+      return null;
+    }
+    return String.valueOf(diag.get(key));
   }
 
   public void publishLocation(Device device, LocationHistory entry) {

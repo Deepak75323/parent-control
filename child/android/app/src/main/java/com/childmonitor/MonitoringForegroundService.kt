@@ -18,8 +18,10 @@ import com.childmonitor.capture.MediaProjectionTokenStore
 import com.childmonitor.capture.ScreenFgsStartupGate
 import com.childmonitor.capture.StreamLifecycleLogger
 import com.childmonitor.monitoring.BootRecoveryTelemetry
+import com.childmonitor.monitoring.DataSyncFgsQuotaTracker
 import com.childmonitor.monitoring.MonitoringBackoffPolicy
 import com.childmonitor.monitoring.MonitoringBurstEngine
+import com.childmonitor.monitoring.MonitoringDegradationController
 import com.childmonitor.monitoring.MonitoringPlatform
 import com.childmonitor.monitoring.MonitoringServiceLauncher
 import com.childmonitor.monitoring.MonitoringWorkScheduler
@@ -98,6 +100,8 @@ class MonitoringForegroundService : Service() {
         Log.w(TAG, "dataSync FGS timeout — stopping gracefully fgsType=$fgsType")
         burstActive = false
         MonitoringBackoffPolicy.recordFgsTimeout(applicationContext)
+        // P1-08: mark quota exhausted, degrade to WorkManager, notify parent.
+        MonitoringDegradationController.onFgsTimeout(applicationContext)
         handler.removeCallbacksAndMessages(null)
         MonitoringBurstEngine.teardownIfIdle(applicationContext)
         MonitoringWorkScheduler.scheduleOneShot(
@@ -212,6 +216,7 @@ class MonitoringForegroundService : Service() {
     private fun startBurstSession(reason: String) {
         if (finishingBurst) return
         burstActive = true
+        DataSyncFgsQuotaTracker.onBurstStarted(applicationContext)
         promoteToForeground()
         handler.removeCallbacks(burstFinishRunnable)
         handler.removeCallbacks(burstCommandPollRunnable)
@@ -236,7 +241,9 @@ class MonitoringForegroundService : Service() {
         handler.removeCallbacks(burstCommandPollRunnable)
         handler.removeCallbacks(burstFinishRunnable)
         Log.i(TAG, "Finishing FGS burst reason=$reason activeStream=${MonitoringBurstEngine.shouldKeepCoordinatorAlive()}")
+        DataSyncFgsQuotaTracker.onBurstEnded(applicationContext, reason)
         MonitoringBackoffPolicy.recordFgsSuccess(applicationContext)
+        MonitoringDegradationController.onBurstCompletedSuccessfully(applicationContext)
         MonitoringBurstEngine.teardownIfIdle(applicationContext)
         try {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -257,6 +264,7 @@ class MonitoringForegroundService : Service() {
         } catch (e: SecurityException) {
             Log.e(TAG, "startForeground failed", e)
             MonitoringBackoffPolicy.recordFgsStartFailure(applicationContext)
+            MonitoringDegradationController.onFgsStartFailure(applicationContext)
         }
     }
 

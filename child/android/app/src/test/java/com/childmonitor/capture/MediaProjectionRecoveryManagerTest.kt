@@ -27,6 +27,7 @@ class MediaProjectionRecoveryManagerTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        MediaProjectionTokenStore.resetEncryptedPrefsForTests()
         MediaProjectionTokenStore.clear(context)
         MediaProjectionRecoveryManager.resetForTests()
         MediaProjectionLossHandler.resetForTests()
@@ -47,13 +48,6 @@ class MediaProjectionRecoveryManagerTest {
 
     @Test
     fun attemptRecovery_returnsFalse_whenAlreadyGranted() {
-        // Simulate GRANTED_ACTIVE via in-memory save (no actual binder in Robolectric).
-        // We bypass the full save() because it calls ScreenCaptureController.onFreshConsentSaved()
-        // which needs a real Context — instead we just verify the guard.
-        context.getSharedPreferences("media_projection_secure", Context.MODE_PRIVATE).edit()
-            .putBoolean("consent_state_check", true)
-            .commit()
-
         // Set state to RECOVERY_FAILED (not GRANTED_ACTIVE) to verify the hasValidToken guard.
         MediaProjectionTokenStore.markRecoveryFailed(context, "test")
         // hasValidToken returns false → recovery should be attempted (but will fail later on

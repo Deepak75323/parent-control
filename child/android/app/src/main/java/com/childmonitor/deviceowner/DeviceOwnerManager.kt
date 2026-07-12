@@ -92,19 +92,31 @@ object DeviceOwnerManager {
         val admin = adminComponent(context)
         try {
             dpm.setLockTaskPackages(admin, arrayOf(context.packageName))
+            // P2-06: harden lock-task — block notifications / system info / home escape hatches.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 dpm.setStatusBarDisabled(admin, true)
+                val features =
+                    DevicePolicyManager.LOCK_TASK_FEATURE_SYSTEM_INFO or
+                        DevicePolicyManager.LOCK_TASK_FEATURE_NOTIFICATIONS or
+                        DevicePolicyManager.LOCK_TASK_FEATURE_HOME or
+                        DevicePolicyManager.LOCK_TASK_FEATURE_OVERVIEW or
+                        DevicePolicyManager.LOCK_TASK_FEATURE_GLOBAL_ACTIONS
+                // Allow only none of the above (0) — fully locked task.
+                dpm.setLockTaskFeatures(admin, 0)
+                Log.i(TAG, "P2-06 lockTaskFeatures applied (blockedMask=$features)")
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                dpm.setKeyguardDisabledFeatures(
+                    admin,
+                    DevicePolicyManager.KEYGUARD_DISABLE_FEATURES_ALL,
+                )
             }
         } catch (e: Exception) {
             Log.w(TAG, "enableKiosk policy failed", e)
             return false
         }
         MonitoringPrefs.setKioskEnabled(context, true)
-        val intent = android.content.Intent(context, KioskActivity::class.java).apply {
-            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        }
-        context.startActivity(intent)
-        return true
+        return launchKioskActivity(context, enable = true)
     }
 
     fun disableKiosk(context: Context): Boolean {
@@ -114,6 +126,10 @@ object DeviceOwnerManager {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && isDeviceOwner(context)) {
                 dpm.setStatusBarDisabled(admin, false)
+                dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && isDeviceOwner(context)) {
+                dpm.setKeyguardDisabledFeatures(admin, DevicePolicyManager.KEYGUARD_DISABLE_FEATURES_NONE)
             }
             if (isDeviceOwner(context)) {
                 dpm.setLockTaskPackages(admin, emptyArray())
@@ -121,12 +137,27 @@ object DeviceOwnerManager {
         } catch (e: Exception) {
             Log.w(TAG, "disableKiosk policy failed", e)
         }
+        return launchKioskActivity(context, enable = false)
+    }
+
+    /**
+     * P2-06: BAL-safe kiosk launch — prefer foreground activity context; fall back to NEW_TASK.
+     */
+    private fun launchKioskActivity(context: Context, enable: Boolean): Boolean {
         val intent = android.content.Intent(context, KioskActivity::class.java).apply {
-            action = KioskActivity.ACTION_DISABLE
-            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (!enable) action = KioskActivity.ACTION_DISABLE
+            addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK,
+            )
         }
-        context.startActivity(intent)
-        return true
+        return try {
+            context.startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "kiosk activity launch failed (BAL?) enable=$enable", e)
+            false
+        }
     }
 
     fun isKioskActive(context: Context): Boolean = MonitoringPrefs.isKioskEnabled(context)

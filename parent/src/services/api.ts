@@ -239,6 +239,10 @@ export interface DeviceSummary {
   permLocation?: boolean;
   permNotificationAccess?: boolean;
   permDeviceAdmin?: boolean;
+  /** P1-08: Android 15+ dataSync quota / standby degradation. */
+  monitoringDegraded?: boolean;
+  monitoringMode?: string;
+  standbyBucket?: string;
 }
 
 export type DeviceCommandType =

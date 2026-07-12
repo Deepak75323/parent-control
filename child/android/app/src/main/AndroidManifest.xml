@@ -191,14 +191,9 @@
             </intent-filter>
         </receiver>
 
-        <receiver
-            android:name="com.childmonitor.NetworkRecoveryReceiver"
-            android:exported="false"
-            android:enabled="true">
-            <intent-filter>
-                <action android:name="android.net.conn.CONNECTIVITY_ACTION" />
-            </intent-filter>
-        </receiver>
+        <!-- P1-03: CONNECTIVITY_ACTION manifest receiver removed — obsolete on Android 10+.
+             Post-boot network recovery uses ConnectivityManager.NetworkCallback via
+             NetworkRecoveryMonitor (started from BootWakeChain / MainApplication). -->
 
         <service
             android:name="com.childmonitor.fcm.ChildFcmMessagingService"

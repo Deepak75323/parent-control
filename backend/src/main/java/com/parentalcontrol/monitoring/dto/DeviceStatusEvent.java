@@ -27,4 +27,7 @@ public class DeviceStatusEvent {
   private String mediaProjectionConsentState;
   private boolean silentScreenCapable;
   private String protectionLevel;
+  private Boolean monitoringDegraded;
+  private String monitoringMode;
+  private String standbyBucket;
 }

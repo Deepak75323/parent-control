@@ -18,6 +18,10 @@ export const SPECIAL_PERMISSION_ORDER: PermissionId[] = [
   'battery',
   'autoStart',
   'deviceAdmin',
+  // P1-05: Android 14+ special app access — required for BAL fullScreenIntent fallback.
+  ...(Platform.OS === 'android' && Platform.Version >= 34
+    ? (['fullScreenIntent'] as PermissionId[])
+    : []),
 ];
 
 export const SCREEN_CAPTURE_ORDER: PermissionId[] = ['screenCapture'];
@@ -108,6 +112,15 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
     explanation: 'Device administrator must be deactivated before uninstalling — anti-tampering protection.',
     settingsHint: 'Activate Device Monitor as device administrator.',
   },
+  fullScreenIntent: {
+    id: 'fullScreenIntent',
+    kind: 'special',
+    label: 'Full-screen notifications',
+    explanation:
+      'Android 14+ requires "Allow full-screen intent notifications" so parent live view can start when this app is in the background (especially on MIUI / HyperOS).',
+    settingsHint:
+      'Settings → Apps → Special app access → Full screen intents → enable for Device Monitor.',
+  },
   screenCapture: {
     id: 'screenCapture',
     kind: 'screen',
@@ -142,7 +155,10 @@ export function buildPermissionGroups(requiresAutoStart: boolean): PermissionGro
       icon: '📢',
       title: 'Sync Notifications',
       description: 'Syncing and viewing app notifications for this device.',
-      permissionIds: ['notificationAccess'],
+      permissionIds:
+        Platform.OS === 'android' && Platform.Version >= 34
+          ? (['notificationAccess', 'fullScreenIntent'] as PermissionId[])
+          : (['notificationAccess'] as PermissionId[]),
     },
     {
       id: 'usageReport',

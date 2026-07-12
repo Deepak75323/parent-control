@@ -139,10 +139,7 @@ public final class ApiConstants {
     DEVICE_PAIR,
     ONBOARDING_ANT,
     BILLING_WEBHOOKS_ANT,
-    SWAGGER_UI_ANT,
-    SWAGGER_UI_HTML,
-    API_DOCS_ANT,
-    V3_API_DOCS_ANT,
+    // P2-02: Swagger / OpenAPI are NOT public — require ROLE_ADMIN (see SecurityConfig).
     ACTUATOR_HEALTH,
     ACTUATOR_HEALTH_ANT,
     ACTUATOR_INFO,
@@ -151,6 +148,11 @@ public final class ApiConstants {
     WS_ANT,
     WS_NATIVE,
     WS_NATIVE_ANT
+  };
+
+  /** OpenAPI / Swagger UI — authenticated admin only (P2-02). */
+  public static final String[] DOCS_PATHS = {
+    SWAGGER_UI_ANT, SWAGGER_UI_HTML, API_DOCS_ANT, V3_API_DOCS_ANT
   };
 
   private ApiConstants() {}

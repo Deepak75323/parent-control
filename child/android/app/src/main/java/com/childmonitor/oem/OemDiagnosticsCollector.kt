@@ -73,19 +73,31 @@ object OemDiagnosticsCollector {
             "android16Checks" to android16Report.checks,
             "platformCapabilities" to platformCaps,
             "failureClassifications" to OemSetupValidator.classifyFailures(context),
+            "monitoringP108" to com.childmonitor.monitoring.MonitoringDegradationController.heartbeatFields(context),
         )
     }
 
     fun toJson(context: Context): JSONObject {
         val map = collect(context)
+        return mapToJson(map)
+    }
+
+    private fun mapToJson(map: Map<String, Any?>): JSONObject {
         val json = JSONObject()
         for ((key, value) in map) {
-            when (value) {
-                is List<*> -> json.put(key, JSONArray(value))
-                else -> json.put(key, value)
-            }
+            json.put(key, toJsonValue(value))
         }
         return json
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun toJsonValue(value: Any?): Any {
+        return when (value) {
+            null -> JSONObject.NULL
+            is List<*> -> JSONArray(value)
+            is Map<*, *> -> mapToJson(value as Map<String, Any?>)
+            else -> value
+        }
     }
 
     private fun notificationPermissionGranted(context: Context): Boolean {

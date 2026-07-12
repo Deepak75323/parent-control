@@ -2,7 +2,10 @@ package com.childmonitor.capture
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.util.Log
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.childmonitor.MonitoringPrefs
 import com.childmonitor.debug.PcpFlowLogger
 
@@ -12,11 +15,15 @@ import com.childmonitor.debug.PcpFlowLogger
  * The system result [Intent] contains binders and cannot be written to disk
  * (Parcel.marshall throws). We keep a fresh in-memory copy for reuse until
  * the process dies or consent is revoked.
+ *
+ * P2-01: Consent *metadata* (flags / state / resultCode) is stored in
+ * [EncryptedSharedPreferences]. The binder Intent stays in-memory only.
  */
 object MediaProjectionTokenStore {
 
     private const val TAG = "MediaProjectionTokenStore"
     private const val PREFS = "media_projection_secure"
+    private const val PREFS_ENCRYPTED = "media_projection_secure_enc"
     private const val KEY_RESULT_CODE = "result_code"
     private const val KEY_CONSENT_GRANTED = "consent_granted"
     private const val KEY_CONSENT_STATE = "consent_state"
@@ -26,17 +33,77 @@ object MediaProjectionTokenStore {
     private const val KEY_INTENT_PARCEL_B64 = "intent_parcel_b64"
 
     @Volatile
+    private var encryptedPrefs: SharedPreferences? = null
+
+    @Volatile
     private var inMemoryResultCode: Int? = null
 
     @Volatile
     private var inMemoryIntent: Intent? = null
+
+    private fun prefs(context: Context): SharedPreferences {
+        encryptedPrefs?.let { return it }
+        synchronized(this) {
+            encryptedPrefs?.let { return it }
+            val app = context.applicationContext
+            val created = createSecurePrefs(app)
+            migrateFromPlainPrefs(app, created)
+            encryptedPrefs = created
+            return created
+        }
+    }
+
+    /**
+     * Prefer EncryptedSharedPreferences on device. Fall back to MODE_PRIVATE when the
+     * Android Keystore is unavailable (JVM unit tests / broken OEM keystores) so consent
+     * metadata still persists; production devices use encryption.
+     */
+    private fun createSecurePrefs(app: Context): SharedPreferences {
+        return try {
+            val masterKey = MasterKey.Builder(app)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                app,
+                PREFS_ENCRYPTED,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "EncryptedSharedPreferences unavailable — falling back to private prefs", e)
+            app.getSharedPreferences(PREFS_ENCRYPTED, Context.MODE_PRIVATE)
+        }
+    }
+
+    /** One-time migrate plaintext `media_projection_secure` → encrypted store (P2-01). */
+    private fun migrateFromPlainPrefs(context: Context, secure: SharedPreferences) {
+        val plain = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (plain.all.isEmpty()) return
+        Log.i(TAG, "P2-01 migrating MediaProjection consent metadata to EncryptedSharedPreferences")
+        val editor = secure.edit()
+        if (plain.contains(KEY_RESULT_CODE)) {
+            editor.putInt(KEY_RESULT_CODE, plain.getInt(KEY_RESULT_CODE, 0))
+        }
+        if (plain.contains(KEY_CONSENT_GRANTED)) {
+            editor.putBoolean(KEY_CONSENT_GRANTED, plain.getBoolean(KEY_CONSENT_GRANTED, false))
+        }
+        if (plain.contains(KEY_EVER_GRANTED)) {
+            editor.putBoolean(KEY_EVER_GRANTED, plain.getBoolean(KEY_EVER_GRANTED, false))
+        }
+        plain.getString(KEY_CONSENT_STATE, null)?.let { editor.putString(KEY_CONSENT_STATE, it) }
+        // Never migrate binder URI / parcel blobs — they are invalid after process death.
+        editor.remove(KEY_INTENT_URI).remove(KEY_INTENT_PARCEL_B64)
+        editor.commit()
+        plain.edit().clear().commit()
+    }
 
     fun save(context: Context, resultCode: Int, data: Intent) {
         val copy = Intent(data)
         inMemoryResultCode = resultCode
         inMemoryIntent = copy
 
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        prefs(context).edit()
             .putInt(KEY_RESULT_CODE, resultCode)
             .putBoolean(KEY_CONSENT_GRANTED, true)
             .putBoolean(KEY_EVER_GRANTED, true)
@@ -60,9 +127,9 @@ object MediaProjectionTokenStore {
 
     fun loadResultCode(context: Context): Int? {
         inMemoryResultCode?.let { return it }
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!prefs.contains(KEY_RESULT_CODE)) return null
-        return prefs.getInt(KEY_RESULT_CODE, 0)
+        val p = prefs(context)
+        if (!p.contains(KEY_RESULT_CODE)) return null
+        return p.getInt(KEY_RESULT_CODE, 0)
     }
 
     fun loadIntent(context: Context): Intent? {
@@ -71,24 +138,22 @@ object MediaProjectionTokenStore {
             return it
         }
 
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val hadPersistedConsent = prefs.getBoolean(KEY_CONSENT_GRANTED, false) ||
-            prefs.getBoolean(KEY_EVER_GRANTED, false) ||
-            prefs.contains(KEY_RESULT_CODE)
+        val p = prefs(context)
+        val hadPersistedConsent = p.getBoolean(KEY_CONSENT_GRANTED, false) ||
+            p.getBoolean(KEY_EVER_GRANTED, false) ||
+            p.contains(KEY_RESULT_CODE)
 
         if (!hadPersistedConsent) {
             Log.d(TAG, "loadIntent — no persisted consent; in-memory binder unavailable")
             return null
         }
 
-        // Binder-backed intents cannot survive process death — reconcile state so callers
-        // and the parent app see explicit loss instead of a silent null.
         val state = getConsentState(context)
         PcpFlowLogger.warn(
             PcpFlowLogger.Category.MEDIA_PROJECTION,
             "loadIntent — in-memory binder lost after process death",
-            "state=$state resultCode=${prefs.getInt(KEY_RESULT_CODE, 0)} " +
-                "consentGranted=${prefs.getBoolean(KEY_CONSENT_GRANTED, false)}",
+            "state=$state resultCode=${p.getInt(KEY_RESULT_CODE, 0)} " +
+                "consentGranted=${p.getBoolean(KEY_CONSENT_GRANTED, false)}",
         )
         Log.e(
             TAG,
@@ -117,22 +182,19 @@ object MediaProjectionTokenStore {
     fun hasValidToken(context: Context): Boolean =
         getConsentState(context) == MediaProjectionConsentState.GRANTED_ACTIVE
 
-    /**
-     * Authoritative consent state — reconciles in-memory binders, active projection, and prefs.
-     */
     fun getConsentState(context: Context): MediaProjectionConsentState {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val persisted = MediaProjectionConsentState.fromPersisted(prefs.getString(KEY_CONSENT_STATE, null))
+        val p = prefs(context)
+        val persisted = MediaProjectionConsentState.fromPersisted(p.getString(KEY_CONSENT_STATE, null))
         val hasMemory = inMemoryIntent != null && inMemoryResultCode != null
         val hasActiveProjection = ScreenCaptureController.activeProjection() != null
-        val legacyUri = prefs.contains(KEY_INTENT_URI) || prefs.contains(KEY_INTENT_PARCEL_B64)
+        val legacyUri = p.contains(KEY_INTENT_URI) || p.contains(KEY_INTENT_PARCEL_B64)
 
         if (legacyUri) {
             PcpFlowLogger.warn(
                 PcpFlowLogger.Category.MEDIA_PROJECTION,
                 "clearing legacy disk token — re-grant required once",
             )
-            prefs.edit()
+            p.edit()
                 .remove(KEY_INTENT_URI)
                 .remove(KEY_INTENT_PARCEL_B64)
                 .apply()
@@ -159,7 +221,7 @@ object MediaProjectionTokenStore {
             return persisted
         }
 
-        val prefsFlag = prefs.getBoolean(KEY_CONSENT_GRANTED, false)
+        val prefsFlag = p.getBoolean(KEY_CONSENT_GRANTED, false)
         if (prefsFlag) {
             val lost = MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH
             if (persisted != lost) {
@@ -172,23 +234,18 @@ object MediaProjectionTokenStore {
             return persisted
         }
 
-        if (prefs.getBoolean(KEY_EVER_GRANTED, false)) {
+        if (p.getBoolean(KEY_EVER_GRANTED, false)) {
             return MediaProjectionConsentState.REQUIRES_RECONSENT
         }
 
         return MediaProjectionConsentState.NEVER_GRANTED
     }
 
-    /** Prefs say consent was granted but in-memory binder token is gone (process death / restart). */
     fun isProjectionLostAfterProcessRestart(context: Context): Boolean {
         val state = getConsentState(context)
         return state == MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH
     }
 
-    /**
-     * True when screen capture was previously granted but must be re-obtained
-     * (process death, MediaProjection.onStop after leaving for Settings, failed/deferred recovery).
-     */
     fun needsScreenCaptureRecovery(context: Context): Boolean {
         if (hasValidToken(context)) return false
         return when (getConsentState(context)) {
@@ -205,12 +262,6 @@ object MediaProjectionTokenStore {
         PcpFlowLogger.log(PcpFlowLogger.Category.MEDIA_PROJECTION, "consent state", "RECOVERY_PENDING")
     }
 
-    /**
-     * Recovery was triggered but could not proceed — typically because Accessibility is not
-     * enabled or Background Activity Launch was denied. A WorkManager job will re-attempt
-     * when conditions allow. The parent app sees a "re-grant required" message rather than
-     * an indefinite spinner.
-     */
     fun markRecoveryDeferred(context: Context, reason: String) {
         persistState(context, MediaProjectionConsentState.RECOVERY_DEFERRED)
         MonitoringPrefs.setMediaProjectionGranted(context, false)
@@ -250,21 +301,21 @@ object MediaProjectionTokenStore {
         Log.e(TAG, "Projection unavailable after process restart — re-grant screen capture")
     }
 
-    /** Debug snapshot for JS logging. Does not mutate prefs. */
     fun debugState(context: Context): Map<String, Any> {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val p = prefs(context)
         val state = getConsentState(context)
         val hasMemory = inMemoryIntent != null && inMemoryResultCode != null
         val hasActiveProjection = ScreenCaptureController.activeProjection() != null
         return mapOf(
             "consentState" to state.name,
             "inMemory" to hasMemory,
-            "resultCode" to (inMemoryResultCode ?: prefs.getInt(KEY_RESULT_CODE, 0)),
+            "resultCode" to (inMemoryResultCode ?: p.getInt(KEY_RESULT_CODE, 0)),
             "activeProjection" to hasActiveProjection,
-            "prefsConsentFlag" to prefs.getBoolean(KEY_CONSENT_GRANTED, false),
-            "everGranted" to prefs.getBoolean(KEY_EVER_GRANTED, false),
+            "prefsConsentFlag" to p.getBoolean(KEY_CONSENT_GRANTED, false),
+            "everGranted" to p.getBoolean(KEY_EVER_GRANTED, false),
             "hasValidToken" to (state == MediaProjectionConsentState.GRANTED_ACTIVE),
-            "legacyUriOnDisk" to prefs.contains(KEY_INTENT_URI),
+            "legacyUriOnDisk" to p.contains(KEY_INTENT_URI),
+            "encryptedPrefs" to true,
             "projectionLostAfterRestart" to isProjectionLostAfterProcessRestart(context),
             "needsScreenCaptureRecovery" to needsScreenCaptureRecovery(context),
             "blocksScreenShare" to state.blocksScreenShare(),
@@ -276,16 +327,13 @@ object MediaProjectionTokenStore {
     fun clear(context: Context) {
         inMemoryResultCode = null
         inMemoryIntent = null
+        prefs(context).edit().clear().apply()
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
         MonitoringPrefs.setMediaProjectionGranted(context, false)
         PcpFlowLogger.log(PcpFlowLogger.Category.MEDIA_PROJECTION, "consent cleared", "state=NEVER_GRANTED")
         Log.i(TAG, "cleared MediaProjection consent")
     }
 
-    /**
-     * Drop in-memory consent binders after MediaProjection.onStop — the system
-     * token is consumed and getMediaProjection() cannot succeed again until re-grant.
-     */
     fun invalidateSession(context: Context? = null) {
         inMemoryResultCode = null
         inMemoryIntent = null
@@ -303,8 +351,7 @@ object MediaProjectionTokenStore {
     }
 
     private fun transitionToRequiresReconsent(context: Context, reason: String): MediaProjectionConsentState {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        prefs.edit()
+        prefs(context).edit()
             .putBoolean(KEY_CONSENT_GRANTED, false)
             .putString(KEY_CONSENT_STATE, MediaProjectionConsentState.REQUIRES_RECONSENT.name)
             .apply()
@@ -318,8 +365,29 @@ object MediaProjectionTokenStore {
     }
 
     private fun persistState(context: Context, state: MediaProjectionConsentState) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        prefs(context).edit()
             .putString(KEY_CONSENT_STATE, state.name)
             .apply()
+    }
+
+    /** @visibleForTesting */
+    internal fun resetEncryptedPrefsForTests() {
+        encryptedPrefs = null
+        inMemoryResultCode = null
+        inMemoryIntent = null
+    }
+
+    /**
+     * @visibleForTesting Simulate process death: prefs say granted, binders gone.
+     */
+    internal fun seedPersistedGrantedWithoutBinderForTests(context: Context) {
+        inMemoryResultCode = null
+        inMemoryIntent = null
+        prefs(context).edit()
+            .putBoolean(KEY_CONSENT_GRANTED, true)
+            .putBoolean(KEY_EVER_GRANTED, true)
+            .putInt(KEY_RESULT_CODE, -1)
+            .putString(KEY_CONSENT_STATE, MediaProjectionConsentState.GRANTED_ACTIVE.name)
+            .commit()
     }
 }
