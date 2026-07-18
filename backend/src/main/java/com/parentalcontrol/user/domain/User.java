@@ -43,6 +43,17 @@ public class User extends BaseEntity {
   @Column(name = "parent_pin_hash")
   private String parentPinHash;
 
+  /** Base64 salt for child offline PBKDF2 parent-password verify. */
+  @Column(name = "parent_offline_pin_salt")
+  private String parentOfflinePinSalt;
+
+  /** Base64 PBKDF2 hash for child offline parent-password verify. */
+  @Column(name = "parent_offline_pin_hash")
+  private String parentOfflinePinHash;
+
+  @Column(name = "parent_offline_pin_iterations")
+  private Integer parentOfflinePinIterations;
+
   @Column(name = "silent_stream_pin_unlocked", nullable = false)
   @Builder.Default
   private boolean silentStreamPinUnlocked = false;

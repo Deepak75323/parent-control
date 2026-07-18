@@ -33,8 +33,14 @@ export function toCurl(config: InternalAxiosRequestConfig): string {
 
 export function logRequestCurl(config: InternalAxiosRequestConfig): void {
   if (!__DEV__) return;
-  console.log(`\n[API →] ${(config.method ?? 'get').toUpperCase()} ${config.baseURL ?? ''}${config.url ?? ''}`);
-  console.log(toCurl(config));
+  try {
+    console.log(
+      `\n[API →] ${(config.method ?? 'get').toUpperCase()} ${config.baseURL ?? ''}${config.url ?? ''}`,
+    );
+    console.log(toCurl(config));
+  } catch (e) {
+    console.warn('[API →] curl log failed', e);
+  }
 }
 
 export function logResponseCurl(response: AxiosResponse): void {

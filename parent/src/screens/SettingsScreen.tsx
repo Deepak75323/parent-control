@@ -19,6 +19,12 @@ export function SettingsScreen({navigation}: Props) {
       />
       <Card style={styles.menuCard}>
         <MenuRow
+          icon="@"
+          title="Family handle"
+          subtitle="Unique ID children use to find you"
+          onPress={() => navigation.navigate('FamilyHandle')}
+        />
+        <MenuRow
           icon="🔑"
           title="Child login password"
           subtitle="Same password on every child phone"
@@ -26,8 +32,8 @@ export function SettingsScreen({navigation}: Props) {
         />
         <MenuRow
           icon="🔒"
-          title="Parent PIN"
-          subtitle="Unlock silent screen monitoring"
+          title="Parent password"
+          subtitle="Protects screen sharing and sensitive actions"
           onPress={() => navigation.navigate('ParentPin')}
         />
         <MenuRow

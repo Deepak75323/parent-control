@@ -14,18 +14,18 @@ import {
 type Props = NativeStackScreenProps<ChildStackParamList, 'SetupWizard'>;
 
 const SETUP_STEPS = [
-  {icon: '🔐', title: 'Grant permissions', detail: 'Runtime permissions, then Settings — one after another'},
+  {icon: '🔐', title: 'Grant permissions', detail: 'Allow each permission when asked — one after another'},
   {icon: '🔗', title: 'Pair with parent', detail: 'Enter the code from the parent app on this device'},
-  {icon: '🛡️', title: 'Start monitoring', detail: 'Monitoring begins as soon as pairing succeeds'},
+  {icon: '🛡️', title: 'Finish setup', detail: 'Clock Time starts working once pairing succeeds'},
 ] as const;
 
 export function SetupWizardScreen({navigation}: Props) {
   return (
     <ScreenShell>
       <HeroIconBlock
-        icon="📱"
-        title="Device Monitor"
-        subtitle="Set up this phone for lawful parental monitoring. A parent must pair their account and you will grant the required permissions."
+        icon="🕐"
+        title="Clock Time"
+        subtitle="Complete setup so Clock Time can keep working as expected. A parent pairs their account, then you grant the required permissions."
       />
 
       <Card>
@@ -57,7 +57,7 @@ export function SetupWizardScreen({navigation}: Props) {
       <PrimaryBtn title="Get started" onPress={() => navigation.navigate('PermissionDashboard')} />
 
       <Text style={styles.footer}>
-        By continuing, you confirm monitoring is enabled with parent consent.
+        By continuing, you confirm setup is done with parent consent.
       </Text>
     </ScreenShell>
   );

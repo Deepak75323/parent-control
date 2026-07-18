@@ -16,9 +16,11 @@ import com.childmonitor.StreamingHeadlessTaskService
 import com.childmonitor.accessibility.ScreenCaptureAutoApprove
 import com.childmonitor.capture.AudioStreamForegroundService
 import com.childmonitor.capture.CameraStreamForegroundService
+import com.childmonitor.capture.ConsentLaunchSource
+import com.childmonitor.capture.MediaProjectionConsentHelper
 import com.childmonitor.capture.MediaProjectionConsentState
 import com.childmonitor.capture.MediaProjectionLossHandler
-import com.childmonitor.capture.MediaProjectionRecoveryManager
+import com.childmonitor.capture.MediaProjectionRecoveryWorker
 import com.childmonitor.capture.MediaProjectionSessionKeeper
 import com.childmonitor.capture.MediaProjectionTokenStore
 import com.childmonitor.capture.StreamBootstrapActivity
@@ -35,6 +37,7 @@ import com.childmonitor.capture.StreamTeardownCoordinator
 import com.childmonitor.capture.StreamSessionRegistry
 import com.childmonitor.capture.StreamSessionWatchdog
 import com.childmonitor.deviceowner.DeviceOwnerManager
+import com.childmonitor.sync.MediaProjectionRecoveryTelemetry
 import com.childmonitor.native.ChildMonitorNativeModule
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
@@ -153,10 +156,13 @@ object NativeStreamingCoordinator {
     fun isJsListenerActive(): Boolean = jsListenerActive.get()
 
     fun hasActiveStreamSession(): Boolean =
-        StreamTeardownCoordinator.isInProgress() ||
+        streamStartInProgress.get() ||
+            StreamTeardownCoordinator.isInProgress() ||
             activeSessionId != null ||
             nativeScreenActive ||
             com.childmonitor.capture.NativeStreamPublisher.isRunning() ||
+            ScreenCaptureForegroundService.isForegroundActive() ||
+            StreamSessionRegistry.activeOwner() != StreamSessionRegistry.Owner.NONE ||
             AudioStreamForegroundService.isActive() ||
             CameraStreamForegroundService.isActive()
 
@@ -357,7 +363,17 @@ object NativeStreamingCoordinator {
         sessionId: String,
         cameraFacing: String?,
     ) {
-        if (roomId.isBlank() || sessionId.isBlank() || streamType.isBlank()) return
+        if (roomId.isBlank() || sessionId.isBlank() || streamType.isBlank()) {
+            PcpFlowLogger.warn(
+                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                "stream request dropped — blank fields",
+                "roomBlank=${roomId.isBlank()} sessionBlank=${sessionId.isBlank()} typeBlank=${streamType.isBlank()}",
+            )
+            if (sessionId.isNotBlank()) {
+                reportStreamFailure(context, sessionId, "INVALID_STREAM_REQUEST")
+            }
+            return
+        }
         if (!streamStartInProgress.compareAndSet(false, true)) {
             PcpFlowLogger.log(
                 PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
@@ -381,6 +397,9 @@ object NativeStreamingCoordinator {
         sessionId: String,
         cameraFacing: String?,
     ) {
+        // Any new start supersedes an in-flight STOP — otherwise the 30s JS watchdog from
+        // the previous session destroys capturers mid-start (seen as "no child offer").
+        StreamTeardownCoordinator.abortPendingJsTeardown("stream-request:$sessionId")
         PcpFlowLogger.transitionState(StreamState.REQUEST_RECEIVED, "onStreamRequestWorkerLocked",
             "type=$streamType room=$roomId session=$sessionId")
         PcpFlowLogger.log(
@@ -399,6 +418,13 @@ object NativeStreamingCoordinator {
         )
 
         if (canUseJsStreaming()) {
+            // Parent Start Screen must obtain Cast (if needed) before JS publish — same for
+            // open/background. Never auto-consent outside this parent Start path.
+            if (streamKindFrom(streamType) == StreamKind.SCREEN &&
+                !ensureScreenConsentForParentStart(context, sessionId)
+            ) {
+                return
+            }
             if (delegateStreamRequestToJs(roomId, streamType, sessionId, cameraFacing)) {
                 return
             }
@@ -415,133 +441,27 @@ object NativeStreamingCoordinator {
 
             val kind = streamKindFrom(streamType)
 
-            if (kind == StreamKind.SCREEN) {
-                when (MediaProjectionTokenStore.getConsentState(context)) {
-                    MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH -> {
-                        MediaProjectionLossHandler.onProjectionUnavailable(context, "stream_after_restart")
-                        val recovered = MediaProjectionRecoveryManager.attemptRecoveryAsync(
-                            context,
-                            "stream_after_restart",
-                            20_000L,
-                        )
-                        if (!recovered) {
-                            reportStreamFailure(context, sessionId, "PROJECTION_LOST_AFTER_RESTART")
-                            PcpFlowLogger.warn(
-                                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                                "screen stream aborted — projection unavailable after process restart",
-                                "session=$sessionId",
-                            )
-                            return
-                        }
-                    }
-                    MediaProjectionConsentState.REQUIRES_RECONSENT -> {
-                        MediaProjectionLossHandler.onProjectionUnavailable(context, "stream_requires_reconsent")
-                        PcpFlowLogger.warn(
-                            PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                            "screen stream — REQUIRES_RECONSENT, attempting auto-recovery",
-                            "session=$sessionId",
-                        )
-                        val recovered = MediaProjectionRecoveryManager.attemptRecoveryAsync(
-                            context,
-                            "stream_requires_reconsent",
-                            30_000L,
-                        )
-                        if (!recovered) {
-                            reportStreamFailure(context, sessionId, "PROJECTION_REQUIRES_RECONSENT")
-                            PcpFlowLogger.warn(
-                                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                                "screen stream aborted — REQUIRES_RECONSENT auto-recovery failed",
-                                "session=$sessionId",
-                            )
-                            return
-                        }
-                    }
-                    MediaProjectionConsentState.RECOVERY_FAILED -> {
-                        MediaProjectionLossHandler.onProjectionUnavailable(context, "stream_recovery_failed")
-                        reportStreamFailure(context, sessionId, "PROJECTION_RECOVERY_FAILED")
-                        return
-                    }
-                    MediaProjectionConsentState.RECOVERY_PENDING -> {
-                        PcpFlowLogger.log(
-                            PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                            "screen stream — recovery pending, waiting",
-                            "session=$sessionId",
-                        )
-                        val recovered = MediaProjectionRecoveryManager.attemptRecoveryAsync(
-                            context,
-                            "stream_recovery_pending",
-                            30_000L,
-                        )
-                        if (!recovered) {
-                            reportStreamFailure(context, sessionId, "PROJECTION_RECOVERY_PENDING")
-                            PcpFlowLogger.warn(
-                                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                                "screen stream deferred — recovery timed out",
-                                "session=$sessionId",
-                            )
-                            return
-                        }
-                    }
-                    MediaProjectionConsentState.NEVER_GRANTED -> {
-                        if (ScreenCaptureAutoApprove.isReady(context)) {
-                            val recovered = MediaProjectionRecoveryManager.attemptRecoveryAsync(
-                                context,
-                                "stream_no_consent",
-                            )
-                            if (!recovered) {
-                                reportStreamFailure(context, sessionId, "NO_SCREEN_CAPTURE_CONSENT")
-                                PcpFlowLogger.warn(
-                                    PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                                    "screen stream aborted — auto consent failed",
-                                    "session=$sessionId",
-                                )
-                            }
-                            return
-                        }
-                        reportStreamFailure(context, sessionId, "NO_SCREEN_CAPTURE_CONSENT")
-                        PcpFlowLogger.warn(
-                            PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                            "screen stream aborted — no stored screen capture consent",
-                            "session=$sessionId",
-                        )
-                        Log.e(
-                            TAG,
-                            "Screen stream aborted — enable Accessibility then retry screen share",
-                        )
-                        return
-                    }
-                    MediaProjectionConsentState.RECOVERY_DEFERRED -> {
-                        MediaProjectionLossHandler.onProjectionUnavailable(context, "stream_recovery_deferred")
-                        reportStreamFailure(context, sessionId, "PROJECTION_RECOVERY_DEFERRED")
-                        PcpFlowLogger.warn(
-                            PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                            "screen stream aborted — projection recovery deferred (WorkManager scheduled)",
-                            "session=$sessionId",
-                        )
-                        return
-                    }
-                    MediaProjectionConsentState.GRANTED_ACTIVE -> { }
-                }
+            if (kind == StreamKind.SCREEN && !ensureScreenConsentForParentStart(context, sessionId)) {
+                return
             }
             if (kind == StreamKind.SCREEN && !canUseStoredProjection(context)) {
-                MediaProjectionRecoveryManager.attemptRecovery(context, "no_consent")
                 reportStreamFailure(context, sessionId, "NO_SCREEN_CAPTURE_CONSENT")
                 PcpFlowLogger.warn(
                     PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                    "screen stream aborted — no stored screen capture consent",
+                    "screen stream aborted — no stored screen capture consent after parent Start",
                     "session=$sessionId",
-                )
-                Log.e(
-                    TAG,
-                    "Screen stream aborted — grant screen capture once during child pairing",
                 )
                 return
             }
             if (kind == StreamKind.SCREEN && !ScreenFgsStartupGate.canStartScreenFgs()) {
+                // Ensure the gate is scheduled — Android 15 burst used to leave it closed forever.
+                ScreenFgsStartupGate.scheduleMarkReadyFromService(
+                    com.childmonitor.platform.AndroidPlatform.screenFgsColdStartDelayMs(),
+                )
                 scheduleStreamRetry(context, roomId, streamType, sessionId, cameraFacing, "FGS_GATE_CLOSED", 0)
                 PcpFlowLogger.warn(
                     PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                    "screen stream deferred — FGS startup gate closed",
+                    "screen stream deferred — FGS startup gate closed (gate open scheduled)",
                     "session=$sessionId",
                 )
                 return
@@ -559,7 +479,9 @@ object NativeStreamingCoordinator {
             if (kind != null && !StreamFgsHelper.isActive(kind)) {
                 PcpFlowLogger.transitionState(StreamState.SERVICE_STARTING, "onStreamRequestWorkerLocked",
                     "kind=$kind session=$sessionId")
-                if (StreamFgsPreparer.ensureKindReady(context, kind)) {
+                // Inbound parent request may legally start typed FGS even without a monitoring
+                // burst (API 35+). ensureKindReadyForStreamRequest opens the screen FGS gate.
+                if (StreamFgsPreparer.ensureKindReadyForStreamRequest(context, kind)) {
                     PcpFlowLogger.transitionState(StreamState.SERVICE_STARTED, "onStreamRequestWorkerLocked",
                         "kind=$kind session=$sessionId")
                     // FGS pre-warmed — fall through to stream start below.
@@ -598,15 +520,40 @@ object NativeStreamingCoordinator {
                 !canUseJsStreaming() &&
                 !StreamSessionRegistry.isBlocked(StreamSessionRegistry.Owner.NATIVE_PUBLISHER)
             ) {
-                stopAllStreams(context, "new native screen stream")
+                // Same live session — keep publisher; do not tear down / re-arm watchdog.
+                if (
+                    sessionId == activeSessionId &&
+                    roomId == activeRoomId &&
+                    NativeStreamPublisher.isRunning()
+                ) {
+                    Log.i(TAG, "native screen already active for session=$sessionId — skipping restart")
+                    return
+                }
+                // Only tear down a previous publisher/owner. Never wipe a just-warmed
+                // MediaProjection FGS from ensureConsent when nothing is publishing yet —
+                // that used to drop the binder and force another Cast prompt.
+                val hasPriorPublisher =
+                    NativeStreamPublisher.isRunning() ||
+                        StreamSessionRegistry.activeOwner() != StreamSessionRegistry.Owner.NONE
+                if (hasPriorPublisher) {
+                    // Keep warm MediaProjection FGS; only stop previous publisher/session.
+                    StreamTeardownCoordinator.stopPublisherPreservingWarmScreenFgs(
+                        context,
+                        "new native screen stream",
+                    )
+                } else {
+                    StreamTeardownCoordinator.abortPendingJsTeardown("new native screen cold start")
+                }
+                nativeScreenActive = false
                 activeRoomId = roomId
                 activeSessionId = sessionId
                 PcpFlowLogger.log(
                     PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
                     "native capture start",
-                    "room=$roomId session=$sessionId",
+                    "room=$roomId session=$sessionId priorPublisher=$hasPriorPublisher",
                 )
                 ScreenCaptureForegroundService.startStream(context, roomId, sessionId)
+                StreamTeardownCoordinator.abortPendingJsTeardown("native screen started")
                 nativeScreenActive = true
                 return
             }
@@ -670,9 +617,14 @@ object NativeStreamingCoordinator {
             Log.w(TAG, "stream-control SWITCH_CAMERA ignored — session mismatch want=$sessionId have=$activeSessionId")
             return
         }
-        Log.i(TAG, "stream-control SWITCH_CAMERA jsActive=${jsListenerActive.get()}")
-        com.childmonitor.native.ChildMonitorNativeModule.emitStreamControl("SWITCH_CAMERA")
-        if (!canUseJsStreaming()) {
+        val delivered = com.childmonitor.native.ChildMonitorNativeModule.emitStreamControl("SWITCH_CAMERA")
+        Log.i(
+            TAG,
+            "stream-control SWITCH_CAMERA delivered=$delivered jsActive=${jsListenerActive.get()} " +
+                "canJs=${canUseJsStreaming()}",
+        )
+        // If JS did not receive the event (background / no React instance), flip via headless.
+        if (!delivered) {
             StreamingHeadlessTaskService.sendSwitchCamera(context)
         }
     }
@@ -703,9 +655,21 @@ object NativeStreamingCoordinator {
     }
 
     private fun pollSessions(context: Context) {
+        // jsPeerActive must reflect the JS publisher / capture path, NOT the wake-listener flag.
+        // Backgrounding pauses the STOMP wake listener (jsListenerActive=false) while the hidden
+        // screen PC + FGS stay alive — treating that as "JS peer dead" false-orphans the session.
+        val jsPeerAlive =
+            (
+                StreamSessionRegistry.activeOwner() == StreamSessionRegistry.Owner.JS_HIDDEN &&
+                    ScreenCaptureForegroundService.isForegroundActive()
+            ) ||
+                (
+                    jsListenerActive.get() &&
+                        ChildMonitorNativeModule.canDeliverStreamToJs()
+                )
         StreamSessionRegistry.reconcile(
             NativeStreamPublisher.isRunning(),
-            jsListenerActive.get() && ChildMonitorNativeModule.canDeliverStreamToJs(),
+            jsPeerAlive,
         )
         StreamSessionWatchdog.tick(context)
         Thread {
@@ -764,6 +728,26 @@ object NativeStreamingCoordinator {
                     if (StreamSessionRegistry.isNegotiatingOrReconnecting()) {
                         return
                     }
+                    // Do not tear down while JS still owns a stream but paused its STOMP
+                    // listener (MainActivity backgrounded) — parent session may still be ACTIVE
+                    // and a transient empty poll must not kill capture.
+                    if (jsListenerActive.get() ||
+                        ChildMonitorNativeModule.canDeliverStreamToJs() ||
+                        (
+                            StreamSessionRegistry.activeOwner() ==
+                                StreamSessionRegistry.Owner.JS_HIDDEN &&
+                                ScreenCaptureForegroundService.isForegroundActive()
+                        )
+                    ) {
+                        Log.d(TAG, "pollSessions: empty active payload ignored — JS stream path alive")
+                        return
+                    }
+                    if (ScreenCaptureForegroundService.isForegroundActive() ||
+                        NativeStreamPublisher.isRunning()
+                    ) {
+                        Log.d(TAG, "pollSessions: empty active payload ignored — native screen FGS alive")
+                        return
+                    }
                     stopAllStreams(context, "no active session (poll)")
                 }
                 return
@@ -775,6 +759,21 @@ object NativeStreamingCoordinator {
                 return
             }
             if (activeSessionId != null) {
+                if (ScreenCaptureForegroundService.isForegroundActive() ||
+                    NativeStreamPublisher.isRunning() ||
+                    (
+                        StreamSessionRegistry.activeOwner() ==
+                            StreamSessionRegistry.Owner.JS_HIDDEN &&
+                            status == "ACTIVE"
+                    )
+                ) {
+                    Log.d(
+                        TAG,
+                        "pollSessions: status mismatch ignored — local pipeline still live " +
+                            "status=$status localSession=$activeSessionId remoteSession=$sessionId",
+                    )
+                    return
+                }
                 stopAllStreams(context, "active session ended (poll)")
             }
         } catch (e: Exception) {
@@ -882,6 +881,50 @@ object NativeStreamingCoordinator {
             )
             onStreamRequest(context, retry.roomId, retry.streamType, retry.sessionId, retry.cameraFacing)
         }, delayMs)
+    }
+
+    /**
+     * Parent Start Screen Sharing only: warm existing projection, or launch Cast when
+     * Accessibility is enabled. Never used by boot/monitoring recovery.
+     */
+    private fun ensureScreenConsentForParentStart(context: Context, sessionId: String): Boolean {
+        if (ScreenCaptureController.hasLiveProjection()) return true
+        if (MediaProjectionTokenStore.hasValidToken(context) &&
+            MediaProjectionSessionKeeper.ensureReady(context)
+        ) {
+            return true
+        }
+
+        if (!ScreenCaptureAutoApprove.isReady(context)) {
+            PcpFlowLogger.warn(
+                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                "screen stream blocked — Accessibility disabled (no Cast launch)",
+                "session=$sessionId",
+            )
+            Log.e(TAG, "Screen share requires Clock Time Accessibility — Cast NOT launched")
+            reportStreamFailure(context, sessionId, "ACCESSIBILITY_DISABLED")
+            return false
+        }
+
+        MediaProjectionRecoveryWorker.cancel(context)
+        MediaProjectionRecoveryTelemetry.clearRecoveryAttemptBudget(context)
+        val granted = MediaProjectionConsentHelper.ensureConsent(
+            context,
+            45_000L,
+            ConsentLaunchSource.PARENT_SCREEN_SHARE,
+        )
+        if (!granted) {
+            val reason = when (MediaProjectionTokenStore.getConsentState(context)) {
+                MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH -> "PROJECTION_LOST_AFTER_RESTART"
+                MediaProjectionConsentState.REQUIRES_RECONSENT -> "PROJECTION_REQUIRES_RECONSENT"
+                MediaProjectionConsentState.NEVER_GRANTED -> "NO_SCREEN_CAPTURE_CONSENT"
+                else -> "NO_SCREEN_CAPTURE_CONSENT"
+            }
+            MediaProjectionLossHandler.onProjectionUnavailable(context, "parent_screen_consent_failed")
+            reportStreamFailure(context, sessionId, reason)
+            return false
+        }
+        return true
     }
 
     private fun reportStreamFailure(context: Context, sessionId: String, reason: String) {

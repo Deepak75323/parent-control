@@ -41,6 +41,21 @@ public final class MessageConstants {
 
   public static final String COMMAND_NOT_FOUND = "Command not found";
 
+  public static final String FAMILY_HANDLE_ALREADY_TAKEN =
+      "This family handle is already taken. Choose another.";
+
+  public static final String FAMILY_HANDLE_INVALID =
+      "Family handle must be 3–20 characters: letters, numbers, dots, underscores, or hyphens.";
+
+  public static final String FAMILY_HANDLE_IS_REQUIRED =
+      "Family handle is required. Enter the handle from the parent app.";
+
+  public static final String FAMILY_HANDLE_RESERVED =
+      "This family handle is reserved. Choose another.";
+
+  public static final String SET_YOUR_FAMILY_HANDLE_IN_SETTINGS_BEFORE_GENERATING_A_PAIRING_CODE =
+      "Set your family handle in Settings before generating a pairing code";
+
   public static final String CONCURRENT_REFRESH_ALREADY_IN_PROGRESS_PLEASE_RETRY =
       "Concurrent refresh already in progress — please retry";
 

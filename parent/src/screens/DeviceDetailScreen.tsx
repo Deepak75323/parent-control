@@ -25,6 +25,8 @@ import {
   childLoginPasswordApi,
   timeExtensionApi,
   TimeExtensionRequestItem,
+  policiesApi,
+  BLOCK_ALL_APPS_POLICY_NAME,
 } from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {ConfirmModal, LoadingCenter} from '../components/AppScreen';
@@ -36,7 +38,9 @@ import {
   isScreenShareCapableMerged,
   mergeScreenShareCapability,
   screenShareBlockedMessage,
+  screenShareBlockedShortMessage,
 } from '../utils/screenShareCapability';
+import {getApiErrorMessage} from '../utils/apiError';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DeviceDetail'>;
 
@@ -213,6 +217,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const [commandLoading, setCommandLoading] = useState(false);
   const [revokeVisible, setRevokeVisible] = useState(false);
   const [blockAll, setBlockAll] = useState(false);
+  const [blockAllPolicyId, setBlockAllPolicyId] = useState<string | null>(null);
   const [setupAgainVisible, setSetupAgainVisible] = useState(false);
   const [setupGenerating, setSetupGenerating] = useState(false);
   const [activePairingCode, setActivePairingCode] = useState<string | null>(null);
@@ -230,10 +235,21 @@ export function DeviceDetailScreen({navigation, route}: Props) {
 
   const loadDevice = useCallback(async () => {
     try {
-      const r = await deviceApi.get(deviceId);
+      const [r, bundleRes] = await Promise.all([
+        deviceApi.get(deviceId),
+        policiesApi.deviceBundle(deviceId).catch(() => null),
+      ]);
       setDevice(r.data.data);
+      const blockAllRule = bundleRes?.data?.data?.appBlocks?.find(
+        rule =>
+          rule.packageName === '*' &&
+          rule.enabled !== false &&
+          rule.scheduleJson?.blockAllApps === true,
+      );
+      setBlockAll(Boolean(blockAllRule) || r.data.data.kioskModeActive === true);
+      setBlockAllPolicyId(blockAllRule?.policyId ?? null);
     } catch {
-      Alert.alert('Error', 'Could not load device');
+      Alert.alert('Error', 'Couldn’t load this device. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -266,8 +282,121 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       await deviceApi.sendCommand(deviceId, cmd);
       Alert.alert('Sent', `${label} command sent`);
       await loadDevice();
-    } catch {
-      Alert.alert('Error', 'Command failed');
+    } catch (err) {
+      Alert.alert(
+        'Error',
+        getApiErrorMessage(err, 'Couldn’t send that command. Please try again.'),
+      );
+    } finally {
+      setCommandLoading(false);
+    }
+  };
+
+  const setBlockAllApps = async (enabled: boolean) => {
+    setCommandLoading(true);
+    try {
+      if (enabled) {
+        // Re-check server — stale policyId after a failed delete must not no-op.
+        const bundleRes = await policiesApi.deviceBundle(deviceId).catch(() => null);
+        const existing = bundleRes?.data?.data?.appBlocks?.find(
+          rule =>
+            rule.packageName === '*' &&
+            rule.enabled !== false &&
+            rule.scheduleJson?.blockAllApps === true,
+        );
+        if (existing?.policyId) {
+          setBlockAllPolicyId(existing.policyId);
+          setBlockAll(true);
+          Alert.alert(
+            'Block All Apps on',
+            'Apps on the child phone are already blocked via Accessibility.',
+          );
+          return;
+        }
+        const created = await policiesApi.createAppBlock({
+          name: BLOCK_ALL_APPS_POLICY_NAME,
+          deviceIds: [deviceId],
+          rules: [
+            {
+              packageName: '*',
+              scheduleType: 'ALWAYS',
+              scheduleJson: {blockAllApps: true},
+            },
+          ],
+        });
+        setBlockAllPolicyId(created.data.data.id);
+        setBlockAll(true);
+        Alert.alert(
+          'Block All Apps on',
+          'Apps on the child phone are blocked via Accessibility (Phone, Messages, and the home screen stay available). Open Clock Time and keep Accessibility on.',
+        );
+      } else {
+        // Delete by known id and by name — covers stale/missing policyId in UI state.
+        const ids = new Set<string>();
+        if (blockAllPolicyId) {
+          ids.add(blockAllPolicyId);
+        }
+        const list = await policiesApi.list('APP_BLOCK').catch(() => null);
+        for (const p of list?.data?.data ?? []) {
+          if (
+            p.name === BLOCK_ALL_APPS_POLICY_NAME &&
+            (p.deviceIds?.includes(deviceId) ?? true)
+          ) {
+            ids.add(p.id);
+          }
+        }
+        const bundleRes = await policiesApi.deviceBundle(deviceId).catch(() => null);
+        for (const rule of bundleRes?.data?.data?.appBlocks ?? []) {
+          if (
+            rule.packageName === '*' &&
+            rule.scheduleJson?.blockAllApps === true &&
+            rule.policyId
+          ) {
+            ids.add(rule.policyId);
+          }
+        }
+        const results = await Promise.allSettled(
+          [...ids].map(id => policiesApi.delete(id)),
+        );
+        const deleted = results.some(r => r.status === 'fulfilled');
+        const hardFail =
+          ids.size > 0 && results.every(r => r.status === 'rejected');
+        if (hardFail) {
+          const first = results.find(r => r.status === 'rejected') as
+            | PromiseRejectedResult
+            | undefined;
+          throw first?.reason ?? new Error('Could not delete Block All Apps policy');
+        }
+        setBlockAllPolicyId(null);
+        setBlockAll(false);
+        if (device?.kioskModeActive && device.deviceOwnerActive) {
+          await deviceApi.sendCommand(deviceId, 'DISABLE_KIOSK');
+        }
+        Alert.alert(
+          'Block All Apps off',
+          deleted
+            ? 'Rule removed. If apps stay blocked for a few seconds, open Clock Time on the child so policies sync.'
+            : 'No Block All rule found — apps should already be allowed (except per-app rules).',
+        );
+      }
+      await loadDevice();
+    } catch (err) {
+      const msg = getApiErrorMessage(err, 'Couldn’t update Block All Apps. Please try again.');
+      // Re-sync from server — optimistic toggle must not stick after a failed API call.
+      await loadDevice().catch(() => undefined);
+      // Double-tap / already-created policy returns 409 "Resource already exists".
+      if (
+        enabled &&
+        /already exists|conflict/i.test(msg)
+      ) {
+        setBlockAll(true);
+        Alert.alert(
+          'Block All Apps on',
+          'Block All Apps is already active on this device.',
+        );
+        return;
+      }
+      Alert.alert('Error', msg);
     } finally {
       setCommandLoading(false);
     }
@@ -300,7 +429,10 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       setSetupAgainVisible(false);
       Alert.alert('Pairing code ready', 'Share your family child login password and this pairing code with your child.');
     } catch {
-      Alert.alert('Error', 'Could not create pairing code');
+      Alert.alert(
+        'Error',
+        'Couldn’t create a pairing code. Check your connection and try again.',
+      );
     } finally {
       setSetupGenerating(false);
     }
@@ -312,7 +444,6 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const battery = live?.batteryLevel ?? device?.batteryLevel;
   const network = live?.networkType ?? device?.networkType;
   const lastSeen = live?.lastSeenAt ?? device?.lastSeenAt;
-  const foregroundApp = live?.foregroundApp;
   const online = isOnline(status);
   const revoked = isRevoked(status);
   const locLat = liveLocation?.latitude ?? live?.latitude;
@@ -320,13 +451,39 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const hasLoc = locLat != null && locLon != null;
   const deviceName = device?.deviceName ?? 'Child Device';
   const initials = deviceName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+  const accessibilityEnabled = device?.accessibilityEnabled !== false;
+  const promptsManualCast = !accessibilityEnabled;
   const projectionDevice = mergeScreenShareCapability(live, device);
   const screenShareCapable = isScreenShareCapableMerged(live, device);
   const screenShareBlockedReason = screenShareCapable
     ? undefined
     : screenShareBlockedMessage(projectionDevice);
+  const screenShareBlockedShort = screenShareCapable
+    ? undefined
+    : screenShareBlockedShortMessage(projectionDevice);
   const showProjectionAlert =
     device?.deviceOwnerActive === true && !screenShareCapable && online;
+  const locationEmptyCopy = (() => {
+    if (!online) {
+      return {
+        title: 'Waiting for location',
+        sub: 'The child phone is offline. A map appears after it comes online and shares a GPS fix.',
+        cta: 'Open location',
+      };
+    }
+    if (device?.permLocation === false) {
+      return {
+        title: 'Location permission needed',
+        sub: 'Grant Location to the child app in Android Settings, keep Location services on, then reopen the child app.',
+        cta: 'How to fix',
+      };
+    }
+    return {
+      title: 'No recent location yet',
+      sub: 'App location permission can be on while no GPS fix has been shared yet. Keep Location services enabled and wait outdoors or reopen the child app.',
+      cta: 'View location',
+    };
+  })();
 
   const deviceAlerts = liveAlerts.filter(a => a.deviceId === deviceId);
   const alertCount = deviceAlerts.length + pendingRequests.length;
@@ -342,15 +499,20 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       device.permUsageStats === false ||
       device.permOverlay === false);
   const missingEnforcementLabel = [
-    device?.permAccessibility === false && 'Accessibility',
-    device?.permUsageStats === false && 'Usage Access',
-    device?.permOverlay === false && 'Overlay',
+    device?.permAccessibility === false && 'Required device feature',
+    device?.permUsageStats === false && 'App usage access',
+    device?.permOverlay === false && 'Display over other apps',
   ]
     .filter(Boolean)
     .join(', ');
 
-  const openRemoteView = () => {
-    navigation.navigate('LiveMonitoring', {deviceId});
+  const openRemoteView = (initialStream?: 'SCREEN' | 'CAMERA' | 'AUDIO') => {
+    // Always open Live Monitoring for SCREEN — child will prompt Cast / auto-approve.
+    // Capability flags are status hints only (see Live View tiles), not start gates.
+    navigation.navigate('LiveMonitoring', {
+      deviceId,
+      initialStream: initialStream ?? 'SCREEN',
+    });
   };
 
   const handleRing = () => {
@@ -370,10 +532,6 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       {text: 'Lock', onPress: () => sendCommand('ENABLE_KIOSK', 'Enable kiosk')},
     ]);
   };
-
-  const foregroundLabel = foregroundApp
-    ? foregroundApp.split('.').pop() ?? 'Home Screen'
-    : 'Home Screen';
 
   return (
     <SafeAreaView style={sc.root} edges={['top', 'bottom']}>
@@ -407,7 +565,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                 <Text style={sc.pairingLabel}>Active pairing code</Text>
                 <Text style={sc.pairingCode}>{activePairingCode}</Text>
                 <Text style={sc.pairingHint}>
-                  Child steps: open Device Monitor → enter parent password → complete permissions → enter this code.
+                  Child steps: open Clock Time → enter parent password → complete permissions → enter this code.
                   {pairingExpiresAt ? ` Expires ${new Date(pairingExpiresAt).toLocaleTimeString()}.` : ' Expires in 15 minutes.'}
                 </Text>
               </SurfaceCard>
@@ -447,8 +605,10 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                   <View style={sc.heroAvatar}>
                     <Text style={sc.heroAvatarText}>{initials}</Text>
                   </View>
-                  <View>
-                    <Text style={sc.heroName}>{deviceName}</Text>
+                  <View style={sc.heroIdentityText}>
+                    <Text style={sc.heroName} numberOfLines={1}>
+                      {deviceName}
+                    </Text>
                     <View style={sc.heroStatusRow}>
                       <Animated.View style={[sc.onlineDot, online && {opacity: dotBlink}]} />
                       <Text style={sc.heroStatusText}>{online ? 'Online' : 'Offline'}</Text>
@@ -462,7 +622,9 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                     {battery != null ? <Text style={sc.heroMetaValue}>{battery}%</Text> : null}
                   </View>
                   {lastSeen ? (
-                    <Text style={sc.heroLastSeen}>Last seen {new Date(lastSeen).toLocaleTimeString()}</Text>
+                    <Text style={sc.heroLastSeen} numberOfLines={1}>
+                      Last seen {new Date(lastSeen).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}
+                    </Text>
                   ) : null}
                 </View>
               </View>
@@ -481,17 +643,27 @@ export function DeviceDetailScreen({navigation, route}: Props) {
 
             {showProjectionAlert ? (
               <PermissionsAlert
-                title="Screen capture needs setup"
-                subtitle="The child phone lost screen capture permission. Open Permissions on the child app to restore it."
-                onFix={() => Alert.alert('Screen capture', screenShareBlockedReason ?? 'Screen capture is unavailable on the child phone.')}
+                title="Screen sharing isn’t set up yet"
+                subtitle="You can still tap Screen — the child phone may ask to allow screen sharing so live view can start."
+                onFix={() =>
+                  Alert.alert(
+                    'Screen sharing',
+                    'Tap Screen under Live View to start. On the child phone, allow screen sharing if asked.',
+                  )
+                }
               />
             ) : null}
 
             {missingEnforcementPerms ? (
               <PermissionsAlert
-                title={`Protections missing: ${missingEnforcementLabel}`}
-                subtitle="App blocking and usage limits won't work until the child grants these permissions."
-                onFix={() => Alert.alert('Missing permissions', `The child device is missing: ${missingEnforcementLabel}.`)}
+                title={`Permissions needed: ${missingEnforcementLabel}`}
+                subtitle="App blocking and usage limits won’t work until these are turned on in Clock Time on the child phone."
+                onFix={() =>
+                  Alert.alert(
+                    'Missing permissions',
+                    `Ask your child to open Clock Time and finish: ${missingEnforcementLabel}.`,
+                  )
+                }
               />
             ) : null}
 
@@ -514,32 +686,46 @@ export function DeviceDetailScreen({navigation, route}: Props) {
               </View>
             ) : null}
 
-            {/* Remote view — screen, camera, audio, and recording live in one session */}
+            {/* Live view — only Screen needs cast; camera/audio stay available */}
             <View style={sc.section}>
-              <SectionTitle title="Remote View" />
-              <Pressable
-                style={[sc.liveScreenCard, !screenShareCapable && {opacity: 0.55}]}
-                onPress={openRemoteView}>
-                <View style={sc.liveScreenGradient} />
-                <View style={sc.liveScreenContent}>
-                  <View style={sc.liveScreenTop}>
-                    <View style={sc.livePill}>
-                      <View style={sc.livePillDot} />
-                      <Text style={sc.livePillText}>Live</Text>
-                    </View>
-                    <Text style={sc.liveScreenIcon}>📺</Text>
-                  </View>
-                  <View>
-                    <Text style={sc.liveScreenEyebrow}>Screen · camera · audio</Text>
-                    <Text style={sc.liveScreenTitle}>{foregroundLabel}</Text>
-                    {!screenShareCapable && screenShareBlockedReason ? (
-                      <Text style={sc.liveScreenBlocked}>{screenShareBlockedReason}</Text>
-                    ) : (
-                      <Text style={sc.liveScreenSub}>Switch source and record from one view</Text>
-                    )}
-                  </View>
-                </View>
-              </Pressable>
+              <Text style={sc.sectionTitle}>Live View</Text>
+              <View style={sc.liveTilesRow}>
+                <Pressable
+                  style={[sc.liveTile, sc.liveTileScreen]}
+                  onPress={() => openRemoteView('SCREEN')}>
+                  <Text style={sc.liveTileIcon}>📺</Text>
+                  <Text style={sc.liveTileLabel}>Screen</Text>
+                  <Text style={sc.liveTileSub}>
+                    {screenShareCapable
+                      ? 'Remote view'
+                      : promptsManualCast
+                        ? 'May ask on child phone'
+                        : 'Remote view'}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={[sc.liveTile, sc.liveTileCamera]}
+                  onPress={() => openRemoteView('CAMERA')}>
+                  <Text style={sc.liveTileIcon}>📷</Text>
+                  <Text style={sc.liveTileLabelOnDark}>Camera</Text>
+                  <Text style={sc.liveTileSubOnDark}>Remote view</Text>
+                </Pressable>
+
+                <Pressable
+                  style={[sc.liveTile, sc.liveTileAudio]}
+                  onPress={() => openRemoteView('AUDIO')}>
+
+                  <Text style={sc.liveTileIcon}>🎧</Text>
+                  <Text style={sc.liveTileLabelOnDark}>Audio</Text>
+                  <Text style={sc.liveTileSubOnDark}>One-way listen</Text>
+                </Pressable>
+              </View>
+              {!screenShareCapable && promptsManualCast ? (
+                <Text style={sc.liveViewHint}>
+                  Open Clock Time on the child phone and finish the remaining permission steps for smoother screen sharing.
+                </Text>
+              ) : null}
             </View>
 
             {/* Activity */}
@@ -547,24 +733,60 @@ export function DeviceDetailScreen({navigation, route}: Props) {
               <ActivityCard deviceId={deviceId} onPress={() => navigation.navigate('ScreenTime', {deviceId})} />
             </View>
 
-            {/* Block All Apps */}
+            {/* Block All Apps — Accessibility lockdown (FlashGet-style), not Device Owner kiosk */}
             <View style={sc.section}>
               <SurfaceCard style={sc.blockCard}>
                 <View style={sc.blockLeft}>
                   <IconCircle icon="⊘" bg={`${Colors.error}18`} color={Colors.error} />
-                  <Text style={sc.blockTitle}>Block All Apps</Text>
+                  <View style={sc.blockTextCol}>
+                    <Text style={sc.blockTitle}>Block All Apps</Text>
+                    <Text style={sc.blockHint}>
+                      {device?.accessibilityEnabled === false
+                        ? 'Turn on Accessibility in Clock Time on the child phone first.'
+                        : 'Blocks apps via Accessibility. Phone, messages, and home stay available. Use App Rules for specific apps.'}
+                    </Text>
+                  </View>
                 </View>
                 <Switch
-                  value={blockAll || device?.kioskModeActive === true}
+                  value={blockAll}
                   onValueChange={val => {
-                    setBlockAll(val);
+                    if (val && device?.accessibilityEnabled === false) {
+                      Alert.alert(
+                        'Accessibility required',
+                        'Open Clock Time on the child phone → Permissions → turn on Accessibility, then try again.',
+                      );
+                      return;
+                    }
                     if (val) {
-                      Alert.alert('Block All Apps', 'Enable kiosk mode to block all apps?', [
-                        {text: 'Cancel', style: 'cancel', onPress: () => setBlockAll(false)},
-                        {text: 'Block', onPress: () => sendCommand('ENABLE_KIOSK', 'Enable kiosk')},
-                      ]);
+                      Alert.alert(
+                        'Block All Apps',
+                        'Block every app on the child phone except Phone, Messages, and the home screen?',
+                        [
+                          {text: 'Cancel', style: 'cancel'},
+                          {
+                            text: 'Block',
+                            onPress: () => {
+                              setBlockAll(true);
+                              void setBlockAllApps(true);
+                            },
+                          },
+                        ],
+                      );
                     } else {
-                      sendCommand('DISABLE_KIOSK', 'Disable kiosk');
+                      Alert.alert(
+                        'Allow apps again?',
+                        'Turn off Block All Apps so the child can open apps again (per-app rules still apply).',
+                        [
+                          {text: 'Cancel', style: 'cancel'},
+                          {
+                            text: 'Allow apps',
+                            onPress: () => {
+                              setBlockAll(false);
+                              void setBlockAllApps(false);
+                            },
+                          },
+                        ],
+                      );
                     }
                   }}
                   trackColor={{false: Colors.surfaceContainer, true: Colors.primaryContainer}}
@@ -618,8 +840,8 @@ export function DeviceDetailScreen({navigation, route}: Props) {
 
             {/* Live Location */}
             <View style={sc.section}>
+              <SectionTitle title="Live Location" />
               <SurfaceCard style={sc.locationCard}>
-                <Text style={[sc.sectionTitle, sc.locationTitle]}>Live Location</Text>
                 {hasLoc ? (
                   <Pressable onPress={() => navigation.navigate('Location', {deviceId})}>
                     <View style={sc.mapWrap}>
@@ -637,16 +859,30 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                   </Pressable>
                 ) : (
                   <View style={sc.noLocWrap}>
-                    <View style={sc.noLocOverlay}>
-                      <Text style={sc.noLocIcon}>📍</Text>
-                      <Text style={sc.noLocTitle}>Location unavailable</Text>
-                      <Text style={sc.noLocSub}>GPS is currently disabled on the child&apos;s device.</Text>
-                      <Pressable style={sc.noLocBtn} onPress={() => navigation.navigate('Location', {deviceId})}>
-                        <Text style={sc.noLocBtnText}>Enable Location</Text>
-                      </Pressable>
-                    </View>
+                    <Text style={sc.noLocIcon}>📍</Text>
+                    <Text style={sc.noLocTitle}>{locationEmptyCopy.title}</Text>
+                    <Text style={sc.noLocSub}>{locationEmptyCopy.sub}</Text>
+                    <Pressable
+                      style={sc.noLocBtn}
+                      onPress={() => navigation.navigate('Location', {deviceId})}>
+                      <Text style={sc.noLocBtnText}>{locationEmptyCopy.cta}</Text>
+                    </Pressable>
                   </View>
                 )}
+              </SurfaceCard>
+            </View>
+
+            {/* Child phone notifications */}
+            <View style={sc.section}>
+              <SectionTitle title="Messages & alerts" />
+              <SurfaceCard>
+                <MenuRow
+                  icon="🔔"
+                  title="Child notifications"
+                  subtitle="WhatsApp, SMS, and other app alerts mirrored from this phone"
+                  onPress={() => navigation.navigate('Notifications', {deviceId})}
+                  last
+                />
               </SurfaceCard>
             </View>
 
@@ -803,8 +1039,9 @@ const sc = StyleSheet.create({
     top: -48,
     right: -48,
   },
-  heroTop: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 1},
-  heroIdentity: {flexDirection: 'row', alignItems: 'center', gap: Layout.componentInternal},
+  heroTop: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 1, gap: Spacing.md},
+  heroIdentity: {flexDirection: 'row', alignItems: 'center', gap: Layout.componentInternal, flex: 1, minWidth: 0},
+  heroIdentityText: {flex: 1, minWidth: 0},
   heroAvatar: {
     width: 64,
     height: 64,
@@ -814,17 +1051,18 @@ const sc = StyleSheet.create({
     backgroundColor: Colors.surfaceContainer,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   heroAvatarText: {fontSize: 22, fontWeight: '700', color: Colors.primaryContainer},
   heroName: {...Typography.largeTitle, color: '#fff'},
   heroStatusRow: {flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.half},
   onlineDot: {width: Spacing.sm, height: Spacing.sm, borderRadius: Radii.xs, backgroundColor: Colors.tertiaryFixed},
   heroStatusText: {...Typography.smallLabel, color: 'rgba(255,255,255,0.8)'},
-  heroMeta: {alignItems: 'flex-end', gap: Spacing.half},
+  heroMeta: {alignItems: 'flex-end', gap: Spacing.half, flexShrink: 0, maxWidth: '42%'},
   heroMetaIcons: {flexDirection: 'row', alignItems: 'center', gap: 6},
   heroMetaIcon: {fontSize: 14, color: 'rgba(255,255,255,0.9)'},
   heroMetaValue: {...Typography.smallLabel, color: 'rgba(255,255,255,0.9)'},
-  heroLastSeen: {...Typography.smallLabel, color: 'rgba(255,255,255,0.6)'},
+  heroLastSeen: {...Typography.smallLabel, color: 'rgba(255,255,255,0.6)', textAlign: 'right'},
   heroActions: {flexDirection: 'row', gap: Spacing.md, zIndex: 1},
   heroActionBtn: {
     flex: 1,
@@ -867,6 +1105,42 @@ const sc = StyleSheet.create({
   alertChevron: {fontSize: 22, color: Colors.outline},
 
   // Live monitoring — 16px grid gap
+  liveTilesRow: {flexDirection: 'row', gap: Spacing.md},
+  liveTile: {
+    flex: 1,
+    minHeight: 112,
+    borderRadius: Radii.xl,
+    padding: Spacing.md,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+    ...Elevation.card,
+  },
+  liveTileScreen: {backgroundColor: '#EDE9FE'},
+  liveTileCamera: {backgroundColor: Colors.primaryContainer},
+  liveTileAudio: {backgroundColor: '#2563EB'},
+  liveTileDisabled: {opacity: 0.72},
+  liveTileBadge: {
+    position: 'absolute',
+    top: Spacing.sm,
+    right: Spacing.sm,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    borderRadius: Radii.pill,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+  },
+  liveTileBadgeText: {...Typography.smallLabel, color: '#fff', fontSize: 10, fontWeight: '800'},
+  liveTileIcon: {fontSize: 22, marginBottom: Spacing.half},
+  liveTileLabel: {...Typography.cardTitle, fontSize: 15, color: Colors.textPrimary},
+  liveTileSub: {...Typography.smallLabel, color: Colors.textSecondary, marginTop: 2},
+  liveTileLabelMuted: {color: Colors.textTertiary},
+  liveTileLabelOnDark: {...Typography.cardTitle, fontSize: 15, color: '#fff'},
+  liveTileSubOnDark: {...Typography.smallLabel, color: 'rgba(255,255,255,0.8)', marginTop: 2},
+  liveViewHint: {
+    ...Typography.smallLabel,
+    color: Colors.textSecondary,
+    marginTop: Spacing.md,
+    lineHeight: 18,
+  },
   liveScreenCard: {
     height: 192,
     borderRadius: Radii.xl,
@@ -874,9 +1148,16 @@ const sc = StyleSheet.create({
     marginBottom: Layout.componentInternal,
     ...Elevation.card,
   },
+  liveScreenCardMuted: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
   liveScreenGradient: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: Colors.primaryContainer,
+  },
+  liveScreenGradientMuted: {
+    backgroundColor: '#475569',
   },
   liveScreenContent: {
     flex: 1,
@@ -894,13 +1175,16 @@ const sc = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.half,
   },
+  setupPill: {
+    backgroundColor: 'rgba(251, 191, 36, 0.25)',
+  },
   livePillDot: {width: Spacing.sm, height: Spacing.sm, borderRadius: Radii.xs, backgroundColor: Colors.error},
   livePillText: {...Typography.smallLabel, color: '#fff'},
   liveScreenIcon: {fontSize: 28},
   liveScreenEyebrow: {...Typography.smallLabel, color: 'rgba(255,255,255,0.7)'},
   liveScreenTitle: {...Typography.cardTitle, color: '#fff'},
   liveScreenSub: {...Typography.caption, color: 'rgba(255,255,255,0.75)', marginTop: 4},
-  liveScreenBlocked: {...Typography.caption, color: '#FCA5A5', marginTop: 4, lineHeight: 18},
+  liveScreenBlocked: {...Typography.caption, color: '#FDE68A', marginTop: 6, lineHeight: 18},
   monitorRow: {flexDirection: 'row', gap: Layout.componentInternal},
   monitorTile: {
     flex: 1,
@@ -931,9 +1215,11 @@ const sc = StyleSheet.create({
   barFill: {width: '100%', borderRadius: Radii.xs, minHeight: 4},
 
   // Block all — 16px internal
-  blockCard: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Layout.componentInternal},
-  blockLeft: {flexDirection: 'row', alignItems: 'center', gap: Spacing.md},
+  blockCard: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md, padding: Layout.componentInternal},
+  blockLeft: {flexDirection: 'row', alignItems: 'center', gap: Spacing.md, flex: 1, minWidth: 0},
+  blockTextCol: {flex: 1, minWidth: 0, gap: 2},
   blockTitle: {...Typography.cardTitle, fontSize: 16},
+  blockHint: {...Typography.smallLabel, color: Colors.textSecondary},
   iconCircle: {width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center'},
   iconCircleText: {fontSize: 18, fontWeight: '700'},
 
@@ -955,15 +1241,36 @@ const sc = StyleSheet.create({
   gridTileArrow: {fontSize: 14, color: Colors.primaryContainer},
 
   // Location
-  locationCard: {padding: 0, overflow: 'hidden'},
-  locationTitle: {padding: Layout.gutter, paddingBottom: Layout.componentInternal},
-  mapWrap: {borderRadius: Radii.lg, overflow: 'hidden', marginHorizontal: Layout.gutter, marginBottom: Layout.gutter},
-  noLocWrap: {aspectRatio: 16 / 9, backgroundColor: Colors.surfaceContainer, marginHorizontal: Layout.gutter, marginBottom: Layout.gutter, borderRadius: Radii.lg, alignItems: 'center', justifyContent: 'center'},
-  noLocOverlay: {alignItems: 'center', padding: Layout.gutter, backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: Radii.xl, borderWidth: 1, borderColor: Colors.surface, margin: Layout.componentInternal, ...Elevation.cardHigh},
-  noLocIcon: {fontSize: 28, color: Colors.outline, marginBottom: Spacing.sm},
-  noLocTitle: {...Typography.cardTitle, fontSize: 16, marginBottom: Spacing.half},
-  noLocSub: {...Typography.smallLabel, color: Colors.textSecondary, textAlign: 'center', marginBottom: Layout.componentInternal},
-  noLocBtn: {backgroundColor: Colors.primaryContainer, borderRadius: Radii.md, minHeight: Layout.touchTargetMin, paddingVertical: Spacing.md, paddingHorizontal: Layout.gutter, width: '100%', alignItems: 'center', justifyContent: 'center'},
+  locationCard: {padding: Layout.gutter, overflow: 'hidden'},
+  mapWrap: {borderRadius: Radii.lg, overflow: 'hidden'},
+  noLocWrap: {
+    minHeight: 168,
+    backgroundColor: Colors.surfaceContainer,
+    borderRadius: Radii.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Layout.gutter,
+    paddingVertical: Layout.componentInternal,
+  },
+  noLocIcon: {fontSize: 28, marginBottom: Spacing.sm},
+  noLocTitle: {...Typography.cardTitle, fontSize: 16, marginBottom: Spacing.half, textAlign: 'center'},
+  noLocSub: {
+    ...Typography.smallLabel,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: Layout.componentInternal,
+    lineHeight: 18,
+  },
+  noLocBtn: {
+    backgroundColor: Colors.primaryContainer,
+    borderRadius: Radii.md,
+    minHeight: Layout.touchTargetMin,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Layout.gutter,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+  },
   noLocBtnText: {...Typography.cardTitle, color: '#fff', fontSize: 14},
 
   // Menu rows — 72px height, 24px horizontal inset

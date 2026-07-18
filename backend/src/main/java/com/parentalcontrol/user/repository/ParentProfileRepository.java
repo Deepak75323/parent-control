@@ -15,4 +15,16 @@ public interface ParentProfileRepository extends JpaRepository<ParentProfile, UU
 
   @Query("SELECT p.user.id FROM ParentProfile p WHERE p.id = :profileId")
   Optional<UUID> findUserIdByProfileId(UUID profileId);
+
+  @Query(
+      "SELECT p FROM ParentProfile p WHERE p.deletedAt IS NULL AND LOWER(p.familyHandle) = LOWER(:handle)")
+  Optional<ParentProfile> findByFamilyHandleIgnoreCase(String handle);
+
+  @Query(
+      "SELECT COUNT(p) > 0 FROM ParentProfile p WHERE p.deletedAt IS NULL AND LOWER(p.familyHandle) = LOWER(:handle)")
+  boolean existsByFamilyHandleIgnoreCase(String handle);
+
+  @Query(
+      "SELECT COUNT(p) > 0 FROM ParentProfile p WHERE p.deletedAt IS NULL AND LOWER(p.familyHandle) = LOWER(:handle) AND p.id <> :excludeId")
+  boolean existsByFamilyHandleIgnoreCaseAndIdNot(String handle, UUID excludeId);
 }

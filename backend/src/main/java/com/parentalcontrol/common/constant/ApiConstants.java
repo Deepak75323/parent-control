@@ -33,6 +33,8 @@ public final class ApiConstants {
   public static final String DEVICE_TELEMETRY_ANT = DEVICE_TELEMETRY + "/**";
   public static final String DEVICE_TAMPER_VERIFY = DEVICE + "/tamper/verify";
   public static final String DEVICE_TAMPER_ATTEMPT = DEVICE + "/tamper/attempt";
+  public static final String DEVICE_TAMPER_OFFLINE_PIN = DEVICE + "/tamper/offline-pin";
+  public static final String DEVICE_TAMPER_ADMIN_DISABLED = DEVICE + "/tamper/admin-disabled";
   public static final String DEVICE_TIME_EXTENSION_REQUESTS = DEVICE + "/time-extension-requests";
 
   /**
@@ -91,6 +93,7 @@ public final class ApiConstants {
   public static final String PARENT_ANT = PARENT + "/**";
   public static final String PARENT_PIN = PARENT + "/pin";
   public static final String PARENT_CHILD_LOGIN_PASSWORD = PARENT + "/child-login-password";
+  public static final String PARENT_FAMILY_HANDLE = PARENT + "/family-handle";
 
   public static final String TIME_EXTENSION_REQUESTS = API_V1 + "/time-extension-requests";
   public static final String TIME_EXTENSION_REQUESTS_ANT = TIME_EXTENSION_REQUESTS + "/**";

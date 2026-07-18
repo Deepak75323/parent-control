@@ -257,7 +257,7 @@ export function PermissionDashboardScreen({navigation}: Props) {
       } catch (e) {
         flowLog('PERMISSION_FLOW', 'revokeOrManage failed', {id, e});
         Alert.alert(
-          'Could not open settings',
+          'Couldn’t open settings',
           `Unable to open ${PERMISSION_DEFS[id].label} settings on this device. Try opening Settings manually.`,
         );
       } finally {
@@ -349,7 +349,7 @@ export function PermissionDashboardScreen({navigation}: Props) {
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.primaryBtnText}>
-                {alreadyPaired ? 'Back to monitoring' : 'Continue to pairing'}
+                {alreadyPaired ? 'Back to Clock Time' : 'Continue to pairing'}
               </Text>
             )}
           </Pressable>

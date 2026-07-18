@@ -9,7 +9,6 @@ import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.exception.ErrorCode;
 import com.parentalcontrol.common.security.SecurityUtils;
 import com.parentalcontrol.device.domain.Device;
-import com.parentalcontrol.device.domain.MediaProjectionConsentState;
 import com.parentalcontrol.monitoring.dao.ScreenCaptureAuditLogDao;
 import com.parentalcontrol.monitoring.dao.ScreenSessionDao;
 import com.parentalcontrol.monitoring.domain.ScreenCaptureAuditLog;
@@ -174,11 +173,12 @@ public class StreamingService {
               wakeData.put("cameraFacing", notifyFacing);
             }
             fcmWakeService.wakeDevice(device, "STREAM_REQUEST", wakeData);
+            // wakeDevice no-ops when FCM is disabled — do not claim a wake was sent.
             StreamTraceLogger.info(
                 "Backend",
                 "NOTIFY",
                 "startStream",
-                "FCM wake dispatched",
+                "FCM wake requested (no-op if FCM_ENABLED=false)",
                 Map.of(
                     "deviceId",
                     notifyDeviceId,
@@ -492,38 +492,13 @@ public class StreamingService {
   }
 
   /**
-   * Screen capture requires live MediaProjection consent on the child device. The system token
-   * holds a binder that cannot survive process death (see {@code MediaProjectionTokenStore}), so we
-   * reject doomed sessions early — for every device, not just device-owner — to avoid black-screen
-   * failures on the parent side. The child reports its current consent state via heartbeat ({@code
-   * mediaProjectionConsentState}).
+   * Screen sessions are always startable from the parent. Live MediaProjection consent may be
+   * missing ({@code NEVER_GRANTED} / lost after restart) — the child launches the system Cast
+   * dialog (Accessibility auto-approves when Clock Time is enabled) and reports failure via
+   * streaming state if consent is declined. Pre-blocking here prevented that prompt path.
    */
   private void assertScreenCaptureAvailable(Device device, String streamType) {
-    if (!AppConstants.STREAM_TYPE_SCREEN.equals(streamType)) {
-      return;
-    }
-    String state = device.getMediaProjectionConsentState();
-    // Only allow when consent is explicitly active — blocks stale granted=true after process death
-    // and rows where heartbeat has not yet synced consent state (null state is not trusted).
-    if (MediaProjectionConsentState.GRANTED_ACTIVE.equalsWire(state)
-        && device.isMediaProjectionGranted()) {
-      return;
-    }
-    MediaProjectionConsentState resolvedState = MediaProjectionConsentState.fromWire(state);
-    String message =
-        switch (resolvedState) {
-          case LOST_AFTER_PROCESS_DEATH ->
-              "Screen capture permission was lost after the child phone restarted. "
-                  + "The child must re-approve screen sharing — open the child app → Permissions → Grant screen capture.";
-          case REQUIRES_RECONSENT, RECOVERY_FAILED ->
-              "The child must re-approve screen sharing. "
-                  + "Open the child app → Permissions → Grant screen capture, then try again.";
-          case RECOVERY_PENDING ->
-              "The child app is restoring screen capture permission. Wait a moment, then try again.";
-          default ->
-              "Screen capture is unavailable on the child device. "
-                  + "Open the child app → Permissions → Grant screen capture, then try again.";
-        };
-    throw new BusinessException(ErrorCode.FORBIDDEN, message);
+    // Intentionally no-op for SCREEN: create the session and notify the child so it can
+    // obtain / restore MediaProjection consent during stream bootstrap.
   }
 }

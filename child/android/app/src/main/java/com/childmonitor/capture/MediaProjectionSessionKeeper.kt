@@ -55,10 +55,10 @@ object MediaProjectionSessionKeeper {
         if (projection == null) {
             PcpFlowLogger.warn(
                 PcpFlowLogger.Category.MEDIA_PROJECTION,
-                "warmSession — obtainProjection failed (token kept)",
+                "warmSession — obtainProjection failed (consent invalidated for Cast re-grant)",
                 MediaProjectionTokenStore.debugState(app).toString(),
             )
-            Log.w(TAG, "warmSession — obtainProjection failed (token kept)")
+            Log.w(TAG, "warmSession — obtainProjection failed — Cast re-grant required")
             return false
         }
         PcpFlowLogger.log(PcpFlowLogger.Category.MEDIA_PROJECTION, "warmSession OK — projection ready")

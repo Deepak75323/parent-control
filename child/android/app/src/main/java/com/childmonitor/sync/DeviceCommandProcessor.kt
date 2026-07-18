@@ -324,6 +324,17 @@ object DeviceCommandProcessor {
                 "SYNC_INSTALLED_APPS" -> {
                     com.childmonitor.NativeSyncUploader.forceSyncInstalledApps(context)
                 }
+                "SYNC_USAGE_STATS" -> {
+                    com.childmonitor.NativeSyncUploader.forceSyncUsageStats(context)
+                }
+                "SYNC_POLICIES" -> {
+                    val ok = com.childmonitor.PolicySyncManager.syncPolicies(context)
+                    if (ok) {
+                        com.childmonitor.AppBlockingAccessibilityService
+                            .enforceCurrentForegroundIfBlocked()
+                    }
+                    ok
+                }
                 else -> {
                     error = "Unknown command: $type"
                     false

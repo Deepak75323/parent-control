@@ -19,6 +19,7 @@ object ApiPaths {
     const val DEVICE_COMMANDS_IN_FLIGHT = "$DEVICE/commands/in-flight"
     const val DEVICE_TAMPER_ATTEMPT = "$DEVICE/tamper/attempt"
     const val DEVICE_TAMPER_VERIFY = "$DEVICE/tamper/verify"
+    const val DEVICE_TAMPER_OFFLINE_PIN = "$DEVICE/tamper/offline-pin"
     const val DEVICE_TAMPER_ADMIN_DISABLED = "$DEVICE/tamper/admin-disabled"
     const val DEVICE_TELEMETRY_BATCH = "$DEVICE/telemetry/batch"
 

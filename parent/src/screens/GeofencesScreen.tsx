@@ -25,7 +25,7 @@ export function GeofencesScreen({navigation, route}: Props) {
       const {data} = await monitoringApi.geofences(deviceId);
       setZones(data.data);
     } catch {
-      Alert.alert('Error', 'Could not load geofences');
+      Alert.alert('Error', 'Couldn’t load geofences. Check your connection and try again.');
     }
   }, [deviceId]);
 
@@ -62,7 +62,7 @@ export function GeofencesScreen({navigation, route}: Props) {
       await load();
       Alert.alert('Created', `Geofence "${name}" saved`);
     } catch {
-      Alert.alert('Error', 'Failed to create geofence');
+      Alert.alert('Error', 'Couldn’t create this geofence. Please try again.');
     }
   };
 

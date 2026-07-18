@@ -15,8 +15,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Obtains MediaProjection consent from background when accessibility auto-approve is armed.
- * Blocks on a worker thread until consent is saved or the wait times out.
+ * Obtains MediaProjection consent only from allowed entry points
+ * ([ConsentLaunchSource.SETUP], [ConsentLaunchSource.USER_GRANT], or
+ * [ConsentLaunchSource.PARENT_SCREEN_SHARE]).
+ *
+ * Parent Screen Share requires Accessibility (auto-approve). Cast is not shown
+ * when Accessibility is unavailable — only SETUP / USER_GRANT may launch for
+ * a manual Start during guided grant.
  */
 object MediaProjectionConsentHelper {
 
@@ -37,30 +42,71 @@ object MediaProjectionConsentHelper {
     }
 
     /**
-     * Returns true when consent is already stored, or after launching the system dialog
-     * and auto-approving it via accessibility (if enabled).
+     * Warm an existing projection or launch Cast — only when [source] is an allowed entry.
+     *
+     * For [ConsentLaunchSource.PARENT_SCREEN_SHARE]: if Accessibility is not ready, does **not**
+     * launch Cast (returns false). Caller must notify the parent.
      */
     @JvmStatic
-    fun ensureConsent(context: Context, timeoutMs: Long = DEFAULT_TIMEOUT_MS): Boolean {
-        PermissionDebugLogger.enter("MediaProjectionConsentHelper.ensureConsent", "timeoutMs=$timeoutMs")
-    if (hasConsent(context)) {
-      PcpFlowLogger.log(PcpFlowLogger.Category.PERMISSION_FLOW, "ensureConsent — already granted, skip dialog")
-      HeartbeatSyncManager.syncProjectionRestored(context.applicationContext)
-      PermissionDebugLogger.exit("MediaProjectionConsentHelper.ensureConsent", "already granted")
-      return true
-    }
+    @JvmOverloads
+    fun ensureConsent(
+        context: Context,
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+        source: ConsentLaunchSource,
+    ): Boolean {
+        PermissionDebugLogger.enter(
+            "MediaProjectionConsentHelper.ensureConsent",
+            "timeoutMs=$timeoutMs source=$source",
+        )
+        if (ScreenCaptureController.hasLiveProjection()) {
+            PcpFlowLogger.log(PcpFlowLogger.Category.PERMISSION_FLOW, "ensureConsent — live projection, skip dialog")
+            HeartbeatSyncManager.syncProjectionRestored(context.applicationContext)
+            PermissionDebugLogger.exit("MediaProjectionConsentHelper.ensureConsent", "live projection")
+            return true
+        }
+        if (hasConsent(context)) {
+            if (MediaProjectionSessionKeeper.ensureReady(context.applicationContext)) {
+                PcpFlowLogger.log(PcpFlowLogger.Category.PERMISSION_FLOW, "ensureConsent — warmed stored consent")
+                HeartbeatSyncManager.syncProjectionRestored(context.applicationContext)
+                PermissionDebugLogger.exit("MediaProjectionConsentHelper.ensureConsent", "warmed")
+                return true
+            }
+            PcpFlowLogger.warn(
+                PcpFlowLogger.Category.PERMISSION_FLOW,
+                "ensureConsent — stored consent unusable, forcing Cast re-grant",
+                "source=$source",
+            )
+            MediaProjectionTokenStore.invalidateSession(context.applicationContext)
+        }
 
-    if (!ScreenCaptureAutoApprove.isReady(context)) {
-      PcpFlowLogger.warn(
-          PcpFlowLogger.Category.PERMISSION_FLOW,
-          "ensureConsent blocked — accessibility not ready",
-          "Enable Device Monitor in Settings → Accessibility first",
-      )
-      PermissionDebugLogger.exit("MediaProjectionConsentHelper.ensureConsent", "accessibility not ready")
-      return false
-    }
+        if (source == ConsentLaunchSource.PARENT_SCREEN_SHARE &&
+            !ScreenCaptureAutoApprove.isReady(context)
+        ) {
+            PcpFlowLogger.warn(
+                PcpFlowLogger.Category.PERMISSION_FLOW,
+                "ensureConsent — blocked Cast launch: Accessibility not ready (parent Screen Share)",
+            )
+            Log.w(TAG, "Skipping Cast launch — Accessibility required for parent Screen Share")
+            PermissionDebugLogger.exit("MediaProjectionConsentHelper.ensureConsent", "a11y_required")
+            return false
+        }
 
-    // Another thread is already showing the consent dialog — wait for it.
+        // SETUP is only for guided setup / unpaired grant.
+        // USER_GRANT = explicit "Enable live view" / Grant screen capture tap (always OK).
+        if (source == ConsentLaunchSource.SETUP) {
+            val setupOk = MonitoringPrefs.isPermissionSetupInProgress(context) ||
+                !MonitoringPrefs.isPaired(context)
+            if (!setupOk) {
+                PcpFlowLogger.warn(
+                    PcpFlowLogger.Category.PERMISSION_FLOW,
+                    "ensureConsent — blocked Cast from SETUP after pairing (use USER_GRANT or parent Start)",
+                )
+                Log.w(TAG, "Skipping Cast launch — device already paired; wait for parent Start or Enable live view")
+                PermissionDebugLogger.exit("MediaProjectionConsentHelper.ensureConsent", "setup_not_active")
+                return false
+            }
+        }
+
         consentLatch.get()?.let { existing ->
             PcpFlowLogger.log(PcpFlowLogger.Category.PERMISSION_FLOW, "ensureConsent — awaiting in-flight dialog")
             return try {
@@ -78,40 +124,54 @@ object MediaProjectionConsentHelper {
             }
         }
 
-        ScreenCaptureAutoApprove.armForConsent(context, timeoutMs)
+        val autoApproveReady = ScreenCaptureAutoApprove.isReady(context)
+        if (autoApproveReady) {
+            ScreenCaptureAutoApprove.armForConsent(context, timeoutMs)
+        } else {
+            PcpFlowLogger.warn(
+                PcpFlowLogger.Category.PERMISSION_FLOW,
+                "ensureConsent — Accessibility not ready; launching Cast for manual Start (setup)",
+                "source=$source",
+            )
+        }
         val latch = CountDownLatch(1)
         consentLatch.set(latch)
         try {
             PcpFlowLogger.log(
                 PcpFlowLogger.Category.PERMISSION_FLOW,
                 "ensureConsent — launching MediaProjectionConsentActivity",
-                "timeoutMs=$timeoutMs autoApproveArmed=true",
+                "timeoutMs=$timeoutMs source=$source autoApproveArmed=$autoApproveReady",
             )
-            Log.i(TAG, "Requesting MediaProjection consent (accessibility auto-approve armed)")
-            // Persist skip-relock before launching consent UI so a React remount on
-            // return does not force the parent-password screen (MIUI).
+            Log.i(
+                TAG,
+                "Requesting MediaProjection consent source=$source autoApprove=$autoApproveReady",
+            )
             MonitoringPrefs.setSkipAutoRelockUntilMs(
                 context.applicationContext,
                 System.currentTimeMillis() + timeoutMs + 5_000L,
             )
-            val intent = Intent(context, MediaProjectionConsentActivity::class.java)
-            if (context !is Activity) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (context is Activity) {
+                context.startActivity(Intent(context, MediaProjectionConsentActivity::class.java))
+            } else {
+                MediaProjectionConsentActivity.startFromBackground(context.applicationContext)
             }
-            context.startActivity(intent)
             val signaled = latch.await(timeoutMs, TimeUnit.MILLISECONDS)
             val granted = signaled && hasConsent(context)
             if (granted) {
                 PcpFlowLogger.log(PcpFlowLogger.Category.PERMISSION_FLOW, "ensureConsent — SUCCESS")
-                Log.i(TAG, "MediaProjection consent obtained")
+                Log.i(TAG, "MediaProjection consent obtained source=$source")
+                MonitoringPrefs.setSkipAutoRelockUntilMs(
+                    context.applicationContext,
+                    System.currentTimeMillis() + 20_000L,
+                )
                 HeartbeatSyncManager.syncProjectionRestored(context.applicationContext)
             } else {
                 PcpFlowLogger.warn(
                     PcpFlowLogger.Category.PERMISSION_FLOW,
                     "ensureConsent — FAILED",
-                    "signaled=$signaled state=${MediaProjectionTokenStore.debugState(context)}",
+                    "signaled=$signaled source=$source state=${MediaProjectionTokenStore.debugState(context)}",
                 )
-                Log.w(TAG, "MediaProjection consent not obtained (signaled=$signaled)")
+                Log.w(TAG, "MediaProjection consent not obtained (signaled=$signaled source=$source)")
             }
             return granted
         } catch (e: InterruptedException) {

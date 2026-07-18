@@ -23,6 +23,8 @@ object MonitoringPrefs {
     private const val KEY_INTEGRITY_TOKEN = "integrity_token_cached"
     private const val KEY_INTEGRITY_TOKEN_MS = "integrity_token_ms"
     private const val KEY_TAMPER_UNLOCK_UNTIL = "tamper_unlock_until_ms"
+    private const val KEY_OFFLINE_PIN_FAIL_COUNT = "offline_pin_fail_count"
+    private const val KEY_OFFLINE_PIN_WINDOW_MS = "offline_pin_window_start_ms"
     private const val KEY_WIZARD_PERSISTENCE_JSON = "wizard_persistence_json_v2"
     private const val KEY_PERMISSION_SETUP_IN_PROGRESS = "permission_setup_in_progress"
     private const val KEY_SKIP_AUTO_RELOCK_UNTIL = "skip_auto_relock_until_ms"
@@ -120,14 +122,16 @@ object MonitoringPrefs {
     }
 
     /**
-     * Suppresses JS foreground re-lock (ChildLogin) while a system permission dialog
+     * Suppresses JS foreground re-lock (ClockLock / password) while a system permission dialog
      * is open or just closed. Persisted so a React remount after MediaProjection
-     * consent does not bounce the user back to the parent-password screen.
+     * consent does not bounce the user back to the lock screen.
      */
     fun setSkipAutoRelockUntilMs(context: Context, untilMs: Long) {
+        // commit() — must land before MediaProjectionConsentActivity starts; apply() races
+        // MIUI React remount and bounces the child back to the password lock screen.
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putLong(KEY_SKIP_AUTO_RELOCK_UNTIL, untilMs)
-            .apply()
+            .commit()
     }
 
     fun isSkipAutoRelockActive(context: Context): Boolean =
@@ -137,7 +141,7 @@ object MonitoringPrefs {
     fun clearSkipAutoRelock(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .remove(KEY_SKIP_AUTO_RELOCK_UNTIL)
-            .apply()
+            .commit()
     }
 
     fun apiBaseUrl(context: Context): String? =
@@ -199,6 +203,36 @@ object MonitoringPrefs {
 
     fun isTamperUnlocked(context: Context): Boolean =
         tamperUnlockUntilMs(context) > System.currentTimeMillis()
+
+    /** Local offline PIN attempts — max 5 failures per 5 minutes. */
+    fun isOfflinePinRateLimited(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val windowStart = prefs.getLong(KEY_OFFLINE_PIN_WINDOW_MS, 0L)
+        val now = System.currentTimeMillis()
+        if (now - windowStart > 5 * 60_000L) return false
+        return prefs.getInt(KEY_OFFLINE_PIN_FAIL_COUNT, 0) >= 5
+    }
+
+    fun recordOfflinePinFailure(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val windowStart = prefs.getLong(KEY_OFFLINE_PIN_WINDOW_MS, 0L)
+        val editor = prefs.edit()
+        if (now - windowStart > 5 * 60_000L) {
+            editor.putLong(KEY_OFFLINE_PIN_WINDOW_MS, now)
+            editor.putInt(KEY_OFFLINE_PIN_FAIL_COUNT, 1)
+        } else {
+            editor.putInt(KEY_OFFLINE_PIN_FAIL_COUNT, prefs.getInt(KEY_OFFLINE_PIN_FAIL_COUNT, 0) + 1)
+        }
+        editor.apply()
+    }
+
+    fun clearOfflinePinFailures(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_OFFLINE_PIN_FAIL_COUNT)
+            .remove(KEY_OFFLINE_PIN_WINDOW_MS)
+            .apply()
+    }
 
     fun setHideLauncherEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

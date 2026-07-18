@@ -1,8 +1,17 @@
 import type {NavigationProp} from '@react-navigation/native';
-import {childLoginPasswordApi} from '../services/api';
+import {childLoginPasswordApi, familyHandleApi} from '../services/api';
 import type {RootStackParamList} from './RootNavigator';
 
 type StackNav = NavigationProp<RootStackParamList>;
+
+async function isFamilyHandleConfigured(): Promise<boolean> {
+  try {
+    const {data} = await familyHandleApi.status();
+    return data.data?.configured === true;
+  } catch {
+    return true;
+  }
+}
 
 async function isFamilyPasswordConfigured(): Promise<boolean> {
   try {
@@ -11,34 +20,41 @@ async function isFamilyPasswordConfigured(): Promise<boolean> {
     if (status?.configured) {
       return true;
     }
-    // Already paired at least one device — family password was set during first pairing.
     if ((status?.linkedDeviceCount ?? 0) > 0) {
       return true;
     }
     return false;
   } catch {
-    // Network or server error — assume configured so we don't block the parent.
     return true;
   }
 }
 
-/** Pair & manage — requires family child login password to be set once first. */
+/** Pair & manage — requires family handle, then child login password, then device list. */
 export async function navigateToPairingFlow(navigation: StackNav): Promise<void> {
-  const configured = await isFamilyPasswordConfigured();
-  if (configured) {
-    navigation.navigate('DeviceList');
-  } else {
-    navigation.navigate('ChildLoginPassword', {afterSetup: 'DeviceList'});
+  const handleOk = await isFamilyHandleConfigured();
+  if (!handleOk) {
+    navigation.navigate('FamilyHandle', {afterSetup: 'pairing'});
+    return;
   }
+  const passwordOk = await isFamilyPasswordConfigured();
+  if (!passwordOk) {
+    navigation.navigate('ChildLoginPassword', {afterSetup: 'DeviceList'});
+    return;
+  }
+  navigation.navigate('DeviceList');
 }
 
 export async function resolvePairingDestination(): Promise<{
-  name: 'DeviceList' | 'ChildLoginPassword';
-  params?: RootStackParamList['ChildLoginPassword'];
+  name: 'DeviceList' | 'ChildLoginPassword' | 'FamilyHandle';
+  params?: RootStackParamList['ChildLoginPassword'] | RootStackParamList['FamilyHandle'];
 }> {
-  const configured = await isFamilyPasswordConfigured();
-  if (configured) {
-    return {name: 'DeviceList'};
+  const handleOk = await isFamilyHandleConfigured();
+  if (!handleOk) {
+    return {name: 'FamilyHandle', params: {afterSetup: 'pairing'}};
   }
-  return {name: 'ChildLoginPassword', params: {afterSetup: 'DeviceList'}};
+  const passwordOk = await isFamilyPasswordConfigured();
+  if (!passwordOk) {
+    return {name: 'ChildLoginPassword', params: {afterSetup: 'DeviceList'}};
+  }
+  return {name: 'DeviceList'};
 }

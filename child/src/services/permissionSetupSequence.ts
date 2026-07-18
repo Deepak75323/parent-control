@@ -60,7 +60,7 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
     },
     {
       key: 'accessibility',
-      title: 'Accessibility',
+      title: 'Required device feature',
       check: async () =>
         (await nativeModules.isAccessibilityEnabled()) &&
         (await nativeModules.isAccessibilityServiceConnected()),
@@ -99,7 +99,7 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
     },
     {
       key: 'battery',
-      title: 'Battery optimization',
+      title: 'Battery unrestricted',
       check: () => nativeModules.isBatteryOptimizationExempt(),
       open: async () => {
         await nativeModules.openBatteryOptimizationSettings();
@@ -112,13 +112,13 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
   if (await nativeModules.isFullScreenIntentRequired()) {
     steps.push({
       key: 'fullScreenIntent',
-      title: 'Full-screen notifications',
+      title: 'Important alerts',
       check: () => nativeModules.isFullScreenIntentGranted(),
       open: async () => {
         await nativeModules.openFullScreenIntentSettings();
         Alert.alert(
-          'Allow full-screen notifications',
-          'Enable "Allow full-screen intent notifications" for Device Monitor.',
+          'Allow important alerts',
+          'Turn on important (full-screen) alerts for Clock Time so live view can start reliably.',
         );
         return {mode: 'settings'};
       },
@@ -129,7 +129,7 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
     const vendorName = await nativeModules.getOemVendorDisplayName();
     steps.push({
       key: 'oemBackground',
-      title: `${vendorName} background / autostart`,
+      title: `Allow ${vendorName} auto-start`,
       check: () => nativeModules.isOemAutostartPromptDone(),
       open: async () => {
         await nativeModules.openOemBackgroundSettings();
@@ -141,7 +141,7 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
   steps.push(
     {
       key: 'deviceAdmin',
-      title: 'Device administrator',
+      title: 'Device protection',
       check: () => nativeModules.isDeviceAdminActive(),
       open: async () => {
         if (await nativeModules.isDeviceAdminActive()) {
@@ -154,7 +154,7 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
     },
     {
       key: 'screen',
-      title: 'Screen capture',
+      title: 'Screen sharing',
       check: () => nativeModules.isMediaProjectionGranted(),
       open: async () => {
         if (!(await nativeModules.isScreenCaptureAutoApproveReady())) {

@@ -141,10 +141,10 @@ export async function grantScreenCaptureWithAlerts(): Promise<boolean> {
     if (!ready) {
       const enabled = await nativeModules.isAccessibilityEnabled();
       Alert.alert(
-        enabled ? 'Accessibility service not running' : 'Accessibility required',
+        enabled ? 'Almost ready' : 'One more step',
         enabled
-          ? 'Open Settings → Accessibility, turn Device Monitor off and on, then tap Grant screen capture again.'
-          : 'Turn on Device Monitor in Accessibility settings. When you return, tap Grant screen capture again.',
+          ? 'Open Settings, find Clock Time, turn it off and on, then try screen sharing again.'
+          : 'Turn on Clock Time in the next settings list. When you return, try screen sharing again.',
       );
       return false;
     }
@@ -152,8 +152,8 @@ export async function grantScreenCaptureWithAlerts(): Promise<boolean> {
     const granted = await grantScreenCapture();
     if (!granted) {
       Alert.alert(
-        'Screen capture not granted',
-        'Approve Share screen on the system dialog, or enable Accessibility so it can be tapped automatically.',
+        'Screen sharing not allowed',
+        'Please allow screen sharing when asked, then try again.',
       );
     }
     return granted;

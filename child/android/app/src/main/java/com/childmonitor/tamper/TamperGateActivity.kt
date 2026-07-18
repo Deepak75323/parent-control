@@ -1,5 +1,6 @@
 package com.childmonitor.tamper
 
+import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
@@ -7,6 +8,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.childmonitor.AppBlockingAccessibilityService
 import com.childmonitor.MonitoringPrefs
 import com.childmonitor.R
 
@@ -56,13 +58,37 @@ class TamperGateActivity : AppCompatActivity() {
         }
         requestCodeBtn.setOnClickListener { requestCodeFromServer() }
         okBtn.setOnClickListener { submit() }
-        homeBtn.setOnClickListener {
-            finish()
-            moveTaskToBack(true)
-        }
+        homeBtn.setOnClickListener { goHomeSafely() }
 
         applyMode()
         requestAttemptInfo()
+    }
+
+    /**
+     * finish()/moveTaskToBack alone reveals the Device Admin Settings page underneath.
+     * Leave to the real launcher Home, and BACK out of any pending deactivate dialog first.
+     */
+    private fun goHomeSafely() {
+        val a11y = AppBlockingAccessibilityService.instance
+        // Dismiss system "Parent verification…" dialog (Cancel) and DeviceAdminAdd if still under us.
+        a11y?.performGlobalAction(
+            android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK,
+        )
+        a11y?.performGlobalAction(
+            android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK,
+        )
+        try {
+            val home =
+                Intent(Intent.ACTION_MAIN)
+                    .addCategory(Intent.CATEGORY_HOME)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            startActivity(home)
+        } catch (_: Exception) {
+        }
+        a11y?.performGlobalAction(
+            android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME,
+        )
+        finish()
     }
 
     private fun applyMode() {
@@ -89,12 +115,26 @@ class TamperGateActivity : AppCompatActivity() {
 
     private fun requestAttemptInfo() {
         Thread {
-            val result = TamperApiClient.reportDisableAttempt(applicationContext, tamperTarget)
-            runOnUiThread {
-                if (result == null) return@runOnUiThread
-                status.visibility = View.VISIBLE
-                status.setTextColor(getColor(android.R.color.holo_green_dark))
-                status.setText(R.string.tamper_gate_code_sent)
+            when (val outcome = TamperApiClient.reportDisableAttemptDetailed(applicationContext, tamperTarget)) {
+                    is TamperApiClient.AttemptOutcome.Success -> runOnUiThread {
+                    status.visibility = View.VISIBLE
+                    status.setTextColor(getColor(android.R.color.holo_green_dark))
+                    if (!outcome.result.parentPinConfigured && mode == Mode.PIN) {
+                        status.setTextColor(getColor(android.R.color.holo_orange_dark))
+                        status.setText(R.string.tamper_gate_no_parent_password)
+                    } else if (outcome.result.message == "offline") {
+                        status.setTextColor(getColor(android.R.color.holo_orange_dark))
+                        status.setText(R.string.tamper_gate_info_pin)
+                    } else {
+                        status.setText(R.string.tamper_gate_code_sent)
+                    }
+                }
+                is TamperApiClient.AttemptOutcome.Failure -> runOnUiThread {
+                    status.visibility = View.VISIBLE
+                    status.setTextColor(getColor(android.R.color.holo_red_dark))
+                    status.text = outcome.userMessageOverride
+                        ?: getString(outcome.userMessageRes)
+                }
             }
         }.start()
     }
@@ -104,17 +144,21 @@ class TamperGateActivity : AppCompatActivity() {
         busy = true
         requestCodeBtn.isEnabled = false
         Thread {
-            val result = TamperApiClient.reportDisableAttempt(applicationContext, tamperTarget)
+            val outcome = TamperApiClient.reportDisableAttemptDetailed(applicationContext, tamperTarget)
             runOnUiThread {
                 busy = false
                 requestCodeBtn.isEnabled = true
                 status.visibility = View.VISIBLE
-                if (result != null) {
-                    status.setTextColor(getColor(android.R.color.holo_green_dark))
-                    status.setText(R.string.tamper_gate_code_sent)
-                } else {
-                    status.setTextColor(getColor(android.R.color.holo_red_dark))
-                    status.setText(R.string.tamper_gate_network_error)
+                when (outcome) {
+                    is TamperApiClient.AttemptOutcome.Success -> {
+                        status.setTextColor(getColor(android.R.color.holo_green_dark))
+                        status.setText(R.string.tamper_gate_code_sent)
+                    }
+                    is TamperApiClient.AttemptOutcome.Failure -> {
+                        status.setTextColor(getColor(android.R.color.holo_red_dark))
+                        status.text = outcome.userMessageOverride
+                            ?: getString(outcome.userMessageRes)
+                    }
                 }
             }
         }.start()
@@ -132,29 +176,33 @@ class TamperGateActivity : AppCompatActivity() {
         busy = true
         okBtn.isEnabled = false
         Thread {
-            val verifyResult = if (mode == Mode.PIN) {
-                TamperApiClient.verifyPin(applicationContext, value, tamperTarget)
+            val outcome = if (mode == Mode.PIN) {
+                TamperApiClient.verifyDetailed(applicationContext, pin = value, code = null, target = tamperTarget)
             } else {
-                TamperApiClient.verifyCode(applicationContext, value, tamperTarget)
+                TamperApiClient.verifyDetailed(applicationContext, pin = null, code = value, target = tamperTarget)
             }
             runOnUiThread {
                 busy = false
                 okBtn.isEnabled = true
-                if (verifyResult?.verified == true) {
-                    val untilMs = verifyResult.unlockExpiresAt?.toEpochMilli()
-                        ?: (System.currentTimeMillis() + 10 * 60_000L)
-                    applyUnlockAndFinish(untilMs)
-                    return@runOnUiThread
+                when (outcome) {
+                    is TamperApiClient.VerifyOutcome.Success -> {
+                        if (outcome.result.verified) {
+                            val untilMs = outcome.result.unlockExpiresAt?.toEpochMilli()
+                                ?: (System.currentTimeMillis() + 10 * 60_000L)
+                            applyUnlockAndFinish(untilMs)
+                            return@runOnUiThread
+                        }
+                        status.visibility = View.VISIBLE
+                        status.setTextColor(getColor(android.R.color.holo_red_dark))
+                        status.setText(R.string.tamper_gate_wrong_secret)
+                    }
+                    is TamperApiClient.VerifyOutcome.Failure -> {
+                        status.visibility = View.VISIBLE
+                        status.setTextColor(getColor(android.R.color.holo_red_dark))
+                        status.text = outcome.userMessageOverride
+                            ?: getString(outcome.userMessageRes)
+                    }
                 }
-                status.visibility = View.VISIBLE
-                status.setTextColor(getColor(android.R.color.holo_red_dark))
-                status.setText(
-                    if (verifyResult == null) {
-                        getString(R.string.tamper_gate_network_error)
-                    } else {
-                        getString(R.string.tamper_gate_wrong_secret)
-                    },
-                )
             }
         }.start()
     }
@@ -168,6 +216,6 @@ class TamperGateActivity : AppCompatActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        moveTaskToBack(true)
+        goHomeSafely()
     }
 }

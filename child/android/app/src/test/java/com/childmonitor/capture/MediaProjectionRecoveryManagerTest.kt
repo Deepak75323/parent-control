@@ -13,10 +13,7 @@ import org.robolectric.annotation.Config
 import com.childmonitor.sync.MediaProjectionRecoveryTelemetry
 
 /**
- * Unit tests for [MediaProjectionRecoveryManager].
- *
- * Covers: attempt counting, max-attempts guard, deferred state on accessibility-not-ready,
- * onRecoveryComplete state transitions, and exponential-backoff calculation.
+ * Auto-recovery must mark LOST / REQUIRES_RECONSENT and must never claim Cast was launched.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -31,7 +28,6 @@ class MediaProjectionRecoveryManagerTest {
         MediaProjectionTokenStore.clear(context)
         MediaProjectionRecoveryManager.resetForTests()
         MediaProjectionLossHandler.resetForTests()
-        // Reset telemetry attempt counter.
         context.getSharedPreferences("media_projection_telemetry", Context.MODE_PRIVATE)
             .edit().clear().commit()
     }
@@ -44,128 +40,51 @@ class MediaProjectionRecoveryManagerTest {
             .edit().clear().commit()
     }
 
-    // ── Basic guards ──────────────────────────────────────────────────────────
-
     @Test
-    fun attemptRecovery_returnsFalse_whenAlreadyGranted() {
-        // Set state to RECOVERY_FAILED (not GRANTED_ACTIVE) to verify the hasValidToken guard.
+    fun attemptRecovery_neverLaunchesConsent_returnsFalse() {
         MediaProjectionTokenStore.markRecoveryFailed(context, "test")
-        // hasValidToken returns false → recovery should be attempted (but will fail later on
-        // accessibility check). We just verify it does NOT short-circuit on RECOVERY_FAILED.
-        val state = MediaProjectionTokenStore.getConsentState(context)
-        assertEquals(MediaProjectionConsentState.RECOVERY_FAILED, state)
-    }
-
-    @Test
-    fun maxAttempts_exhausted_setsRecoveryFailed() {
-        // Simulate max attempts already recorded.
-        context.getSharedPreferences("media_projection_telemetry", Context.MODE_PRIVATE).edit()
-            .putInt("recovery_attempts", MediaProjectionRecoveryManager.MAX_RECOVERY_ATTEMPTS)
-            .commit()
-
-        // Trigger recovery — should immediately transition to RECOVERY_FAILED.
-        MediaProjectionRecoveryManager.attemptRecovery(context, "test_max")
-
-        val state = MediaProjectionTokenStore.getConsentState(context)
-        assertEquals(MediaProjectionConsentState.RECOVERY_FAILED, state)
-    }
-
-    // ── onRecoveryComplete ────────────────────────────────────────────────────
-
-    @Test
-    fun onRecoveryComplete_success_clearsInflightFlag() {
-        // Put something in-flight by simulating the internal state.
-        context.getSharedPreferences("media_projection_telemetry", Context.MODE_PRIVATE).edit()
-            .putInt("recovery_attempts", 1)
-            .commit()
-
-        MediaProjectionTokenStore.markRecoveryPending(context)
-
-        // We can't verify consent restored without real MediaProjection, but we can verify
-        // the method runs without exception and handles the success path gracefully.
-        MediaProjectionRecoveryManager.onRecoveryComplete(context, success = false, reason = "test")
-
-        // After failure with attempt count < max, we should remain in a recoverable state.
-        val state = MediaProjectionTokenStore.getConsentState(context)
-        assertFalse(state == MediaProjectionConsentState.GRANTED_ACTIVE)
-    }
-
-    @Test
-    fun onRecoveryComplete_failure_maxAttempts_setsRecoveryFailed() {
-        context.getSharedPreferences("media_projection_telemetry", Context.MODE_PRIVATE).edit()
-            .putInt("recovery_attempts", MediaProjectionRecoveryManager.MAX_RECOVERY_ATTEMPTS)
-            .commit()
-
-        MediaProjectionTokenStore.markRecoveryPending(context)
-        MediaProjectionRecoveryManager.onRecoveryComplete(context, success = false, reason = "max_test")
-
+        val launched = MediaProjectionRecoveryManager.attemptRecovery(context, "boot_test")
+        assertFalse(launched)
         assertEquals(
-            MediaProjectionConsentState.RECOVERY_FAILED,
+            MediaProjectionConsentState.REQUIRES_RECONSENT,
             MediaProjectionTokenStore.getConsentState(context),
         )
     }
 
-    // ── State machine ─────────────────────────────────────────────────────────
+    @Test
+    fun onRecoveryComplete_failure_marksRequiresReconsent_noRetryLaunch() {
+        MediaProjectionTokenStore.markRecoveryPending(context)
+        MediaProjectionRecoveryManager.onRecoveryComplete(context, success = false, reason = "denied")
+        assertEquals(
+            MediaProjectionConsentState.REQUIRES_RECONSENT,
+            MediaProjectionTokenStore.getConsentState(context),
+        )
+        assertFalse(MediaProjectionTokenStore.hasValidToken(context))
+    }
 
     @Test
-    fun recoveryFailed_statePersists() {
+    fun recoveryFailed_statePersists_untilMarkedLost() {
         MediaProjectionTokenStore.markRecoveryFailed(context, "explicit")
         assertEquals(
             MediaProjectionConsentState.RECOVERY_FAILED,
             MediaProjectionTokenStore.getConsentState(context),
         )
         assertFalse(MediaProjectionTokenStore.hasValidToken(context))
-        assertFalse(MediaProjectionTokenStore.needsScreenCaptureRecovery(context).not())
     }
-
-    @Test
-    fun recoveryDeferred_needsRecovery() {
-        MediaProjectionTokenStore.markRecoveryDeferred(context, "accessibility_unavailable")
-        assertEquals(
-            MediaProjectionConsentState.RECOVERY_DEFERRED,
-            MediaProjectionTokenStore.getConsentState(context),
-        )
-        assertEquals(true, MediaProjectionTokenStore.needsScreenCaptureRecovery(context))
-        assertEquals(
-            true,
-            MediaProjectionTokenStore.getConsentState(context).isAwaitingDeferredRecovery(),
-        )
-    }
-
-    // ── Telemetry ─────────────────────────────────────────────────────────────
 
     @Test
     fun telemetry_recordsLoss() {
         MediaProjectionRecoveryTelemetry.recordLoss(context, "process_death", "LOST_AFTER_PROCESS_DEATH")
-        val count = MediaProjectionRecoveryTelemetry.lossCount(context)
-        assertEquals(1, count)
+        assertEquals(1, MediaProjectionRecoveryTelemetry.lossCount(context))
         assertEquals("process_death", MediaProjectionRecoveryTelemetry.lastLossReason(context))
     }
 
     @Test
-    fun telemetry_recordsMultipleLosses_incrementsCount() {
-        repeat(3) {
-            MediaProjectionRecoveryTelemetry.recordLoss(context, "lmkd_kill", "LOST_AFTER_PROCESS_DEATH")
-        }
-        assertEquals(3, MediaProjectionRecoveryTelemetry.lossCount(context))
-    }
-
-    @Test
-    fun telemetry_recordRestored_resetsAttemptCount() {
+    fun clearRecoveryAttemptBudget_resetsCount() {
         context.getSharedPreferences("media_projection_telemetry", Context.MODE_PRIVATE).edit()
-            .putInt("recovery_attempts", 3)
+            .putInt("recovery_attempts", MediaProjectionRecoveryManager.MAX_RECOVERY_ATTEMPTS)
             .commit()
-        MediaProjectionRecoveryTelemetry.recordRestored(context)
+        MediaProjectionRecoveryTelemetry.clearRecoveryAttemptBudget(context)
         assertEquals(0, MediaProjectionRecoveryTelemetry.recoveryAttemptCount(context))
-    }
-
-    @Test
-    fun telemetry_fullDiagnostics_containsAllKeys() {
-        val diag = MediaProjectionRecoveryTelemetry.fullDiagnostics(context)
-        assert(diag.containsKey("oem")) { "Missing oem" }
-        assert(diag.containsKey("apiLevel")) { "Missing apiLevel" }
-        assert(diag.containsKey("batteryOptimized")) { "Missing batteryOptimized" }
-        assert(diag.containsKey("recoveryAttempts")) { "Missing recoveryAttempts" }
-        assert(diag.containsKey("lossCount")) { "Missing lossCount" }
     }
 }

@@ -9,6 +9,7 @@ import com.parentalcontrol.common.security.SecurityUtils;
 import com.parentalcontrol.config.DevMasterPinSupport;
 import com.parentalcontrol.user.dao.UserDao;
 import com.parentalcontrol.user.domain.User;
+import com.parentalcontrol.user.util.ParentOfflinePinHasher;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -33,8 +34,31 @@ public class ParentPinService {
     }
     User user = requireParentUser();
     user.setParentPinHash(passwordEncoder.encode(pin));
+    applyOfflineVerifier(user, pin);
     userRepository.save(user);
     auditService.log(AuditActionConstants.PARENT_PIN_SET, "user:" + user.getId(), null, Map.of());
+  }
+
+  /** Ensure offline PBKDF2 material exists (backfill after older PIN sets). */
+  @Transactional
+  public void ensureOfflineVerifier(User user, String plaintextPin) {
+    if (user == null || plaintextPin == null || plaintextPin.isBlank()) {
+      return;
+    }
+    if (user.getParentOfflinePinSalt() != null
+        && user.getParentOfflinePinHash() != null
+        && user.getParentOfflinePinIterations() != null) {
+      return;
+    }
+    applyOfflineVerifier(user, plaintextPin);
+    userRepository.save(user);
+  }
+
+  private static void applyOfflineVerifier(User user, String pin) {
+    ParentOfflinePinHasher.Material material = ParentOfflinePinHasher.create(pin);
+    user.setParentOfflinePinSalt(material.saltBase64());
+    user.setParentOfflinePinHash(material.hashBase64());
+    user.setParentOfflinePinIterations(material.iterations());
   }
 
   @Transactional

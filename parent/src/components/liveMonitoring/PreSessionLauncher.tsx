@@ -14,6 +14,8 @@ type Props = {
   bottomInset: number;
   screenShareCapable: boolean;
   screenShareBlockedReason?: string;
+  /** Show child-permission hint only when required permissions aren’t finished */
+  accessibilityEnabled?: boolean;
 };
 
 export function PreSessionLauncher({
@@ -28,7 +30,9 @@ export function PreSessionLauncher({
   bottomInset,
   screenShareCapable,
   screenShareBlockedReason,
+  accessibilityEnabled = true,
 }: Props) {
+  const needsChildSetup = accessibilityEnabled === false;
   return (
     <View style={styles.root}>
       <View style={[styles.top, {paddingTop: topInset + 8}]}>
@@ -43,7 +47,7 @@ export function PreSessionLauncher({
 
       <View style={styles.center}>
         <Text style={styles.hint}>Choose what to monitor</Text>
-        {!screenShareCapable && screenShareBlockedReason ? (
+        {needsChildSetup && screenShareBlockedReason ? (
           <Text style={styles.blockedHint}>{screenShareBlockedReason}</Text>
         ) : null}
         {needsPin ? (
@@ -52,7 +56,7 @@ export function PreSessionLauncher({
               style={styles.pinInput}
               value={pinInput}
               onChangeText={onPinChange}
-              placeholder="Parent PIN"
+              placeholder="Parent password"
               placeholderTextColor={STREAM_COLORS.textMuted}
               secureTextEntry
               keyboardType="number-pad"
@@ -67,8 +71,8 @@ export function PreSessionLauncher({
           icon="📺"
           label="Screen"
           onPress={() => onStart('SCREEN')}
-          disabled={loading || !screenShareCapable}
-          subtitle={!screenShareCapable ? 'Needs setup on child phone' : undefined}
+          disabled={loading}
+          subtitle={needsChildSetup ? 'May ask on child phone' : undefined}
         />
         <LauncherBtn
           icon="📷"
@@ -156,7 +160,7 @@ const styles = StyleSheet.create({
   },
   blockedHint: {
     marginTop: 12,
-    color: '#FCA5A5',
+    color: STREAM_COLORS.textMuted,
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,

@@ -28,6 +28,7 @@ async function getAndroidId(): Promise<string> {
 
 async function postOnboardingAuth(body: {
   childLoginPassword?: string;
+  familyHandle?: string;
   recoveryCode?: string;
   pairingCode?: string;
   setupCodeOnly?: boolean;
@@ -39,26 +40,48 @@ async function postOnboardingAuth(body: {
 
 function loginErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'response' in err) {
-    const data = (err as {response?: {data?: {message?: string}}}).response?.data;
+    const axiosErr = err as {
+      response?: {status?: number; data?: {message?: string}};
+      message?: string;
+    };
+    const status = axiosErr.response?.status;
+    if (status === 429) {
+      return 'Too many tries. Wait a minute, then try again.';
+    }
+    if (status != null && status >= 500) {
+      return 'Something went wrong. Please try again in a moment.';
+    }
+    const data = axiosErr.response?.data;
     if (data?.message?.trim()) {
       return data.message.trim();
+    }
+    if (!axiosErr.response) {
+      return 'No internet connection. Check Wi‑Fi or mobile data and try again.';
     }
   }
   return fallback;
 }
 
-/** Normal login — child device password only. */
-export async function authenticateWithPassword(password: string): Promise<ChildLoginResult> {
+/**
+ * Normal login — family password, plus family handle when the device is not yet paired.
+ */
+export async function authenticateWithPassword(
+  password: string,
+  familyHandle?: string,
+): Promise<ChildLoginResult> {
   const secret = password.trim();
   if (secret.length < 4) {
     return {ok: false, message: 'Enter at least 4 characters.'};
   }
+
+  const handle = familyHandle?.trim().replace(/^@/, '') ?? '';
 
   try {
     const androidId = await getAndroidId();
     navTraceAuth('authenticateWithPassword request', {
       androidIdPresent: !!androidId,
       androidIdLen: androidId.length,
+      familyHandlePresent: handle.length > 0,
     });
 
     try {
@@ -66,21 +89,15 @@ export async function authenticateWithPassword(password: string): Promise<ChildL
     } catch {
       return {
         ok: false,
-        message: 'Could not reach the server. Check USB/Wi‑Fi and try again.',
+        message: 'No internet connection. Check Wi‑Fi or mobile data and try again.',
       };
     }
 
-    let auth = await postOnboardingAuth({
+    const auth = await postOnboardingAuth({
       childLoginPassword: secret,
       androidId: androidId || undefined,
+      ...(handle ? {familyHandle: handle} : {}),
     });
-
-    // Server rejects unknown androidId before checking family password. Retry without
-    // id when a single paired device matches (common dev setup after data resets).
-    if (!auth.data.authenticated && androidId) {
-      flowLog('ONBOARDING', 'login retry without androidId');
-      auth = await postOnboardingAuth({childLoginPassword: secret});
-    }
 
     if (!auth.data.authenticated) {
       flowLog('ONBOARDING', 'login rejected', {
@@ -88,8 +105,9 @@ export async function authenticateWithPassword(password: string): Promise<ChildL
       });
       return {
         ok: false,
-        message:
-          'Incorrect password. Tap Forgot password to get a recovery code in the parent app Alerts.',
+        message: handle
+          ? 'Incorrect handle or password. Check the family handle in the parent app Settings.'
+          : 'Incorrect password. Tap Forgot password to get a verification code in the parent app Alerts.',
       };
     }
 
@@ -103,7 +121,7 @@ export async function authenticateWithPassword(password: string): Promise<ChildL
       ok: false,
       message: loginErrorMessage(
         e,
-        'Could not reach the server. Check USB/Wi‑Fi and try again.',
+        'No internet connection. Check Wi‑Fi or mobile data and try again.',
       ),
     };
   }
@@ -114,7 +132,10 @@ export async function requestRecoveryCode(): Promise<ChildLoginResult> {
   try {
     const androidId = await getAndroidId();
     if (!androidId) {
-      return {ok: false, message: 'Could not read device id. Restart the app and try again.'};
+      return {
+        ok: false,
+        message: 'Couldn’t read this phone’s ID. Restart the app and try again.',
+      };
     }
 
     const {data} = await api.post<{
@@ -126,12 +147,18 @@ export async function requestRecoveryCode(): Promise<ChildLoginResult> {
       flowLog('ONBOARDING', 'recovery code requested');
       return {ok: true};
     }
-    return {ok: false, message: data.data.message || 'Could not send recovery code.'};
+    return {
+      ok: false,
+      message: data.data.message || 'Couldn’t send the verification code. Please try again.',
+    };
   } catch (e) {
     flowLog('ONBOARDING', 'recovery request failed', {e});
     return {
       ok: false,
-      message: loginErrorMessage(e, 'Could not request a recovery code. Check network.'),
+      message: loginErrorMessage(
+        e,
+        'Something went wrong. Please try again in a moment.',
+      ),
     };
   }
 }
@@ -151,7 +178,7 @@ export async function authenticateWithRecoveryCode(code: string): Promise<ChildL
     });
 
     if (!data.data.authenticated) {
-      return {ok: false, message: 'Incorrect or expired recovery code.'};
+      return {ok: false, message: 'Incorrect or expired verification code.'};
     }
 
     await markOnboardingAuthenticated(data.data.pairingCode ?? null);
@@ -161,7 +188,7 @@ export async function authenticateWithRecoveryCode(code: string): Promise<ChildL
     flowLog('ONBOARDING', 'recovery verify failed', {e});
     return {
       ok: false,
-      message: loginErrorMessage(e, 'Invalid or expired recovery code.'),
+      message: loginErrorMessage(e, 'Invalid or expired verification code.'),
     };
   }
 }

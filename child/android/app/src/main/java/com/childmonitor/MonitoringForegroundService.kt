@@ -136,8 +136,13 @@ class MonitoringForegroundService : Service() {
         StreamLifecycleLogger.warn("SERVICE_DESTROYED", "MonitoringForegroundService burst=$burstMode")
         handler.removeCallbacksAndMessages(null)
         unregisterNetworkCallback()
-        if (!MonitoringBurstEngine.shouldKeepCoordinatorAlive()) {
+        // teardownIfIdle() already switched the coordinator to slow poll + STOMP.
+        // Do NOT stop it while paired — that unsubscribed stream-request and left Screen
+        // taps hanging until WorkManager/BOOT restarted the coordinator (parent: "did not start").
+        if (!MonitoringPrefs.isPaired(this)) {
             NativeStreamingCoordinator.stop(this)
+        } else {
+            MonitoringBurstEngine.teardownIfIdle(this)
         }
         super.onDestroy()
     }
@@ -222,6 +227,12 @@ class MonitoringForegroundService : Service() {
         handler.removeCallbacks(burstCommandPollRunnable)
         Log.i(TAG, "Starting FGS burst reason=$reason durationMs=$BURST_DURATION_MS")
         reportProjectionLossIfNeeded("burst_session_start:$reason")
+        // Android 15+ never enters startLegacySession(), so without this the
+        // ScreenFgsStartupGate stays closed forever when MainActivity never resumes
+        // → background screen share fails with FGS_GATE_CLOSED.
+        if (MonitoringPrefs.isPaired(this)) {
+            ScreenFgsStartupGate.scheduleMarkReadyFromService()
+        }
         Thread { MonitoringBurstEngine.runCycle(applicationContext) }.start()
         handler.post(burstCommandPollRunnable)
         handler.postDelayed(burstFinishRunnable, BURST_DURATION_MS)

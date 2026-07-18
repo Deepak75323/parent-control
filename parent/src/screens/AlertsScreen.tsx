@@ -25,7 +25,7 @@ export function AlertsScreen({navigation}: Props) {
       const {data} = await alertsApi.list();
       setAlerts(data.data.content);
     } catch {
-      Alert.alert('Error', 'Could not load alerts');
+      Alert.alert('Error', 'Couldn’t load alerts. Check your connection and try again.');
     }
   }, []);
 

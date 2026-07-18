@@ -18,7 +18,6 @@ export const SPECIAL_PERMISSION_ORDER: PermissionId[] = [
   'battery',
   'autoStart',
   'deviceAdmin',
-  // P1-05: Android 14+ special app access — required for BAL fullScreenIntent fallback.
   ...(Platform.OS === 'android' && Platform.Version >= 34
     ? (['fullScreenIntent'] as PermissionId[])
     : []),
@@ -36,97 +35,98 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
   location: {
     id: 'location',
     kind: 'runtime',
-    label: 'Location Permission',
+    label: 'Location',
     explanation:
-      'Allow location access so your parent can see this device on a map and set geofences. Choose "While using the app" or "Allow all the time" on the next screen.',
+      'Allow location so your parent can see where this phone is. On the next screen, choose “While using the app” or “Allow all the time.”',
     settingsHint:
-      'For background tracking, open Settings → Permissions → Location and choose "Allow all the time" after granting.',
+      'For location when the app is closed: Settings → Apps → Clock Time → Location → Allow all the time.',
   },
   microphone: {
     id: 'microphone',
     kind: 'runtime',
-    label: 'Microphone Permission',
-    explanation: 'Allow microphone access for one-way parent audio monitoring during live view.',
+    label: 'Microphone',
+    explanation: 'Allow the microphone so your parent can listen during live listening.',
   },
   camera: {
     id: 'camera',
     kind: 'runtime',
-    label: 'Camera Permission',
-    explanation: 'Allow camera access so your parent can see the device camera during live view.',
+    label: 'Camera',
+    explanation: 'Allow the camera so your parent can see the camera view during live camera.',
   },
   postNotifications: {
     id: 'postNotifications',
     kind: 'runtime',
     label: 'Notifications',
-    explanation: 'Allow notifications so monitoring status and parent requests can reach this device.',
+    explanation: 'Allow notifications so Clock Time can show important setup reminders.',
   },
   accessibility: {
     id: 'accessibility',
     kind: 'special',
-    label: 'Accessibility Permission',
+    label: 'Required device feature',
     explanation:
-      'Accessibility lets this app read screen content, block apps, and auto-approve screen sharing when needed. Turning it off requires the parent PIN or verification code.',
-    settingsHint: 'Find "Device Monitor" in the list and turn the service ON.',
+      'Turn on Clock Time in the next settings list. This helps block apps, manage screen time, and finish screen sharing smoothly. Turning it off needs a parent password or code.',
+    settingsHint: 'Find “Clock Time” in the list and turn it on.',
   },
   usageStats: {
     id: 'usageStats',
     kind: 'special',
-    label: 'User Usage Permission',
-    explanation: 'Usage access shows screen time and app usage to your parent.',
-    settingsHint: 'Find "Device Monitor" and allow usage access.',
+    label: 'App usage access',
+    explanation: 'Allow usage access so your parent can see screen time and which apps were used.',
+    settingsHint: 'Find “Clock Time” and allow usage access.',
   },
   notificationAccess: {
     id: 'notificationAccess',
     kind: 'special',
-    label: 'Notifications Access',
-    explanation: 'Notification access syncs incoming alerts for the parent dashboard.',
-    settingsHint: 'Find "Device Monitor" and enable notification access.',
+    label: 'Notification access',
+    explanation: 'Allow notification access so your parent can see alerts from apps on this phone.',
+    settingsHint: 'Find “Clock Time” and turn notification access on.',
   },
   overlay: {
     id: 'overlay',
     kind: 'special',
-    label: 'Allow Display Over Other Apps',
-    explanation: 'Overlay permission shows block screens and alerts on top of other apps.',
-    settingsHint: 'Enable "Allow display over other apps" for Device Monitor.',
+    label: 'Display over other apps',
+    explanation: 'Allow Clock Time to show block screens and reminders on top of other apps.',
+    settingsHint: 'Turn on “Allow display over other apps” for Clock Time.',
   },
   battery: {
     id: 'battery',
     kind: 'special',
-    label: 'Ignore Battery Optimization',
-    explanation: 'Disable battery optimization so monitoring keeps running in the background.',
-    settingsHint: 'Choose "Don\'t optimize" or Allow for Device Monitor.',
+    label: 'Battery unrestricted',
+    explanation: 'Allow Clock Time to keep running normally when the phone tries to save battery.',
+    settingsHint: 'Choose Don’t optimize / Unrestricted / Allow for Clock Time.',
   },
   autoStart: {
     id: 'autoStart',
     kind: 'special',
     label: 'Allow auto-start',
     explanation:
-      'On this phone, allow autostart / background activity so monitoring survives reboots and when the app is hidden.',
-    settingsHint: 'Enable autostart or unrestricted background for Device Monitor.',
+      'On this phone, allow Clock Time to start after restart and keep working when it isn’t open.',
+    settingsHint: 'Turn on autostart or unrestricted background for Clock Time.',
     manualConfirm: true,
   },
   deviceAdmin: {
     id: 'deviceAdmin',
     kind: 'special',
-    label: 'Device Admin Permission',
-    explanation: 'Device administrator must be deactivated before uninstalling — anti-tampering protection.',
-    settingsHint: 'Activate Device Monitor as device administrator.',
+    label: 'Device protection',
+    explanation:
+      'Activate device protection so Clock Time can’t be removed easily. A parent password or code is needed to turn this off.',
+    settingsHint: 'Activate Clock Time as a device administrator.',
   },
   fullScreenIntent: {
     id: 'fullScreenIntent',
     kind: 'special',
-    label: 'Full-screen notifications',
+    label: 'Important alerts',
     explanation:
-      'Android 14+ requires "Allow full-screen intent notifications" so parent live view can start when this app is in the background (especially on MIUI / HyperOS).',
+      'Allow Clock Time to show important alerts when the phone is locked so live view can start reliably.',
     settingsHint:
-      'Settings → Apps → Special app access → Full screen intents → enable for Device Monitor.',
+      'Settings → Apps → Special app access → Full screen intents → turn on for Clock Time.',
   },
   screenCapture: {
     id: 'screenCapture',
     kind: 'screen',
-    label: 'Screen Capture',
+    label: 'Screen sharing',
     explanation:
-      'The system Share screen dialog opens next. With Accessibility enabled, it is approved automatically — no tap needed.',
+      'Next, allow screen sharing so your parent can view this phone’s screen. It may finish automatically after you confirm.',
   },
 };
 
@@ -140,21 +140,21 @@ export function buildPermissionGroups(requiresAutoStart: boolean): PermissionGro
       id: 'basicRuntime',
       icon: '✅',
       title: 'Basic permissions',
-      description: 'Location, microphone, camera, and notifications — tap Allow on each system dialog.',
+      description: 'Location, microphone, camera, and notifications — tap Allow when asked.',
       permissionIds: [...RUNTIME_PERMISSION_ORDER],
     },
     {
       id: 'usageLimits',
       icon: '🛡️',
-      title: 'Usage Limits',
-      description: 'Limit screen and app usage time for this device.',
+      title: 'Usage limits',
+      description: 'Limit apps and screen time on this phone.',
       permissionIds: ['accessibility', 'overlay'],
     },
     {
       id: 'syncNotifications',
       icon: '📢',
-      title: 'Sync Notifications',
-      description: 'Syncing and viewing app notifications for this device.',
+      title: 'App alerts',
+      description: 'Let your parent see notifications from this phone.',
       permissionIds:
         Platform.OS === 'android' && Platform.Version >= 34
           ? (['notificationAccess', 'fullScreenIntent'] as PermissionId[])
@@ -163,22 +163,22 @@ export function buildPermissionGroups(requiresAutoStart: boolean): PermissionGro
     {
       id: 'usageReport',
       icon: '📊',
-      title: 'Usage Report',
-      description: 'View screen usage time and app usage for this device.',
+      title: 'Usage reports',
+      description: 'Share screen time and app usage with your parent.',
       permissionIds: ['usageStats'],
     },
     {
       id: 'background',
       icon: '🔋',
-      title: 'Keep running in the background',
-      description: 'Grant these so monitoring stays stable in the background.',
+      title: 'Keep Clock Time running',
+      description: 'Help Clock Time keep working after restart and when it isn’t open.',
       permissionIds: backgroundIds,
     },
     {
       id: 'screenShare',
       icon: '📺',
-      title: 'Screen Sharing',
-      description: 'One-time screen capture consent for parent live view.',
+      title: 'Screen sharing',
+      description: 'Allow your parent to view this phone’s screen when needed.',
       permissionIds: ['screenCapture'],
     },
   ];

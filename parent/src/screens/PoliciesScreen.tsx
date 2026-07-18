@@ -18,6 +18,7 @@ import {
   WEEKDAYS,
   WeeklySchedule,
 } from '../utils/appCategories';
+import {friendlyPackageLabel, appDisplayName} from '../utils/appDisplayName';
 import {
   Card,
   FormField,
@@ -47,10 +48,18 @@ export function PoliciesScreen({navigation, route}: Props) {
         policiesApi.list(),
         monitoringApi.installedApps(deviceId).catch(() => ({data: {data: [] as InstalledAppItem[]}})),
       ]);
-      setPolicies(policyRes.data.data.filter(p => p.deviceIds.includes(deviceId)));
+      setPolicies(
+        policyRes.data.data.filter(
+          p =>
+            p.deviceIds.includes(deviceId) &&
+            p.enabled !== false &&
+            // Soft-deleted Block All leftovers must not clutter the list.
+            !(p.policyType === 'APP_BLOCK' && p.name === 'Block All Apps' && p.enabled === false),
+        ),
+      );
       setInstalledApps(appsRes.data.data);
     } catch {
-      Alert.alert('Error', 'Could not load policies');
+      Alert.alert('Error', 'Couldn’t load policies. Check your connection and try again.');
     }
   };
 
@@ -110,7 +119,7 @@ export function PoliciesScreen({navigation, route}: Props) {
       Alert.alert('Created', `${selectedPackages.size} app(s) blocked`);
       setSelectedPackages(new Set());
     } catch {
-      Alert.alert('Error', 'Failed to create app block');
+      Alert.alert('Error', 'Couldn’t create this app block. Please try again.');
     }
   };
 
@@ -135,7 +144,7 @@ export function PoliciesScreen({navigation, route}: Props) {
       await load();
       Alert.alert('Created', `${label} category blocked (includes future installs)`);
     } catch {
-      Alert.alert('Error', 'Failed to block category');
+      Alert.alert('Error', 'Couldn’t block this category. Please try again.');
     }
   };
 
@@ -149,7 +158,11 @@ export function PoliciesScreen({navigation, route}: Props) {
       for (const packageName of selectedPackages) {
         const app = installedApps.find(a => a.packageName === packageName);
         await policiesApi.createScreenTime({
-          name: `Screen time ${app?.appLabel ?? packageName}`,
+          name: `Screen time ${
+            app?.appLabel
+              ? appDisplayName({appLabel: app.appLabel, packageName})
+              : friendlyPackageLabel(packageName)
+          }`,
           deviceIds: [deviceId],
           packageName,
           dailyLimitMinutes: mins,
@@ -161,7 +174,7 @@ export function PoliciesScreen({navigation, route}: Props) {
       await load();
       Alert.alert('Created', 'Screen time limits saved');
     } catch {
-      Alert.alert('Error', 'Failed to create screen time policy');
+      Alert.alert('Error', 'Couldn’t create this time limit. Please try again.');
     }
   };
 
@@ -246,9 +259,14 @@ export function PoliciesScreen({navigation, route}: Props) {
                   onPress={() => togglePackage(item.packageName)}>
                   <Text style={styles.check}>{selected ? '☑' : '☐'}</Text>
                   <View style={styles.appText}>
-                    <Text style={styles.appLabel}>{item.appLabel}</Text>
+                    <Text style={styles.appLabel}>
+                      {appDisplayName({
+                        appLabel: item.appLabel,
+                        packageName: item.packageName,
+                      })}
+                    </Text>
                     <Text style={styles.appPackage}>
-                      {item.appCategory ?? 'OTHER'} · {item.packageName}
+                      {item.appCategory ?? 'OTHER'}
                     </Text>
                   </View>
                 </Pressable>

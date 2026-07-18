@@ -12,6 +12,7 @@ import com.parentalcontrol.device.dao.DeviceDao;
 import com.parentalcontrol.device.dao.TamperUnlockCodeDao;
 import com.parentalcontrol.device.domain.Device;
 import com.parentalcontrol.device.domain.TamperUnlockCode;
+import com.parentalcontrol.device.dto.OfflinePinCredentialDto;
 import com.parentalcontrol.device.dto.TamperAttemptRequest;
 import com.parentalcontrol.device.dto.TamperAttemptResponse;
 import com.parentalcontrol.device.dto.TamperCodeResponse;
@@ -19,8 +20,10 @@ import com.parentalcontrol.device.dto.TamperVerifyRequest;
 import com.parentalcontrol.device.dto.TamperVerifyResponse;
 import com.parentalcontrol.monitoring.service.AlertService;
 import com.parentalcontrol.user.dao.ParentProfileDao;
+import com.parentalcontrol.user.dao.UserDao;
 import com.parentalcontrol.user.domain.ParentProfile;
 import com.parentalcontrol.user.domain.User;
+import com.parentalcontrol.user.service.ParentPinService;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -44,6 +47,8 @@ public class TamperService {
   private final DeviceDao deviceRepository;
   private final TamperUnlockCodeDao tamperUnlockCodeRepository;
   private final ParentProfileDao parentProfileRepository;
+  private final UserDao userRepository;
+  private final ParentPinService parentPinService;
   private final AlertService alertService;
   private final PasswordEncoder passwordEncoder;
   private final DevMasterPinSupport devMasterPinSupport;
@@ -81,10 +86,18 @@ public class TamperService {
 
     return TamperAttemptResponse.builder()
         .parentPinConfigured(pinConfigured)
+        .offlinePin(offlineCredential(user))
         .message(
             "Enter the parent password, the admin master password, or tap Use Verification Code "
                 + "and enter the code from the parent app Alerts.")
         .build();
+  }
+
+  @Transactional(readOnly = true)
+  public OfflinePinCredentialDto getOfflinePinCredential() {
+    Device device = requireAuthenticatedDevice();
+    ParentProfile parent = requireParentProfile(device);
+    return offlineCredential(parent.getUser());
   }
 
   @Transactional
@@ -144,7 +157,21 @@ public class TamperService {
         Map.of("target", target, "method", authMethod.get().name()));
 
     Instant unlockExpiresAt = Instant.now().plus(UNLOCK_TTL_MINUTES, ChronoUnit.MINUTES);
-    return TamperVerifyResponse.builder().verified(true).unlockExpiresAt(unlockExpiresAt).build();
+    OfflinePinCredentialDto offlinePin = null;
+    if (authMethod.get() == AuthMethod.PARENT_PIN
+        && request.getPin() != null
+        && !request.getPin().isBlank()) {
+      parentPinService.ensureOfflineVerifier(user, request.getPin().trim());
+      // Reload after possible backfill
+      User refreshed =
+          userRepository.findById(user.getId()).orElse(user);
+      offlinePin = offlineCredential(refreshed);
+    }
+    return TamperVerifyResponse.builder()
+        .verified(true)
+        .unlockExpiresAt(unlockExpiresAt)
+        .offlinePin(offlinePin)
+        .build();
   }
 
   @Transactional(readOnly = true)
@@ -183,6 +210,20 @@ public class TamperService {
             .expiresAt(now.plus(CODE_TTL_MINUTES, ChronoUnit.MINUTES))
             .build();
     return tamperUnlockCodeRepository.save(created);
+  }
+
+  private OfflinePinCredentialDto offlineCredential(User user) {
+    if (user == null
+        || user.getParentOfflinePinSalt() == null
+        || user.getParentOfflinePinHash() == null
+        || user.getParentOfflinePinIterations() == null) {
+      return null;
+    }
+    return OfflinePinCredentialDto.builder()
+        .saltBase64(user.getParentOfflinePinSalt())
+        .hashBase64(user.getParentOfflinePinHash())
+        .iterations(user.getParentOfflinePinIterations())
+        .build();
   }
 
   private Optional<AuthMethod> verifyPin(User user, String pin) {

@@ -33,6 +33,10 @@ public class DeviceInstalledApp extends BaseEntity {
   @Column(name = "app_category")
   private String appCategory;
 
+  /** Small PNG icon as base64 (no data: prefix), optional. */
+  @Column(name = "icon_base64", columnDefinition = "TEXT")
+  private String iconBase64;
+
   @Column(name = "synced_at", nullable = false)
   private Instant syncedAt;
 }

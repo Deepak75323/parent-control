@@ -32,6 +32,57 @@ public final class HiddenCameraBridge {
         return activeStreamId != null;
     }
 
+    /**
+     * Flip the live hidden CameraX capturer to an absolute facing without recreating
+     * the MediaStream (avoids Xiaomi unbind races and stuck applyConstraints).
+     */
+    public static void switchFacing(String facingMode, Promise promise) {
+        AbstractVideoCaptureController ctrl = activeController;
+        if (ctrl == null) {
+            promise.reject("NO_CAMERA", "No active hidden camera capture");
+            return;
+        }
+        boolean wantFront = facingMode == null
+                || !facingMode.toLowerCase(java.util.Locale.US).contains("environment");
+        if (ctrl instanceof com.childmonitor.capture.CameraXCaptureController) {
+            Log.i(TAG, "switchFacing CameraX wantFront=" + wantFront);
+            ((com.childmonitor.capture.CameraXCaptureController) ctrl).switchFacing(
+                    wantFront,
+                    e -> {
+                        if (e != null) {
+                            promise.reject("CAMERA_SWITCH", e.getMessage(), e);
+                        } else {
+                            WritableMap result = Arguments.createMap();
+                            result.putString(
+                                    "facingMode",
+                                    wantFront ? "user" : "environment");
+                            promise.resolve(result);
+                        }
+                    });
+            return;
+        }
+        // Legacy Camera1/2 controller — applyConstraints with facingMode.
+        com.facebook.react.bridge.WritableMap constraints = Arguments.createMap();
+        constraints.putString("facingMode", wantFront ? "user" : "environment");
+        constraints.putInt("width", ctrl.getWidth());
+        constraints.putInt("height", ctrl.getHeight());
+        constraints.putInt("frameRate", ctrl.getFrameRate());
+        Log.i(TAG, "switchFacing legacy wantFront=" + wantFront);
+        ctrl.applyConstraints(
+                constraints,
+                e -> {
+                    if (e != null) {
+                        promise.reject("CAMERA_SWITCH", e.getMessage(), e);
+                    } else {
+                        WritableMap result = Arguments.createMap();
+                        result.putString(
+                                "facingMode",
+                                wantFront ? "user" : "environment");
+                        promise.resolve(result);
+                    }
+                });
+    }
+
     public static void stopActiveCapture(ReactApplicationContext reactContext) {
         String streamId = activeStreamId;
         if (streamId == null) {

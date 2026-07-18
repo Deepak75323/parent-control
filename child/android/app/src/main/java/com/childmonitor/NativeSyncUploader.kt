@@ -65,21 +65,35 @@ object NativeSyncUploader {
     }
 
     private fun syncUsageStats(context: Context): Boolean {
-        if (!UsageStatsReader.hasPermission(context)) return true
-        val since = MonitoringPrefs.lastUsageSyncMs(context)
-        val deltaEntries = UsageStatsReader.readSince(context, since)
+        if (!UsageStatsReader.hasPermission(context)) {
+            android.util.Log.w("NativeSyncUploader", "usage-stats sync skipped — PACKAGE_USAGE_STATS not granted")
+            return true
+        }
 
-        // Always update the enforcement engine with today's full usage so that
-        // limits survive process restarts (usageMsToday is in-memory only; if the
-        // service is killed mid-day, accumulated delta counters are lost, meaning
-        // limits won't fire for the rest of the day).
-        val todayEntries = UsageStatsReader.readSince(context, UsageStatsReader.startOfTodayMs())
+        // Always upload today's full totals (midnight → now). Also re-upload yesterday so a
+        // fix after midnight can correct the previous calendar day (parent date picker).
+        val todayStart = UsageStatsReader.startOfTodayMs()
+        val now = System.currentTimeMillis()
+        val todayEntries = UsageStatsReader.readRange(context, todayStart, now)
         todayEntries.forEach { PolicyEnforcementEngine.setUsageToday(it.packageName, it.usageMs) }
 
-        if (deltaEntries.isEmpty()) return true
+        val yesterdayStart = todayStart - 86_400_000L
+        val yesterdayEntries = UsageStatsReader.readRange(context, yesterdayStart, todayStart)
+
+        if (todayEntries.isEmpty() && yesterdayEntries.isEmpty()) return true
+
+        val ytToday = todayEntries.find { it.packageName == "com.google.android.youtube" }
+        val ytYday = yesterdayEntries.find { it.packageName == "com.google.android.youtube" }
+        Log.i(
+            TAG,
+            "usage-stats today=${todayEntries.size}" +
+                (ytToday?.let { " youtubeMin=${it.usageMs / 60_000L}" } ?: "") +
+                " yesterday=${yesterdayEntries.size}" +
+                (ytYday?.let { " ydayYoutubeMin=${it.usageMs / 60_000L}" } ?: ""),
+        )
 
         val arr = JSONArray()
-        deltaEntries.forEach {
+        (yesterdayEntries + todayEntries).forEach {
             arr.put(
                 JSONObject()
                     .put("packageName", it.packageName)
@@ -94,6 +108,11 @@ object NativeSyncUploader {
             MonitoringPrefs.setLastUsageSyncMs(context, System.currentTimeMillis())
         }
         return success
+    }
+
+    /** Push today's usage totals to backend immediately (parent pull-to-refresh). */
+    fun forceSyncUsageStats(context: Context): Boolean {
+        return syncUsageStats(context)
     }
 
     /** Push installed-app inventory to backend (for parent app picker). */
@@ -113,12 +132,15 @@ object NativeSyncUploader {
 
         val arr = JSONArray()
         apps.forEach {
-            arr.put(
+            val obj =
                 JSONObject()
                     .put("packageName", it.packageName)
                     .put("appLabel", it.appLabel)
-                    .put("appCategory", it.appCategory),
-            )
+                    .put("appCategory", it.appCategory)
+            if (!it.iconBase64.isNullOrBlank()) {
+                obj.put("iconBase64", it.iconBase64)
+            }
+            arr.put(obj)
         }
 
         val body = JSONObject().put("apps", arr).toString()

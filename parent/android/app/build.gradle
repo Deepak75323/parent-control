@@ -52,6 +52,11 @@ react {
 
     /* Autolinking */
     autolinkLibrariesWithApp()
+
+    // Oracle/staging APKs: embed JS in debug so phones work offline from Metro.
+    if (System.getenv("EMBEDDED_BUNDLE") == "true") {
+        debuggableVariants = []
+    }
 }
 
 /**
@@ -109,6 +114,7 @@ android {
         buildConfigField "String", "CERT_HOST",        "\"${certHost.replace("\"", "\\\"")}\""
         buildConfigField "String", "CERT_PIN_PRIMARY", "\"${certPinPrimary.replace("\"", "\\\"")}\""
         buildConfigField "String", "CERT_PIN_BACKUP",  "\"${certPinBackup.replace("\"", "\\\"")}\""
+        buildConfigField "boolean", "EMBEDDED_BUNDLE", (System.getenv("EMBEDDED_BUNDLE") == "true").toString()
     }
     signingConfigs {
         debug {
@@ -205,5 +211,17 @@ dependencies {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
+    }
+}
+
+// EMBEDDED_BUNDLE empties debuggableVariants so JS is packaged into the APK.
+// RN then defaults that bundle to --dev false, which hides ApiDebugPanel and
+// useful runtime checks. Keep embedded staging APKs on --dev true.
+if (System.getenv("EMBEDDED_BUNDLE") == "true") {
+    tasks.configureEach { task ->
+        if (task.name.startsWith("createBundle") && task.hasProperty("devEnabled")) {
+            task.devEnabled.set(true)
+            logger.lifecycle("EMBEDDED_BUNDLE: forcing ${task.name}.devEnabled=true")
+        }
     }
 }

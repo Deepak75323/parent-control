@@ -2,6 +2,7 @@ package com.parentalcontrol.device.controller;
 
 import com.parentalcontrol.common.api.ApiResponse;
 import com.parentalcontrol.common.constant.ApiConstants;
+import com.parentalcontrol.device.dto.OfflinePinCredentialDto;
 import com.parentalcontrol.device.dto.AckDeviceCommandRequest;
 import com.parentalcontrol.device.dto.DevicePairRequest;
 import com.parentalcontrol.device.dto.DevicePairResponse;
@@ -111,6 +112,12 @@ public class ChildDeviceController {
   public ApiResponse<TamperAttemptResponse> reportTamperAttempt(
       @RequestBody(required = false) TamperAttemptRequest request) {
     return ApiResponse.ok(tamperService.reportDisableAttempt(request));
+  }
+
+  @GetMapping("/tamper/offline-pin")
+  @Operation(summary = "Fetch offline parent-password verifier for this device")
+  public ApiResponse<OfflinePinCredentialDto> offlinePin() {
+    return ApiResponse.ok(tamperService.getOfflinePinCredential());
   }
 
   @PostMapping("/tamper/verify")

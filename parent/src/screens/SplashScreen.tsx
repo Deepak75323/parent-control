@@ -15,7 +15,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Splash'>;
 
 export function SplashScreen({navigation}: Props) {
   const setTokens = useAuthStore(s => s.setTokens);
-  const [status, setStatus] = useState('Restoring session…');
+  const [status, setStatus] = useState('Signing you in…');
 
   const scale = useRef(new Animated.Value(0.7)).current;
   const opacity = useRef(new Animated.Value(0)).current;

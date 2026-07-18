@@ -37,6 +37,7 @@ import com.parentalcontrol.observability.DeviceHealthObservabilityService;
 import com.parentalcontrol.user.dao.ParentProfileDao;
 import com.parentalcontrol.user.domain.ParentProfile;
 import com.parentalcontrol.user.service.DefaultChildLoginPasswordService;
+import com.parentalcontrol.user.service.FamilyHandleService;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.List;
@@ -76,6 +77,7 @@ public class DeviceService {
   private final DeviceCertificationService deviceCertificationService;
   private final PasswordEncoder passwordEncoder;
   private final DefaultChildLoginPasswordService defaultChildLoginPasswordService;
+  private final FamilyHandleService familyHandleService;
   private final SecureRandom secureRandom = new SecureRandom();
 
   @Transactional
@@ -89,6 +91,7 @@ public class DeviceService {
                     new BusinessException(
                         ErrorCode.NOT_FOUND, MessageConstants.PARENT_PROFILE_NOT_FOUND));
 
+    familyHandleService.requireConfiguredForPairing(parent);
     String passwordHash = defaultChildLoginPasswordService.requireHashForPairingCode(parent);
 
     String code = null;

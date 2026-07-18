@@ -137,9 +137,12 @@ export function goToMonitoringHome(): void {
 }
 
 /** Routes where auto-resume to ServiceStatus would interrupt first-time setup or pairing. */
+/** Routes where auto re-lock to ClockLock would interrupt first-time setup or pairing.
+ * ChildLogin is intentionally excluded: when paired, password entry is temporary and
+ * AppState re-foreground should return to ClockLock, not leave the password form up.
+ */
 export function isSetupOrPairingRoute(route: ChildRoute | undefined): boolean {
   return (
-    route === 'ChildLogin' ||
     route === 'ChildRecovery' ||
     route === 'PermissionWizard' ||
     route === 'PermissionDashboard' ||

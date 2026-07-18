@@ -1,3 +1,4 @@
+import axios from 'axios';
 import React, {useEffect, useState} from 'react';
 import {Alert, Pressable, StyleSheet, Text} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
@@ -17,6 +18,25 @@ type Props = NativeStackScreenProps<ChildStackParamList, 'PinVerification'>;
 type Mode = 'pin' | 'code';
 
 const UNLOCK_MS = 10 * 60_000;
+
+function userFacingRequestError(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err)) {
+    if (!err.response) {
+      return 'No internet connection. Check Wi‑Fi or mobile data and try again.';
+    }
+    if (err.response.status === 429) {
+      return 'Too many tries. Wait a minute, then try again.';
+    }
+    if (err.response.status >= 500) {
+      return 'Something went wrong. Please try again in a moment.';
+    }
+    const msg = (err.response.data as {message?: string} | undefined)?.message;
+    if (typeof msg === 'string' && msg.trim()) {
+      return msg.trim();
+    }
+  }
+  return fallback;
+}
 
 export function PinVerificationScreen({navigation}: Props) {
   const [mode, setMode] = useState<Mode>('pin');
@@ -39,8 +59,11 @@ export function PinVerificationScreen({navigation}: Props) {
       setStatus(
         'Verification code sent to the parent app. Open Notice or Alerts on the parent phone.',
       );
-    } catch {
-      Alert.alert('Error', 'Could not reach the server. Check network and try again.');
+    } catch (err) {
+      Alert.alert(
+        'Error',
+        userFacingRequestError(err, 'Something went wrong. Please try again in a moment.'),
+      );
     } finally {
       setBusy(false);
     }
@@ -73,8 +96,11 @@ export function PinVerificationScreen({navigation}: Props) {
         return;
       }
       setStatus('Incorrect password or verification code.');
-    } catch {
-      Alert.alert('Error', 'Verification failed. Check network and try again.');
+    } catch (err) {
+      Alert.alert(
+        'Error',
+        userFacingRequestError(err, 'Something went wrong. Please try again in a moment.'),
+      );
     } finally {
       setBusy(false);
     }
@@ -86,10 +112,10 @@ export function PinVerificationScreen({navigation}: Props) {
         eyebrow="Security"
         title={
           mode === 'pin'
-            ? 'Parent or admin password'
+            ? 'Parent password'
             : 'Parent verification code'
         }
-        subtitle="Required to disable Device Admin or Accessibility protection."
+        subtitle="Required before turning off device protection settings."
       />
       <Card>
         <Pressable
@@ -102,7 +128,7 @@ export function PinVerificationScreen({navigation}: Props) {
             }
           }}>
           <Text style={styles.modeLink}>
-            {mode === 'pin' ? 'Use Verification Code' : 'Use Parent / Admin Password'}
+            {mode === 'pin' ? 'Use Verification Code' : 'Use Parent Password'}
           </Text>
         </Pressable>
         <FormField
@@ -117,7 +143,7 @@ export function PinVerificationScreen({navigation}: Props) {
         />
         <Text style={styles.hint}>
           {mode === 'pin'
-            ? 'Use parent password (from parent app Settings), admin master password (if configured for dev), or switch to verification code.'
+            ? 'Use the parent password from the parent app Settings, or switch to a verification code.'
             : 'Open the parent app → Notice or Alerts and enter the 6-digit code below.'}
         </Text>
         {status ? <Text style={styles.status}>{status}</Text> : null}

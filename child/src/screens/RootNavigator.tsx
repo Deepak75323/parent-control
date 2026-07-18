@@ -2,6 +2,7 @@ import React, {createContext, useContext, useEffect, useState} from 'react';
 import {AppState, AppStateStatus} from 'react-native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {ChildLoginScreen} from './ChildLoginScreen';
+import {ClockLockScreen} from './ClockLockScreen';
 import {ChildRecoveryScreen} from './ChildRecoveryScreen';
 import {PermissionWizardScreen} from './PermissionWizardScreen';
 import {PermissionDashboardScreen} from './PermissionDashboardScreen';
@@ -27,6 +28,7 @@ import {isAutoLockSuppressed, isAutoLockSuppressedAsync} from '../services/autoL
 import {
   getCurrentChildRoute,
   isSetupOrPairingRoute,
+  navigationRef,
   resetChildNavigation,
 } from '../navigation/navigationRef';
 import {resolveApiBaseUrl} from '../utils/config';
@@ -49,12 +51,15 @@ import {subscribeMonitoringRevoked} from '../services/monitoringRevokeHandler';
 export type ChildStackParamList = {
   /** returnTo: when set, successful login navigates to that screen instead of PermissionWizard */
   ChildLogin: {revokedByParent?: boolean; returnTo?: 'ServiceStatus'} | undefined;
+  /** Quiet clock lock; hidden top-right opens ChildLogin for parent password */
+  ClockLock: {revokedByParent?: boolean; returnTo?: 'ServiceStatus'} | undefined;
   ChildRecovery: undefined;
   PermissionWizard: undefined;
   PermissionDashboard: undefined;
   OemSetupWizard: undefined;
   DeviceOwnerSetup: undefined;
-  Pairing: undefined;
+  /** mode=repair: from “Connect to a new parent” — Clock stays under; cancel keeps old pairing. */
+  Pairing: {mode?: 'repair'} | undefined;
   ServiceStatus: undefined;
   PinVerification: undefined;
   CheckPermissions: undefined;
@@ -89,30 +94,27 @@ async function resolveInitialRoute(): Promise<keyof ChildStackParamList> {
     tokenExists: !!token,
     authenticated: authenticated || !!token,
   });
-  if (!authenticated) {
-    navTrace('Boot route resolved', {to: 'ChildLogin', reason: 'not_onboarding_authenticated'});
-    return 'ChildLogin';
-  }
-  // Skip heavy native permission probes during boot — wizard re-checks each step.
-  if (token) {
-    navTrace('Boot route resolved', {to: 'ChildLogin', reason: 'paired_token_exists_show_lock'});
-    // Paired — show the password lock screen first; success navigates to ServiceStatus.
-    return 'ChildLogin';
-  }
-  if (authenticated) {
-    navTrace('Boot route resolved', {to: 'PermissionWizard', reason: 'authenticated_unpaired'});
-    return 'PermissionWizard';
-  }
-  navTrace('Boot route resolved', {to: 'Pairing', reason: 'fallback'});
-  return 'Pairing';
+  // Clock is always the entry face — paired or not. Hidden corner → ChildLogin
+  // then routes to wizard / pairing / ServiceStatus based on state. Pairing must
+  // never be the cold-start root (that hid the clock when is_paired=false).
+  navTrace('Boot route resolved', {
+    to: 'ClockLock',
+    reason: token
+      ? 'always_clock_paired'
+      : authenticated
+        ? 'always_clock_unpaired'
+        : 'always_clock_before_login',
+  });
+  return 'ClockLock';
 }
 
 export function RootNavigator() {
   const [bootstrapped, setBootstrapped] = useState(false);
+  const [bootInitialRoute, setBootInitialRoute] = useState<keyof ChildStackParamList | null>(null);
   const [pairedParentDisplayName, setPairedParentDisplayName] = useState<string | null>(null);
 
   const resumePairedSession = async (token: string) => {
-    navTraceTransition(getNavStackSnapshot().active, 'ChildLogin', 'resumePairedSession', 'RootNavigator.resumePairedSession', {
+    navTraceTransition(getNavStackSnapshot().active, 'ClockLock', 'resumePairedSession', 'RootNavigator.resumePairedSession', {
       returnTo: 'ServiceStatus',
       tokenExists: true,
     });
@@ -121,8 +123,6 @@ export function RootNavigator() {
     if (name) {
       setPairedParentDisplayName(name);
     }
-    // Show the password lock screen; on success it navigates to ServiceStatus.
-    resetChildNavigation('ChildLogin', {returnTo: 'ServiceStatus'});
     await startMonitoringSync(token, hmacKey ?? undefined, name ?? undefined);
   };
 
@@ -141,13 +141,13 @@ export function RootNavigator() {
         if (route === 'PermissionWizard') {
           await nativeModules.setPermissionSetupInProgress(true);
         }
-        if (route === 'ChildLogin') {
+        if (route === 'ClockLock' || route === 'ChildLogin') {
           const token = await restoreDeviceCredentials();
-          navTraceAuth('boot ChildLogin branch', {tokenExists: !!token});
+          navTraceAuth('boot lock branch', {tokenExists: !!token, route});
           if (token) {
             const suppressed = await isAutoLockSuppressedAsync();
             navTraceObserver('RootNavigator', 'isAutoLockSuppressedAsync', null, suppressed, false, {
-              bootBranch: 'ChildLogin_with_token',
+              bootBranch: `${route}_with_token`,
             });
             if (suppressed) {
               flowLog('SCREEN_SHARE_FLOW', 'boot — skip re-lock after consent/system-ui return');
@@ -156,18 +156,19 @@ export function RootNavigator() {
               if (name) {
                 setPairedParentDisplayName(name);
               }
-              navTraceTransition('ChildLogin', 'ServiceStatus', 'skip re-lock — autoLock suppressed', 'RootNavigator.boot');
-              resetChildNavigation('ServiceStatus');
+              navTraceTransition(route, 'ServiceStatus', 'skip re-lock — autoLock suppressed', 'RootNavigator.boot');
+              setBootInitialRoute('ServiceStatus');
               await startMonitoringSync(token, hmacKey ?? undefined, name ?? undefined);
               return;
             }
-            navTraceTransition('BOOT', 'ChildLogin', 'resume paired session (lock screen)', 'RootNavigator.boot');
+            navTraceTransition('BOOT', 'ClockLock', 'resume paired session (clock lock)', 'RootNavigator.boot');
+            setBootInitialRoute('ClockLock');
             await resumePairedSession(token);
             return;
           }
         }
-        navTraceTransition('BOOT', route, 'initial resetChildNavigation', 'RootNavigator.boot');
-        resetChildNavigation(route);
+        navTraceTransition('BOOT', route, 'initial route selected', 'RootNavigator.boot');
+        setBootInitialRoute(route);
       })
       .finally(() => {
         navTrace('Boot complete — setBootstrapped(true)', {screen: 'RootNavigator'});
@@ -186,12 +187,12 @@ export function RootNavigator() {
           state: nextState,
         });
         pauseStreamingListener();
-        // Always tell native the JS listener is inactive when backgrounded.
-        // Previously this was skipped when isStreamActive() was true, but that left
-        // jsListenerActive=true while the streamRequestWake handler was already
-        // detached — native would emit wake events into a void instead of routing
-        // to the headless path, so background camera requests were silently dropped.
-        void nativeModules.setJsStreamingListenerActive(false);
+        // Keep jsListenerActive=true while a JS stream is live so native reconcile does not
+        // treat the publisher as orphaned. New camera/audio wake still reaches headless via
+        // native poll when the wake handler is detached (pauseStreamingListener).
+        if (!(isStreamActive() || isStreamConnecting())) {
+          void nativeModules.setJsStreamingListenerActive(false);
+        }
         return;
       }
       if (nextState !== 'active') return;
@@ -219,11 +220,24 @@ export function RootNavigator() {
           });
           return;
         }
-        if (route === 'CheckPermissions' || route === 'DebugDashboard') {
-          flowLog('SCREEN_SHARE_FLOW', 'AppState active — skip re-lock on permissions/diagnostics', {
+        if (route === 'CheckPermissions' || route === 'DebugDashboard' || route === 'ClockLock') {
+          flowLog('SCREEN_SHARE_FLOW', 'AppState active — skip re-lock on lock/permissions/diagnostics', {
             route,
           });
-          navTrace('AppState active — skip re-lock', {screen: route, reason: 'on_diagnostics_or_permissions'});
+          navTrace('AppState active — skip re-lock', {screen: route, reason: 'on_lock_or_diagnostics'});
+          startStreamingListener();
+          void nativeModules.setJsStreamingListenerActive(true);
+          return;
+        }
+        // Paired password sheet: bounce back to clock unless consent/stream is in flight.
+        if (route === 'ChildLogin') {
+          if (isAutoLockSuppressed() || autoLockAsync || isStreamActive() || isStreamConnecting()) {
+            startStreamingListener();
+            void nativeModules.setJsStreamingListenerActive(true);
+            return;
+          }
+          navTraceTransition('ChildLogin', 'ClockLock', 'AppState active — paired password → clock', 'RootNavigator.AppState');
+          resetChildNavigation('ClockLock', {returnTo: 'ServiceStatus'});
           startStreamingListener();
           void nativeModules.setJsStreamingListenerActive(true);
           return;
@@ -232,7 +246,7 @@ export function RootNavigator() {
           // A screen-capture consent dialog or a live stream is in flight — the app only
           // briefly lost the foreground because of that system UI, not a real backgrounding.
           // Re-locking here would tear down the in-progress stream/consent flow and bounce
-          // the child back to the parent-password screen for no reason.
+          // the child back to the lock screen for no reason.
           flowLog('SCREEN_SHARE_FLOW', 'AppState active — skip ServiceStatus reset, stream/consent in flight', {
             route,
           });
@@ -247,11 +261,11 @@ export function RootNavigator() {
         if (name) {
           setPairedParentDisplayName(name);
         }
-        navTraceTransition(route ?? '?', 'ChildLogin', 'AppState active re-lock', 'RootNavigator.AppState', {
+        navTraceTransition(route ?? '?', 'ClockLock', 'AppState active re-lock', 'RootNavigator.AppState', {
           returnTo: 'ServiceStatus',
           loginRedirectRequested: true,
         });
-        resetChildNavigation('ChildLogin', {returnTo: 'ServiceStatus'});
+        resetChildNavigation('ClockLock', {returnTo: 'ServiceStatus'});
         const hmacKey = await getDeviceHmacKey();
         await startMonitoringSync(token, hmacKey ?? undefined, name ?? undefined);
         // Re-attach the JS stream listener so parent stream requests are handled
@@ -285,14 +299,18 @@ export function RootNavigator() {
   };
 
   const markRePairing = async () => {
+    // Do NOT clear credentials until a new pair succeeds. Push Pairing on top of
+    // Service Status so Back returns to that same screen (not Clock / Pairing alone).
     navTraceTransition(getNavStackSnapshot().active, 'Pairing', 'markRePairing', 'RootNavigator.markRePairing');
-    setPairedParentDisplayName(null);
     stopMonitoringSync();
-    await clearDeviceCredentials();
-    resetChildNavigation('Pairing');
+    if (navigationRef.isReady()) {
+      navigationRef.navigate('Pairing', {mode: 'repair'});
+    } else {
+      resetChildNavigation('Pairing', {mode: 'repair'});
+    }
   };
 
-  if (!bootstrapped) {
+  if (!bootstrapped || !bootInitialRoute) {
     return <LoadingCenter label="Starting device monitor…" />;
   }
 
@@ -300,7 +318,7 @@ export function RootNavigator() {
     <PairingCompleteContext.Provider
       value={{markPaired, markUnpaired, markRePairing, pairedParentDisplayName}}>
       <Stack.Navigator
-        initialRouteName="ChildLogin"
+        initialRouteName={bootInitialRoute}
         screenListeners={{
           focus: e => {
             navTraceLifecycle(e.target?.split('-')[0] ?? String(e.target), 'onResume', {
@@ -327,6 +345,11 @@ export function RootNavigator() {
           options={{gestureEnabled: false, fullScreenGestureEnabled: false}}
         />
         <Stack.Screen
+          name="ClockLock"
+          component={ClockLockScreen}
+          options={{gestureEnabled: false, fullScreenGestureEnabled: false}}
+        />
+        <Stack.Screen
           name="ChildRecovery"
           component={ChildRecoveryScreen}
           options={{gestureEnabled: false, fullScreenGestureEnabled: false}}
@@ -350,7 +373,11 @@ export function RootNavigator() {
         <Stack.Screen
           name="Pairing"
           component={PairingScreen}
-          options={{gestureEnabled: false, fullScreenGestureEnabled: false}}
+          options={({route}) => ({
+            // Re-pair sits on top of Clock — allow system/gesture back to the clock.
+            gestureEnabled: route.params?.mode === 'repair',
+            fullScreenGestureEnabled: route.params?.mode === 'repair',
+          })}
         />
         <Stack.Screen name="ServiceStatus" component={ServiceStatusScreen} />
         <Stack.Screen name="PinVerification" component={PinVerificationScreen} />

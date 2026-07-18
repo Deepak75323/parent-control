@@ -29,18 +29,26 @@ function isAndroidEmulator(): boolean {
   );
 }
 
-function isEmulatorDevApi(apiBaseUrl: string): boolean {
+/** Local loopback API → rewrite TURN hosts to 10.0.2.2 + adb reverse. */
+function isEmulatorLocalApi(apiBaseUrl: string): boolean {
   if (!__DEV__) {
     return false;
   }
   try {
-    if (new URL(apiBaseUrl).hostname === '10.0.2.2') {
-      return true;
-    }
+    const host = new URL(apiBaseUrl).hostname;
+    return host === '10.0.2.2' || host === '127.0.0.1' || host === 'localhost';
   } catch {
-    // fall through to hardware heuristic
+    return false;
   }
-  return isAndroidEmulator();
+}
+
+function hasTurnServer(servers: RTCIceServer[]): boolean {
+  return servers.some(server => {
+    const urls = normalizeUrls(server.urls as string | string[]);
+    return urls.some(
+      url => typeof url === 'string' && (url.startsWith('turn:') || url.startsWith('turns:')),
+    );
+  });
 }
 
 /** One ICE URL per RTCIceServer — required so emulator can drop UDP TURN without keeping UDP in a multi-URL entry. */
@@ -105,20 +113,21 @@ export function adaptRelayCandidateForEmulator(
 }
 
 /**
- * Parent-on-emulator dev topology:
- * - TURN control plane: TCP to 10.0.2.2:3478 (host loopback via emulator alias + adb reverse).
- * - Remote relay candidates kept as-is (192.168.x.x): parent routes them through coturn TCP
- *   and coturn does hairpin delivery to its own relay ports — no IP rewrite needed.
- * - UDP TURN to 192.168.x from the emulator is dropped (split entries + TCP-only filter).
+ * Parent-on-emulator topology (local OR public Oracle TURN):
+ * - Always drop UDP TURN — AVD NAT breaks UDP to LAN/public TURN hosts.
+ * - Prefer TCP TURN (and turns).
+ * - Local API only: rewrite loopback/LAN TURN host → 10.0.2.2 (+ adb reverse).
+ * - Public Oracle TURN hosts are left as-is (reachable from the emulator).
  */
 export function adaptIceServersForDev(
   servers: RTCIceServer[],
   apiBaseUrl: string,
 ): RTCIceServer[] {
-  if (!isEmulatorDevApi(apiBaseUrl)) {
+  if (!(__DEV__ && isAndroidEmulator())) {
     return servers;
   }
 
+  const rewriteHosts = isEmulatorLocalApi(apiBaseUrl);
   const expanded = expandIceServersByUrl(servers).map(server => {
     const url = normalizeUrls(server.urls as string | string[])[0];
     if (typeof url !== 'string') {
@@ -126,7 +135,7 @@ export function adaptIceServersForDev(
     }
     return {
       ...server,
-      urls: rewriteTurnHostForEmulator(url),
+      urls: rewriteHosts ? rewriteTurnHostForEmulator(url) : url,
     };
   });
 
@@ -167,6 +176,7 @@ export function adaptIceServersForDev(
     in: servers.length,
     out: result.length,
     tcpOnly: tcpTurn.length > 0,
+    rewriteHosts,
     turnUrls: chosenTurn.map(s => normalizeUrls(s.urls as string | string[])[0]),
   });
   logIce(
@@ -174,7 +184,7 @@ export function adaptIceServersForDev(
     'emulator ICE servers',
     `${chosenTurn.length} turn + ${nonTurn.length} stun (tcp-only=${tcpTurn.length > 0})`,
   );
-  return [...nonTurn, ...chosenTurn];
+  return result;
 }
 
 function serverKey(server: RTCIceServer): string {
@@ -205,9 +215,13 @@ export function defaultIceConfig(
   if (!__DEV__ && !iceServers.some(hasTurnCredentials)) {
     logIce('config', 'warning', 'no ephemeral TURN credentials from API');
   }
+  // Emulator ↔ physical (or emulator ↔ public TURN) needs relay; direct host paths fail.
+  const forceRelay =
+    usesLocalDevTurn(iceServers) ||
+    (__DEV__ && isAndroidEmulator() && hasTurnServer(iceServers));
   return {
     iceServers,
-    iceTransportPolicy: usesLocalDevTurn(iceServers) ? 'relay' : 'all',
+    iceTransportPolicy: forceRelay ? 'relay' : 'all',
     credentialExpiresAt,
   };
 }
@@ -251,16 +265,31 @@ export function describeIceFailure(
   pendingCandidates: number,
 ): string {
   if (!remoteDesc) {
-    return 'Child did not start streaming — check the child device is online and camera permission is granted';
-  }
-  if (pendingCandidates > 0) {
-    return `Media connection failed — ICE candidates still pending (${pendingCandidates}). Retry or check signaling.`;
-  }
-  if (iceState === 'failed' || iceState === 'disconnected') {
     return (
-      'Media connection failed — ICE could not connect through TURN. ' +
-      'On emulator dev: run ./scripts/dev/dev-up.sh (coturn + adb reverse tcp:3478) and retry.'
+      'Live view didn’t start on the child phone. Confirm the child device is online and Clock Time permissions are finished, then try again.'
     );
   }
-  return 'Media connection timed out waiting for ICE — check network and retry';
+  if (pendingCandidates > 0) {
+    return 'Connection couldn’t finish. Check Wi‑Fi or mobile data on both phones, then tap Reconnect.';
+  }
+  if (iceState === 'failed' || iceState === 'disconnected') {
+    try {
+      const host = new URL(config.apiBaseUrl).hostname;
+      const localApi =
+        host === '10.0.2.2' || host === '127.0.0.1' || host === 'localhost';
+      if (localApi) {
+        return (
+          'Connection couldn’t be established in this development setup. ' +
+          'Confirm the local network tools are running, then try again.'
+        );
+      }
+    } catch {
+      // fall through
+    }
+    return (
+      'Connection couldn’t be established between the phones. ' +
+      'Check Wi‑Fi or mobile data on both devices, then try again.'
+    );
+  }
+  return 'Connection timed out. Check the network on both phones, then try again.';
 }

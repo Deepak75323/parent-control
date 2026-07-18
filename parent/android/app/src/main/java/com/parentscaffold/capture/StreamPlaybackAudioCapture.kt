@@ -5,7 +5,9 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
+import android.media.projection.MediaProjection
 import android.os.Build
+import android.util.Log
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -15,10 +17,15 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Captures app playback audio (WebRTC remote stream) to a raw PCM file.
- * Used alongside video recording and for standalone WAV export.
+ * Captures app playback audio (WebRTC remote stream) to a raw PCM file when a
+ * [MediaProjection] token is available. Used alongside video recording and WAV export.
+ *
+ * Android requires [AudioPlaybackCaptureConfiguration.Builder](MediaProjection) — there is no
+ * public no-arg constructor. Callers must supply an active projection (e.g. parent screen-record
+ * consent) or recording proceeds without remote audio.
  */
 object StreamPlaybackAudioCapture {
+    private const val TAG = "StreamPlaybackAudio"
     const val SAMPLE_RATE = 48000
     const val CHANNELS = 2
     const val MIN_PCM_BYTES = 4096
@@ -31,18 +38,27 @@ object StreamPlaybackAudioCapture {
     fun isSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
 
     @Synchronized
-    fun start(context: Context, streamType: String) {
+    fun start(context: Context, streamType: String, mediaProjection: MediaProjection? = null) {
         if (!isSupported()) {
             throw IllegalStateException("Playback audio capture requires Android 10 or newer")
         }
         if (running.get()) return
+        if (mediaProjection == null) {
+            Log.e(TAG, "PLAYBACK_CAPTURE_FAILED reason=no_media_projection — recording without remote audio")
+            return
+        }
 
         val channelMask = AudioFormat.CHANNEL_IN_STEREO
         val encoding = AudioFormat.ENCODING_PCM_16BIT
         val minBuffer =
             AudioRecord.getMinBufferSize(SAMPLE_RATE, channelMask, encoding).coerceAtLeast(SAMPLE_RATE)
 
-        val captureConfig = createPlaybackCaptureConfig()
+        val captureConfig =
+            AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
+                .addMatchingUid(android.os.Process.myUid())
+                .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                .addMatchingUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .build()
 
         val recorder =
             AudioRecord.Builder()
@@ -69,23 +85,12 @@ object StreamPlaybackAudioCapture {
         pcmFile = pcm
         running.set(true)
         recorder.startRecording()
+        Log.i(TAG, "PLAYBACK_CAPTURE_STARTED streamType=$streamType")
 
         worker =
             Thread {
                 writePcmLoop(recorder, pcm, minBuffer)
             }.also { it.start() }
-    }
-
-    private fun createPlaybackCaptureConfig(): AudioPlaybackCaptureConfiguration {
-        val builder =
-            AudioPlaybackCaptureConfiguration.Builder::class.java
-                .getDeclaredConstructor()
-                .newInstance() as AudioPlaybackCaptureConfiguration.Builder
-        return builder
-            .addMatchingUid(android.os.Process.myUid())
-            .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-            .addMatchingUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-            .build()
     }
 
     private fun writePcmLoop(recorder: AudioRecord, pcm: File, bufferSize: Int) {
@@ -97,12 +102,13 @@ object StreamPlaybackAudioCapture {
                     if (read > 0) {
                         out.write(buffer, 0, read)
                     } else if (read < 0) {
+                        Log.e(TAG, "PLAYBACK_CAPTURE_READ_ERROR code=$read")
                         break
                     }
                 }
             }
-        } catch (_: Exception) {
-            // Worker exits when recording stops.
+        } catch (e: Exception) {
+            Log.w(TAG, "PLAYBACK_CAPTURE_LOOP_EXIT reason=${e.message}")
         }
     }
 

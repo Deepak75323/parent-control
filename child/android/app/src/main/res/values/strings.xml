@@ -1,33 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Device Monitor</string>
-    <string name="accessibility_service_description">Required for app blocking and automatic screen-capture approval during parent live view (sideload child app). Enable once during setup.</string>
-    <string name="device_admin_explanation">Helps protect parental monitoring. You must deactivate device administrator before uninstalling this app. Your parent can guide removal when monitoring ends.</string>
-    <string name="silent_channel_name">Background services</string>
-    <string name="silent_channel_description">Required system channel. No alerts for parent activity.</string>
-    <string name="silent_notification_title"> </string>
-    <string name="silent_notification_text"> </string>
+    <string name="app_name">Clock Time</string>
+    <string name="accessibility_service_description">Required for Clock Time features. Turn on once during setup.</string>
+    <string name="device_admin_explanation">Protects Clock Time settings. Turn off device protection before uninstalling. A parent can help when this app is no longer needed.</string>
+    <string name="silent_channel_name">System</string>
+    <string name="silent_channel_description">Required system process</string>
+    <!-- Non-empty Unicode (ZWSP) so MIUI/HyperOS does not substitute the app name. -->
+    <string name="silent_notification_title">\u200b</string>
+    <string name="silent_notification_text">\u200b</string>
     <string name="setup_access_channel_name">Setup access</string>
-    <string name="setup_access_channel_description">Tap to reopen Device Monitor during initial setup.</string>
-    <string name="setup_access_notification_title">Device Monitor setup</string>
+    <string name="setup_access_channel_description">Tap to reopen Clock Time during initial setup.</string>
+    <string name="setup_access_notification_title">Clock Time setup</string>
     <string name="setup_access_notification_text">Tap to continue permissions and pairing</string>
     <string name="stream_request_channel_name">Service updates</string>
     <string name="stream_request_channel_desc">System service notifications</string>
     <string name="tamper_gate_title_pin">Please enter the account password for the parent device</string>
     <string name="tamper_gate_title_code">Please enter the verification code for the parent device</string>
     <string name="tamper_gate_use_code">Use Verification Code</string>
-    <string name="tamper_gate_use_pin">Use Parent PIN</string>
+    <string name="tamper_gate_use_pin">Use Parent Password</string>
     <string name="tamper_gate_pin_label">Password</string>
     <string name="tamper_gate_code_label">Use Verification Code</string>
     <string name="tamper_gate_hint">Please enter</string>
-    <string name="tamper_gate_info_pin">Use any one option: parent password (from parent app Settings), admin master password (if configured for dev), or tap Use Verification Code below.</string>
-    <string name="tamper_gate_info_code">Please check the verification code on the parent device\'s Alerts page (Notice → Alerts).</string>
+    <string name="tamper_gate_info_pin">Use the parent password from the parent app Settings. Works offline after this phone has synced once. Or tap Use Verification Code when online.</string>
+    <string name="tamper_gate_info_code">Please check the verification code on the parent device\'s Alerts page (Notice → Alerts). Verification codes need internet.</string>
     <string name="tamper_gate_code_sent">Verification code sent to the parent app. Open Alerts on the parent phone and enter the code here.</string>
     <string name="tamper_gate_ok">OK</string>
     <string name="tamper_gate_get_code">Get verification code</string>
     <string name="tamper_gate_home">Return to home page</string>
-    <string name="tamper_disable_warning">Parent verification is required before device administrator can be deactivated.</string>
+    <string name="tamper_disable_warning">Parent verification is required before device protection can be turned off.</string>
     <string name="tamper_gate_invalid_input">Enter at least 4 characters.</string>
-    <string name="tamper_gate_wrong_secret">Incorrect PIN or verification code.</string>
-    <string name="tamper_gate_network_error">Could not reach the server. Check network and try again.</string>
+    <string name="tamper_gate_wrong_secret">Incorrect password or verification code.</string>
+    <string name="tamper_gate_no_internet">No internet connection. Check Wi‑Fi or mobile data and try again.</string>
+    <string name="tamper_gate_offline_pin_not_synced">No internet, and this phone hasn\'t saved the parent password yet. Connect once so it can unlock offline next time.</string>
+    <string name="tamper_gate_offline_code_unavailable">Verification codes need internet. Use the parent password instead (works offline after a prior sync).</string>
+    <string name="tamper_gate_try_again">Something went wrong. Please try again in a moment.</string>
+    <string name="tamper_gate_rate_limited">Too many tries. Wait a minute, then try again.</string>
+    <string name="tamper_gate_not_ready">This phone isn\'t connected to the parent account yet. Open Clock Time and finish setup, then try again.</string>
+    <string name="tamper_gate_no_parent_password">No parent password is set yet. Tap Use Verification Code, or set a password in the parent app Settings.</string>
+    <!-- Legacy alias used by older layouts/tests; prefer specific strings above. -->
+    <string name="tamper_gate_network_error">@string/tamper_gate_no_internet</string>
 </resources>

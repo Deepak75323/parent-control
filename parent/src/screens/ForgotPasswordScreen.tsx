@@ -38,9 +38,9 @@ export function ForgotPasswordScreen({navigation}: Props) {
         );
         return;
       }
-      setError(data.message ?? 'Unable to send reset email. Try again later.');
+      setError(data.message ?? 'Couldn’t send the reset email. Please try again.');
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Unable to send reset email. Try again later.'));
+      setError(getApiErrorMessage(err, 'Couldn’t send the reset email. Please try again.'));
     } finally {
       setLoading(false);
     }

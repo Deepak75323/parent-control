@@ -17,6 +17,7 @@ export const ApiPaths = {
   DEVICE_COMMANDS_PENDING: `${V1}/device/commands/pending`,
   DEVICE_TAMPER_ATTEMPT: `${V1}/device/tamper/attempt`,
   DEVICE_TAMPER_VERIFY: `${V1}/device/tamper/verify`,
+  DEVICE_TAMPER_OFFLINE_PIN: `${V1}/device/tamper/offline-pin`,
   streamSessionFailure: (sessionId: string) =>
     `${V1}/device/stream-sessions/${sessionId}/failure`,
   commandAck: (commandId: string) => `${V1}/device/commands/${commandId}/ack`,

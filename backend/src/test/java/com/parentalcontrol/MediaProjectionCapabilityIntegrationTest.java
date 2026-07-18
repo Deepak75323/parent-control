@@ -180,7 +180,7 @@ class MediaProjectionCapabilityIntegrationTest {
 
   @Test
   @Order(3)
-  void startScreenShare_rejectedWhenDeviceOwnerWithoutProjection() throws Exception {
+  void startScreenShare_allowedWhenConsentNotYetGranted_childWillPrompt() throws Exception {
     mockMvc
         .perform(
             post("/api/v1/monitoring/start-stream")
@@ -192,17 +192,17 @@ class MediaProjectionCapabilityIntegrationTest {
                                 {"deviceId": "%s", "streamType": "SCREEN"}
                                 """,
                         deviceId)))
-        .andExpect(status().isForbidden());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.sessionId").isNotEmpty());
   }
 
   /**
-   * P0-1 regression test: the consent-lost gate must apply to NON-device-owner devices too, not
-   * just device-owner / silent-capture devices. Otherwise parents see a black screen for ~60s
-   * instead of an immediate, actionable error after the child process restarts.
+   * Lost consent must not block session create — child prompts / auto-approves on stream bootstrap
+   * (older UX). Parent learns of decline via streaming failure events.
    */
   @Test
   @Order(4)
-  void startScreenShare_rejectedForNonDeviceOwnerWhenConsentLost() throws Exception {
+  void startScreenShare_allowedForNonDeviceOwnerWhenConsentLost() throws Exception {
     Device device = deviceRepository.findById(deviceId).orElseThrow();
     device.setDeviceOwnerActive(false);
     device.setMediaProjectionGranted(false);
@@ -220,13 +220,14 @@ class MediaProjectionCapabilityIntegrationTest {
                                 {"deviceId": "%s", "streamType": "SCREEN"}
                                 """,
                         deviceId)))
-        .andExpect(status().isForbidden());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.sessionId").isNotEmpty());
   }
 
-  /** P0-4: stale mediaProjectionGranted=true must not bypass consent-state gate. */
+  /** Stale granted=true with lost state: still start — child must re-prompt Cast. */
   @Test
   @Order(5)
-  void startScreenShare_rejectedWhenStaleGrantedFlagWithLostConsentState() throws Exception {
+  void startScreenShare_allowedWhenStaleGrantedFlagWithLostConsentState() throws Exception {
     Device device = deviceRepository.findById(deviceId).orElseThrow();
     device.setMediaProjectionGranted(true);
     device.setMediaProjectionConsentState("LOST_AFTER_PROCESS_DEATH");
@@ -244,14 +245,14 @@ class MediaProjectionCapabilityIntegrationTest {
                                 {"deviceId": "%s", "streamType": "SCREEN"}
                                 """,
                         deviceId)))
-        .andExpect(status().isForbidden());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.sessionId").isNotEmpty());
   }
 
-  /** Stale granted=true with non-active consent state must not bypass gate. */
+  /** NEVER_GRANTED must allow start so first Cast prompt can run on the child. */
   @Test
   @Order(6)
-  void startScreenShare_rejectedWhenConsentNotGrantedActiveEvenIfGrantedFlagTrue()
-      throws Exception {
+  void startScreenShare_allowedWhenConsentNeverGranted() throws Exception {
     Device device = deviceRepository.findById(deviceId).orElseThrow();
     device.setMediaProjectionGranted(true);
     device.setMediaProjectionConsentState("NEVER_GRANTED");
@@ -269,6 +270,7 @@ class MediaProjectionCapabilityIntegrationTest {
                                 {"deviceId": "%s", "streamType": "SCREEN"}
                                 """,
                         deviceId)))
-        .andExpect(status().isForbidden());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.sessionId").isNotEmpty());
   }
 }

@@ -75,6 +75,17 @@ object MediaProjectionRecoveryTelemetry {
     }
 
     /**
+     * Clears the recovery attempt budget without emitting a "restored" event.
+     * Used when Screen is re-requested after WorkManager burned attempts waiting on
+     * Accessibility (Xiaomi force-stop) so Cast can be shown again.
+     */
+    fun clearRecoveryAttemptBudget(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_RECOVERY_ATTEMPTS, 0)
+            .apply()
+    }
+
+    /**
      * Record a low-memory warning from the FGS. This event is emitted opportunistically —
      * the process may be killed before the log is flushed, but SharedPreferences.commit()
      * is synchronous so at least the prefs entry is written.

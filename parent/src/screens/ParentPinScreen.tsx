@@ -20,17 +20,17 @@ export function ParentPinScreen({navigation}: Props) {
 
   const savePin = async () => {
     if (pin.length < 4) {
-      Alert.alert('PIN', 'Enter at least 4 characters');
+      Alert.alert('Password', 'Enter at least 4 characters');
       return;
     }
     setSaving(true);
     try {
       await parentPinApi.setPin(pin);
-      Alert.alert('Saved', 'Parent PIN updated');
+      Alert.alert('Saved', 'Parent password updated');
       const {data} = await parentPinApi.status();
       setStatus(data.data);
     } catch {
-      Alert.alert('Error', 'Could not save PIN');
+      Alert.alert('Error', 'Couldn’t save password. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -40,13 +40,13 @@ export function ParentPinScreen({navigation}: Props) {
     try {
       const {data} = await parentPinApi.verify(pin);
       if (data.data.verified) {
-        Alert.alert('Verified', 'Silent screen capture unlocked for this account');
+        Alert.alert('Verified', 'Screen sharing is unlocked for this account');
         setStatus(s => (s ? {...s, silentStreamUnlocked: true} : s));
       } else {
-        Alert.alert('Invalid PIN', 'Try again');
+        Alert.alert('Incorrect password', 'Please try again');
       }
     } catch {
-      Alert.alert('Error', 'Verification failed');
+      Alert.alert('Error', 'Couldn’t verify password. Please try again.');
     }
   };
 
@@ -54,8 +54,8 @@ export function ParentPinScreen({navigation}: Props) {
     <ScreenShell backLabel="← Back to settings" onBack={() => navigation.goBack()}>
       <HeroBlock
         eyebrow="Security"
-        title="Parent PIN"
-        subtitle="Required once before silent screen monitoring on Full Protection devices."
+        title="Parent password"
+        subtitle="Used to protect screen sharing and sensitive parent actions."
       />
 
       {status ? (
@@ -63,12 +63,12 @@ export function ParentPinScreen({navigation}: Props) {
           <View style={styles.statusRow}>
             <View style={[styles.badge, status.pinConfigured ? styles.badgeOk : styles.badgeWarn]}>
               <Text style={styles.badgeText}>
-                PIN {status.pinConfigured ? 'configured' : 'not set'}
+                Password {status.pinConfigured ? 'set' : 'not set'}
               </Text>
             </View>
             <View style={[styles.badge, status.silentStreamUnlocked ? styles.badgeOk : styles.badgeWarn]}>
               <Text style={styles.badgeText}>
-                Silent stream {status.silentStreamUnlocked ? 'unlocked' : 'locked'}
+                Screen sharing {status.silentStreamUnlocked ? 'unlocked' : 'locked'}
               </Text>
             </View>
           </View>
@@ -77,7 +77,7 @@ export function ParentPinScreen({navigation}: Props) {
 
       <Card>
         <FormField
-          label="Enter PIN"
+          label="Enter password"
           value={pin}
           onChangeText={setPin}
           secureTextEntry
@@ -87,9 +87,9 @@ export function ParentPinScreen({navigation}: Props) {
           placeholder="••••"
           style={styles.pinInput}
         />
-        <PrimaryBtn title="Save PIN" onPress={savePin} loading={saving} />
+        <PrimaryBtn title="Save password" onPress={savePin} loading={saving} />
         <Pressable style={styles.linkBtn} onPress={verifyPin}>
-          <Text style={styles.linkText}>Verify & unlock silent screen</Text>
+          <Text style={styles.linkText}>Verify & unlock screen sharing</Text>
         </Pressable>
       </Card>
     </ScreenShell>
@@ -98,11 +98,11 @@ export function ParentPinScreen({navigation}: Props) {
 
 const styles = StyleSheet.create({
   statusRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 8},
-  badge: {borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6},
+  badge: {paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999},
   badgeOk: {backgroundColor: '#dcfce7'},
   badgeWarn: {backgroundColor: '#fef3c7'},
-  badgeText: {fontSize: 12, fontWeight: '600', color: '#334155'},
-  pinInput: {fontSize: 22, textAlign: 'center', letterSpacing: 8},
-  linkBtn: {marginTop: 12, paddingVertical: 10, alignItems: 'center'},
-  linkText: {color: '#2563eb', fontWeight: '600', fontSize: 14},
+  badgeText: {fontSize: 12, fontWeight: '700', color: '#334155'},
+  pinInput: {letterSpacing: 4, fontSize: 20, textAlign: 'center'},
+  linkBtn: {marginTop: 14, alignItems: 'center', padding: 8},
+  linkText: {color: '#4f46e5', fontWeight: '700', fontSize: 14},
 });

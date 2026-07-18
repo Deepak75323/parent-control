@@ -64,6 +64,72 @@ object StreamTeardownCoordinator {
         finishNativeTeardown(appContext, reason, releaseCaptures = true, label = "native-only")
     }
 
+    /**
+     * Immediate native teardown without waiting for JS — use when replacing an existing
+     * publisher. Prefer this over [requestStopAll] so a 30s JS watchdog cannot kill the
+     * replacement stream. Does not stop [ScreenCaptureForegroundService] unless a publisher
+     * or registry owner is active (warm FGS from ensureConsent must stay up).
+     */
+    @JvmStatic
+    fun requestImmediateStopAll(context: Context, reason: String) {
+        val appContext = context.applicationContext
+        abortPendingJsTeardown("immediate:$reason")
+        StreamLifecycleLogger.warn("TEARDOWN_IMMEDIATE", reason)
+        Log.i(TAG, "requestImmediateStopAll reason=$reason")
+        finishNativeTeardown(appContext, reason, releaseCaptures = true, label = "immediate")
+        state.set(State.IDLE)
+        pendingReason.set(null)
+    }
+
+    /**
+     * Like [finishNativeTeardown] but for handoff: stop publisher / hidden audio+camera without
+     * tearing down a warm screen FGS that still holds a live MediaProjection binder.
+     *
+     * Must NOT call [HiddenScreenCapture.stop] — that path invokes
+     * [ScreenCaptureForegroundService.stopStream] and revokes MediaProjection on API 34+,
+     * which surfaces on the parent as a false "ICE/TURN reconnect failed" dialog.
+     */
+    @JvmStatic
+    fun stopPublisherPreservingWarmScreenFgs(context: Context, reason: String) {
+        abortPendingJsTeardown("preserve-fgs:$reason")
+        val appContext = context.applicationContext
+        StreamLifecycleLogger.warn("TEARDOWN_PRESERVE_FGS", reason)
+        Log.i(TAG, "stopPublisherPreservingWarmScreenFgs reason=$reason")
+        val reactContext = ChildMonitorNativeModule.getSharedReactApplicationContext()
+        if (reactContext != null) {
+            try {
+                HiddenAudioCapture.stopCaptureOnly(reactContext)
+                HiddenCameraCapture.stopCaptureOnly(reactContext)
+            } catch (e: Exception) {
+                Log.w(TAG, "Hidden audio/camera stop failed during preserve-fgs", e)
+            }
+        }
+        NativeStreamPublisher.stop(appContext)
+        StreamSessionRegistry.release(StreamSessionRegistry.Owner.JS_HIDDEN)
+        StreamSessionRegistry.release(StreamSessionRegistry.Owner.NATIVE_PUBLISHER)
+        StreamingHeadlessTaskService.stop(appContext)
+        state.set(State.IDLE)
+        pendingReason.set(null)
+        StreamLifecycleLogger.log("TEARDOWN_COMPLETE", "preserve-fgs reason=$reason")
+    }
+
+    /**
+     * Cancel a pending JS teardown watchdog without releasing captures. Call after a native
+     * (re)start so a stale STOP from the handoff cannot destroy the newly started pipeline.
+     */
+    @JvmStatic
+    fun abortPendingJsTeardown(reason: String): Boolean {
+        if (state.get() != State.JS_PENDING) {
+            return false
+        }
+        cancelWatchdog()
+        state.set(State.IDLE)
+        pendingReason.set(null)
+        StreamLifecycleLogger.log("TEARDOWN_ABORTED", reason)
+        Log.i(TAG, "abortPendingJsTeardown reason=$reason")
+        return true
+    }
+
   @JvmStatic
     fun requestStopKind(context: Context, kind: StreamKind, reason: String) {
         val appContext = context.applicationContext
@@ -94,6 +160,12 @@ object StreamTeardownCoordinator {
             )
             return
         }
+        // After "new native screen stream" handoff, React may ACK STOP late — do not kill
+        // the publisher that replaced the previous session.
+        if (isScreenPipelineActive() && isHandoffTeardownReason(pendingReason.get())) {
+            abortPendingJsTeardown("js-complete-during-handoff:${pendingReason.get()}")
+            return
+        }
         cancelWatchdog()
         val reason = pendingReason.getAndSet(null) ?: detail ?: "js-complete"
         state.set(State.IDLE)
@@ -111,6 +183,35 @@ object StreamTeardownCoordinator {
         cancelWatchdog()
         val runnable = Runnable {
             if (state.get() != State.JS_PENDING) return@Runnable
+            // Handoff race: "new native screen stream" armed this watchdog, then the new
+            // publisher connected. Do not destroy the live pipeline.
+            if (isScreenPipelineActive() && isHandoffTeardownReason(pendingReason.get())) {
+                StreamLifecycleLogger.warn(
+                    "TEARDOWN_WATCHDOG_SKIPPED",
+                    "native pipeline active reason=${pendingReason.get()}",
+                )
+                Log.w(
+                    TAG,
+                    "JS teardown watchdog skipped — native screen still active reason=${pendingReason.get()}",
+                )
+                state.set(State.IDLE)
+                pendingReason.set(null)
+                return@Runnable
+            }
+            // Also skip when a newer session asked to abort but race left us JS_PENDING —
+            // parent-stop watchdogs must not kill capturers during an active start.
+            if (StreamSessionRegistry.activeOwner() != StreamSessionRegistry.Owner.NONE ||
+                ScreenCaptureForegroundService.isForegroundActive() ||
+                NativeStreamPublisher.isRunning()
+            ) {
+                StreamLifecycleLogger.warn(
+                    "TEARDOWN_WATCHDOG_SKIPPED",
+                    "screen session active reason=${pendingReason.get()}",
+                )
+                state.set(State.IDLE)
+                pendingReason.set(null)
+                return@Runnable
+            }
             val reason = pendingReason.getAndSet(null) ?: "watchdog-timeout"
             state.set(State.NATIVE_FORCED)
             StreamLifecycleLogger.warn("TEARDOWN_WATCHDOG", reason)
@@ -120,6 +221,13 @@ object StreamTeardownCoordinator {
         }
         watchdogRunnable.set(runnable)
         mainHandler.postDelayed(runnable, WATCHDOG_MS)
+    }
+
+    private fun isHandoffTeardownReason(reason: String?): Boolean {
+        if (reason.isNullOrBlank()) return false
+        return reason.contains("new native", ignoreCase = true) ||
+            reason.contains("starting headless", ignoreCase = true) ||
+            reason.contains("handoff", ignoreCase = true)
     }
 
     private fun cancelWatchdog() {

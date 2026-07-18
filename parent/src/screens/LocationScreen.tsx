@@ -27,7 +27,7 @@ export function LocationScreen({navigation, route}: Props) {
       const {data} = await monitoringApi.locationHistory(deviceId);
       setPoints(data.data.content);
     } catch {
-      Alert.alert('Error', 'Could not load location history');
+      Alert.alert('Error', 'Couldn’t load location history. Check your connection and try again.');
     }
   }, [deviceId]);
 

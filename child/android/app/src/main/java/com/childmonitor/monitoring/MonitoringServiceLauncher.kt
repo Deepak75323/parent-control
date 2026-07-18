@@ -32,6 +32,7 @@ object MonitoringServiceLauncher {
         val app = context.applicationContext
         SetupAccessNotificationHelper.sync(app)
         MonitoringWorkScheduler.ensurePeriodicMonitoring(app)
+        PresenceHeartbeatScheduler.schedule(app)
         requestMonitoring(app, Reason.USER, force = true)
     }
 

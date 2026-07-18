@@ -2,7 +2,6 @@ package com.childmonitor.capture
 
 import android.content.Context
 import android.util.Log
-import androidx.work.ExistingWorkPolicy
 import com.childmonitor.MonitoringPrefs
 import com.childmonitor.debug.PcpFlowLogger
 import com.childmonitor.oem.OemVendor
@@ -10,31 +9,8 @@ import com.childmonitor.sync.HeartbeatSyncManager
 import com.childmonitor.sync.MediaProjectionRecoveryTelemetry
 
 /**
- * Detects MediaProjection consent loss (process death, [MediaProjection.onStop], low-memory kill,
- * task removal), pushes an immediate capability heartbeat, and triggers Android-compliant
- * re-consent.
- *
- * ## Detection sources
- *
- * | Source | Trigger |
- * |--------|---------|
- * | Process death (LMKD) | Detected on next launch via `getConsentState()` returning `LOST_AFTER_PROCESS_DEATH` |
- * | Reboot | Detected in `BootReceiver` — calls `onProjectionLostOnBoot()` |
- * | [MediaProjection.onStop] | `ScreenCaptureController` callback → `onProjectionUnavailable()` |
- * | Low-memory warning | `ScreenCaptureForegroundService.onLowMemory()` → `onLowMemoryWarning()` |
- * | Task removal | `ScreenCaptureForegroundService.onTaskRemoved()` → `onTaskRemovedWarning()` |
- * | `loadIntent()` null | `MediaProjectionTokenStore.loadIntent()` → `onProjectionUnavailable()` |
- *
- * ## OEM notes
- *
- * - **MIUI/HyperOS**: Process death is more aggressive. Battery optimization exemption
- *   reduces LMKD frequency. BAL restrictions mean recovery must go through
- *   [BalSafeActivityLauncher] (already used by [MediaProjectionRecoveryManager]).
- * - **Samsung One UI**: No special loss handling needed beyond the standard path.
- * - **Android 14+ (API 34)**: [MediaProjection.onStop] fires on the binder thread, not the
- *   main thread. The 5 s debounce window handles rapid consecutive callbacks correctly.
- * - **Android 15 (API 35)**: FGS timeout is a separate signal handled by [TypedStreamFgsTimeout];
- *   it triggers its own teardown before calling `stopSelf()`. Loss is detected normally.
+ * Detects MediaProjection consent loss and notifies the parent.
+ * Does **not** launch Cast — re-consent only via setup or parent Start Screen.
  */
 object MediaProjectionLossHandler {
 
@@ -68,7 +44,7 @@ object MediaProjectionLossHandler {
     // ─── Loss events ─────────────────────────────────────────────────────────
 
     /**
-     * Main loss handler — report loss to server and attempt silent re-consent.
+     * Main loss handler — report loss to server and mark LOST (no Cast launch).
      *
      * Debounced: duplicate calls within [DEBOUNCE_MS] for the same state are suppressed to
      * avoid thundering-herd heartbeats when multiple components detect the same loss event.
@@ -104,7 +80,7 @@ object MediaProjectionLossHandler {
             "projection capability lost",
             "reason=$reason state=$state oem=${oem.id}",
         )
-        Log.w(TAG, "Projection capability lost — heartbeat + recovery reason=$reason state=$state oem=${oem.id}")
+        Log.w(TAG, "Projection capability lost — heartbeat + mark LOST reason=$reason state=$state oem=${oem.id}")
 
         MediaProjectionRecoveryTelemetry.recordLoss(context, reason, state.name)
 
@@ -121,8 +97,7 @@ object MediaProjectionLossHandler {
      *
      * On boot the app process is fresh — there is no in-memory projection — so the state
      * is always [MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH] if consent was
-     * previously granted. This method reports the loss and schedules a WorkManager recovery
-     * job with a short initial delay (to give the app a chance to complete boot setup first).
+     * previously granted. Reports loss to the parent; does not open Cast.
      */
     fun onProjectionLostOnBoot(context: Context, consentState: MediaProjectionConsentState) {
         if (!MonitoringPrefs.isPaired(context)) return
@@ -136,20 +111,20 @@ object MediaProjectionLossHandler {
             "projection lost on boot",
             "state=${consentState.name} oem=${oem.id}",
         )
-        Log.w(TAG, "Projection binder lost on boot — scheduling recovery state=${consentState.name} oem=${oem.id}")
+        Log.w(TAG, "Projection binder lost on boot — mark LOST only state=${consentState.name} oem=${oem.id}")
 
         MediaProjectionRecoveryTelemetry.recordBootWithLostConsent(context, consentState.name)
 
-        // The heartbeat already runs via BootWakeChain → BootRecoveryEngine.
-        // Schedule a recovery WorkManager job with a 30 s delay so the app finishes
-        // startup before attempting to launch MediaProjectionConsentActivity.
-        MediaProjectionRecoveryWorker.schedule(
-            context,
-            reason = "boot_projection_lost",
-            attempt = MediaProjectionRecoveryTelemetry.recoveryAttemptCount(context) + 1,
-            initialDelaySeconds = 30L,
-            policy = ExistingWorkPolicy.REPLACE,
-        )
+        // Detect + notify only — never schedule WorkManager that used to open Cast.
+        Thread {
+            HeartbeatSyncManager.syncProjectionLost(context.applicationContext, "boot_projection_lost")
+        }.start()
+        if (consentState != MediaProjectionConsentState.REQUIRES_RECONSENT &&
+            consentState != MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH
+        ) {
+            MediaProjectionTokenStore.markRequiresReconsent(context, "boot_projection_lost")
+        }
+        MediaProjectionRecoveryWorker.cancel(context)
     }
 
     /**

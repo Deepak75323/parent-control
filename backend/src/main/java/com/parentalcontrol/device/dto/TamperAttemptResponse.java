@@ -8,4 +8,6 @@ import lombok.Data;
 public class TamperAttemptResponse {
   private boolean parentPinConfigured;
   private String message;
+  /** Present when parent password is configured — child caches for offline unlock. */
+  private OfflinePinCredentialDto offlinePin;
 }

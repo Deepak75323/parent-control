@@ -83,4 +83,19 @@ public class ParentProfileDaoImpl implements ParentProfileDao {
   public Optional<UUID> findUserIdByProfileId(UUID profileId) {
     return repository.findUserIdByProfileId(profileId);
   }
+
+  @Override
+  public Optional<ParentProfile> findByFamilyHandleIgnoreCase(String handle) {
+    return repository.findByFamilyHandleIgnoreCase(handle);
+  }
+
+  @Override
+  public boolean existsByFamilyHandleIgnoreCase(String handle) {
+    return repository.existsByFamilyHandleIgnoreCase(handle);
+  }
+
+  @Override
+  public boolean existsByFamilyHandleIgnoreCaseAndIdNot(String handle, UUID excludeId) {
+    return repository.existsByFamilyHandleIgnoreCaseAndIdNot(handle, excludeId);
+  }
 }

@@ -58,7 +58,7 @@ object StreamRequestNotificationHelper {
         val pending = PendingIntent.getActivity(context, NOTIFICATION_ID, bootstrapIntent, flags)
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_stat_silent)
             .setContentTitle(context.getString(R.string.silent_notification_title))
             .setContentText(context.getString(R.string.silent_notification_text))
             // PRIORITY_MAX causes the system to auto-start fullScreenIntent when the

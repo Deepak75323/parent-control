@@ -1,7 +1,6 @@
 import React from 'react';
 import {View, Text, StyleSheet, Pressable, ActivityIndicator} from 'react-native';
 import {STREAM_COLORS} from './layout';
-import {StreamSource, StreamSourceSwitcher} from './StreamSourceSwitcher';
 
 type Props = {
   onStop: () => void;
@@ -23,10 +22,6 @@ type Props = {
   bottomInset: number;
   audioMuted?: boolean;
   onToggleAudioMute?: () => void;
-  streamSource: StreamSource;
-  onStreamSourceChange: (type: StreamSource) => void;
-  screenSourceDisabled?: boolean;
-  switchingSource?: boolean;
   recording?: boolean;
   recordingSupported?: boolean;
   onToggleRecording?: () => void;
@@ -52,22 +47,12 @@ export function StreamControlBar({
   bottomInset,
   audioMuted,
   onToggleAudioMute,
-  streamSource,
-  onStreamSourceChange,
-  screenSourceDisabled,
-  switchingSource,
   recording,
   recordingSupported,
   onToggleRecording,
 }: Props) {
   return (
     <View style={[styles.bar, {paddingBottom: bottomInset + 10}]}>
-      <StreamSourceSwitcher
-        active={streamSource}
-        onSelect={onStreamSourceChange}
-        disabled={stopping || switchingSource}
-        screenDisabled={screenSourceDisabled}
-      />
       <View style={styles.row}>
         {showRemoteControl && onToggleRemoteControl ? (
           <Pressable
@@ -126,7 +111,7 @@ export function StreamControlBar({
           <Pressable
             style={[styles.secondaryBtn, recording && styles.recordActiveBtn]}
             onPress={onToggleRecording}
-            disabled={stopping || switchingSource}>
+            disabled={stopping}>
             <Text style={styles.secondaryBtnText}>{recording ? '⏹ Save' : '⏺ Rec'}</Text>
           </Pressable>
         ) : null}

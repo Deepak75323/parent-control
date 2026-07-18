@@ -34,7 +34,7 @@ export function ResetPasswordScreen({navigation, route}: Props) {
   const onSubmit = async () => {
     setError(null);
     if (!token.trim()) {
-      setError('Paste the reset token from your email link.');
+      setError('Paste the reset code from your email link.');
       return;
     }
     if (password.length < 8) {
@@ -56,7 +56,7 @@ export function ResetPasswordScreen({navigation, route}: Props) {
         );
         return;
       }
-      setError(data.message ?? 'Unable to reset password. Request a new link.');
+      setError(data.message ?? 'Couldn’t reset password. Request a new link.');
     } catch (err) {
       setError(getApiErrorMessage(err, 'Invalid or expired reset link.'));
     } finally {
@@ -69,18 +69,18 @@ export function ResetPasswordScreen({navigation, route}: Props) {
       <HeroIconBlock
         icon="🔑"
         title="Choose a new password"
-        subtitle="Open the link from your email, or paste the reset token below. Tokens expire after one hour."
+        subtitle="Open the link from your email, or paste the reset code below. Codes expire after one hour."
       />
       <Card>
         {error ? <ErrorBox message={error} /> : null}
         <FormField
-          label="Reset token"
+          label="Reset code"
           value={token}
           onChangeText={v => {
             setToken(v);
             setError(null);
           }}
-          placeholder="Token from email link"
+          placeholder="Code from email link"
           autoCapitalize="none"
           autoCorrect={false}
           style={tokenInputStyle}

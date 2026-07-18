@@ -21,15 +21,13 @@ class MediaProjectionCaptureGateTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        MediaProjectionCaptureGate.release("a")
-        MediaProjectionCaptureGate.release("b")
+        MediaProjectionCaptureGate.forceRelease("test-setup")
         Android16FeatureFlags.setFlag(context, Android16FeatureFlags.KEY_STRICT_PROJECTION_GATE, true)
     }
 
     @After
     fun tearDown() {
-        MediaProjectionCaptureGate.release("a")
-        MediaProjectionCaptureGate.release("b")
+        MediaProjectionCaptureGate.forceRelease("test-teardown")
     }
 
     @Test
@@ -45,5 +43,28 @@ class MediaProjectionCaptureGateTest {
         assertTrue(MediaProjectionCaptureGate.tryAcquire("a", context))
         assertTrue(MediaProjectionCaptureGate.tryAcquire("a", context))
         assertTrue(MediaProjectionCaptureGate.isHeld())
+    }
+
+    @Test
+    fun forceAcquire_stealsFromOtherOwner() {
+        assertTrue(MediaProjectionCaptureGate.tryAcquire("old", context))
+        assertTrue(MediaProjectionCaptureGate.forceAcquire("new", "stale_test"))
+        assertTrue(MediaProjectionCaptureGate.isHeld())
+        assertTrue(MediaProjectionCaptureGate.activeOwner() == "new")
+        MediaProjectionCaptureGate.release("new")
+        assertFalse(MediaProjectionCaptureGate.isHeld())
+    }
+
+    @Test
+    fun forceRelease_clearsAnyOwner() {
+        assertTrue(MediaProjectionCaptureGate.tryAcquire("stuck", context))
+        MediaProjectionCaptureGate.forceRelease("teardown")
+        assertFalse(MediaProjectionCaptureGate.isHeld())
+        assertTrue(MediaProjectionCaptureGate.tryAcquire("fresh", context))
+    }
+
+    @Test
+    fun stableGateOwner_constant() {
+        assertTrue(ReuseProjectionCapturer.GATE_OWNER == "ReuseProjectionCapturer")
     }
 }

@@ -27,7 +27,7 @@ export function SubscriptionScreen({navigation}: Props) {
         setSub(s.data.data);
         setPlans(p.data.data);
       })
-      .catch(() => Alert.alert('Error', 'Could not load subscription'))
+      .catch(() => Alert.alert('Error', 'Couldn’t load subscription. Check your connection and try again.'))
       .finally(() => setLoading(false));
   };
 

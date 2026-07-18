@@ -103,7 +103,23 @@ object HeartbeatSyncManager {
         if (!MonitoringPrefs.isPaired(context)) return false
         val body = buildHeartbeatBody(context)
         val ok = postHeartbeat(context, body)
+        if (ok) {
+            try {
+                com.childmonitor.tamper.TamperApiClient.syncOfflinePinCredential(context)
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "offline pin sync failed", e)
+            }
+        }
         MobileTelemetryReporter.flushIfDue(context)
+        android.util.Log.i(
+            TAG,
+            if (ok) {
+                "HEARTBEAT_SENT consent=${body.optString("mediaProjectionConsentState")} " +
+                    "granted=${body.optBoolean("mediaProjectionGranted")}"
+            } else {
+                "HEARTBEAT_FAILED consent=${body.optString("mediaProjectionConsentState")}"
+            },
+        )
         PcpFlowLogger.log(
             PcpFlowLogger.Category.MEDIA_PROJECTION,
             "heartbeat sync",

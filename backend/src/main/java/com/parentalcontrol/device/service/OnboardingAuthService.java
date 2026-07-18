@@ -21,6 +21,8 @@ import com.parentalcontrol.monitoring.service.AlertService;
 import com.parentalcontrol.user.dao.ParentProfileDao;
 import com.parentalcontrol.user.domain.ParentProfile;
 import com.parentalcontrol.user.service.DefaultChildLoginPasswordService;
+import com.parentalcontrol.user.service.FamilyHandleService;
+import com.parentalcontrol.user.util.FamilyHandleNormalizer;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -47,6 +49,7 @@ public class OnboardingAuthService {
   private final TamperUnlockCodeDao tamperUnlockCodeRepository;
   private final ParentProfileDao parentProfileRepository;
   private final DefaultChildLoginPasswordService defaultChildLoginPasswordService;
+  private final FamilyHandleService familyHandleService;
   private final PasswordEncoder passwordEncoder;
   private final DevMasterPinSupport devMasterPinSupport;
   private final AuditService auditService;
@@ -185,79 +188,59 @@ public class OnboardingAuthService {
       if (deviceOpt.isPresent()) {
         return authenticateAgainstDevice(deviceOpt.get(), trimmed);
       }
-      // Client sent an androidId that does not match any paired device (OEM restore,
-      // profile mismatch, or stale read). Fall back to unique device/password match.
-      OnboardingAuthResponse unknownId = authenticateWhenAndroidIdMissing(trimmed);
-      if (unknownId.isAuthenticated()) {
-        return unknownId;
-      }
-    } else {
-      // Client may omit androidId (native bridge timing). After pairing, active setup
-      // codes are consumed — fall back to family/device password for a unique match.
-      OnboardingAuthResponse withoutId = authenticateWhenAndroidIdMissing(trimmed);
-      if (withoutId.isAuthenticated()) {
-        return withoutId;
-      }
     }
 
-    return authenticateAgainstActivePairingCode(trimmed, null);
+    // Unpaired / unknown device: require unique family handle + family password.
+    String handle = FamilyHandleNormalizer.normalize(request.getFamilyHandle());
+    if (handle == null) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR, MessageConstants.FAMILY_HANDLE_IS_REQUIRED);
+    }
+    return authenticateWithFamilyHandle(handle, trimmed);
   }
 
   /**
-   * Authenticate when the child app did not send androidId. Only succeeds when the password matches
-   * exactly one paired device (or one parent's family password with a single linked device) to
-   * avoid ambiguous cross-family login.
+   * First-time login: resolve exactly one parent by public handle, then verify family password.
+   * Optionally returns an active pairing code for that parent so the child can continue setup.
    */
-  private OnboardingAuthResponse authenticateWhenAndroidIdMissing(String password) {
-    List<Device> directMatches = new ArrayList<>();
-    for (Device device : deviceRepository.findAllActive()) {
-      if (device.getChildLoginPasswordHash() != null
-          && passwordEncoder.matches(password, device.getChildLoginPasswordHash())) {
-        directMatches.add(device);
-      }
-    }
-    if (directMatches.size() == 1) {
+  private OnboardingAuthResponse authenticateWithFamilyHandle(String handle, String password) {
+    var parentLookup = familyHandleService.findByHandle(handle);
+    if (parentLookup.isEmpty()) {
       auditService.log(
-          AuditActionConstants.ONBOARDING_AUTH_CHILD_PASSWORD,
-          "device:" + directMatches.get(0).getId(),
+          AuditActionConstants.ONBOARDING_AUTH_FAILURE,
+          "familyHandle:unknown",
           null,
-          Map.of("source", "missing_android_id"));
-      return OnboardingAuthResponse.builder().authenticated(true).build();
-    }
-    if (directMatches.size() > 1) {
-      throw new BusinessException(
-          ErrorCode.FORBIDDEN,
-          MessageConstants.MULTIPLE_DEVICES_MATCH_THIS_PASSWORD_RE_OPEN_THE_APP_AND_TRY_AGAIN);
+          Map.of("method", "family_handle"));
+      return OnboardingAuthResponse.builder().authenticated(false).build();
     }
 
-    List<Device> familyMatches = new ArrayList<>();
-    for (ParentProfile parent : parentProfileRepository.findAll()) {
-      if (!defaultChildLoginPasswordService.matchesDefault(parent, password)) {
-        continue;
-      }
-      List<Device> devices =
-          deviceRepository.findActiveByParentProfileIdOrderByCreatedAtDesc(parent.getId());
-      if (devices.size() == 1) {
-        familyMatches.add(devices.get(0));
-      }
-    }
-    if (familyMatches.size() == 1) {
-      Device device = familyMatches.get(0);
-      defaultChildLoginPasswordService.applyFamilyPasswordToDevice(device);
+    ParentProfile parent = parentLookup.get();
+    if (!defaultChildLoginPasswordService.matchesDefault(parent, password)) {
       auditService.log(
-          AuditActionConstants.ONBOARDING_AUTH_CHILD_PASSWORD,
-          "device:" + device.getId(),
+          AuditActionConstants.ONBOARDING_AUTH_FAILURE,
+          "parentProfile:" + parent.getId(),
           null,
-          Map.of("source", "missing_android_id_family"));
-      return OnboardingAuthResponse.builder().authenticated(true).build();
-    }
-    if (familyMatches.size() > 1) {
-      throw new BusinessException(
-          ErrorCode.FORBIDDEN,
-          MessageConstants.MULTIPLE_DEVICES_MATCH_THIS_PASSWORD_RE_OPEN_THE_APP_AND_TRY_AGAIN);
+          Map.of("method", "family_handle"));
+      return OnboardingAuthResponse.builder().authenticated(false).build();
     }
 
-    return OnboardingAuthResponse.builder().authenticated(false).build();
+    String activeCode = findNewestActivePairingCode(parent.getId());
+    auditService.log(
+        AuditActionConstants.ONBOARDING_AUTH_CHILD_PASSWORD,
+        "parentProfile:" + parent.getId(),
+        null,
+        Map.of("source", "family_handle"));
+
+    return OnboardingAuthResponse.builder().authenticated(true).pairingCode(activeCode).build();
+  }
+
+  private String findNewestActivePairingCode(UUID parentProfileId) {
+    Instant now = Instant.now();
+    return pairingCodeRepository.findActiveUnusedWithPassword(now).stream()
+        .filter(c -> parentProfileId.equals(c.getParentProfileId()))
+        .max(Comparator.comparing(PairingCode::getCreatedAt))
+        .map(PairingCode::getCode)
+        .orElse(null);
   }
 
   private OnboardingAuthResponse authenticateAgainstDevice(Device device, String password) {

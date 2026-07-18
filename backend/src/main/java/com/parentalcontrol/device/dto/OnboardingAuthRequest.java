@@ -14,6 +14,13 @@ public class OnboardingAuthRequest {
   @Size(min = 4, max = 128)
   private String childLoginPassword;
 
+  /**
+   * Parent family handle — required for first-time (unpaired) password login so the child binds to
+   * exactly one parent account.
+   */
+  @Size(min = 3, max = 32)
+  private String familyHandle;
+
   /** When true, a valid unused pairing code alone proves parent authorization (recovery flow). */
   private boolean setupCodeOnly;
 

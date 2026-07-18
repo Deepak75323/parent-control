@@ -14,4 +14,5 @@ public class UsageStatsResponse {
   private String packageName;
   private Long usageMs;
   private Instant recordedAt;
+  private Instant createdAt;
 }

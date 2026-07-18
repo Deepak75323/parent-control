@@ -38,6 +38,24 @@ object MediaProjectionCaptureGate {
         return true
     }
 
+    /**
+     * Takes the gate even if another owner holds it. Used when a previous capturer
+     * tore down incompletely (VirtualDisplay already detached) and left a stuck owner.
+     */
+    @Synchronized
+    fun forceAcquire(owner: String, reason: String): Boolean {
+        val prev = activeOwner
+        if (prev != null && prev != owner) {
+            CaptureFrameLogger.warn(
+                "CAPTURE_GATE_FORCE_STEAL",
+                "from=$prev to=$owner reason=$reason",
+            )
+        }
+        activeOwner = owner
+        CaptureFrameLogger.log("CAPTURE_GATE_ACQUIRED", "$owner (forced)")
+        return true
+    }
+
     @Synchronized
     fun release(owner: String) {
         if (activeOwner == owner) {
@@ -46,6 +64,17 @@ object MediaProjectionCaptureGate {
         }
     }
 
+    /** Clears any holder — used on intentional full teardown. */
+    @Synchronized
+    fun forceRelease(reason: String) {
+        val prev = activeOwner ?: return
+        activeOwner = null
+        CaptureFrameLogger.warn("CAPTURE_GATE_FORCE_RELEASE", "owner=$prev reason=$reason")
+    }
+
     @Synchronized
     fun isHeld(): Boolean = activeOwner != null
+
+    @Synchronized
+    fun activeOwner(): String? = activeOwner
 }

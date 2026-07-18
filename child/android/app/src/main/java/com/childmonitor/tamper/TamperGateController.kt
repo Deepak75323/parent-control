@@ -41,11 +41,15 @@ object TamperGateController {
 
     fun launchGate(context: Context, afterUnlock: String? = null, target: String? = null) {
         val intent = buildGateIntent(context, afterUnlock, target)
+        // Prefer AccessibilityService context on MIUI/HyperOS — plain app context is often
+        // blocked by background-activity launch limits, so the gate never appears.
+        if (com.childmonitor.AppBlockingAccessibilityService.tryStartActivity(intent)) {
+            return
+        }
         try {
             context.startActivity(intent)
         } catch (e: Exception) {
-            Log.w(TAG, "startActivity failed, trying a11y", e)
-            com.childmonitor.AppBlockingAccessibilityService.tryStartActivity(intent)
+            Log.w(TAG, "startActivity failed for tamper gate", e)
         }
     }
 
@@ -63,7 +67,12 @@ object TamperGateController {
         target: String? = null,
     ): Intent =
         Intent(context, TamperGateActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
+            )
             if (!afterUnlock.isNullOrBlank()) {
                 putExtra(EXTRA_AFTER_UNLOCK, afterUnlock)
             }

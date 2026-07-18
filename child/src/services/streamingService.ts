@@ -342,9 +342,8 @@ async function startStream(pending: PendingSession): Promise<void> {
     }
   }
 
-  if (pending.streamType === 'AUDIO') {
-    await nativeModules.setMonitoringAudioMode(true).catch(() => undefined);
-  }
+  // Do not set MODE_IN_COMMUNICATION for AUDIO — device-playback capture is designed to
+  // share the child's media focus. Taking communication mode pauses YouTube / video apps.
 
   try {
     streamStateTransition('CAPTURE_STARTING', 'startStream', {streamType: pending.streamType});

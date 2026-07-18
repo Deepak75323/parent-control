@@ -1,5 +1,5 @@
 import {monitoringApi, deviceApi} from './api';
-import {getApiBaseUrl, resolveApiBaseUrl} from '../utils/config';
+import {resolveApiBaseUrl} from '../utils/config';
 import {getDeviceToken} from './deviceStorage';
 import {nativeModules} from '../nativeModules';
 import {startPolicySync, stopPolicySync} from './policyService';
@@ -120,8 +120,8 @@ async function syncPermissionStatus(): Promise<void> {
 
 async function syncNativeApiUrl(): Promise<void> {
   try {
+    // resolveApiBaseUrl already pushes to native when the base changes.
     await resolveApiBaseUrl();
-    await nativeModules.updateApiBaseUrl(getApiBaseUrl());
   } catch {
     // Native resolver will probe candidates on its own.
   }

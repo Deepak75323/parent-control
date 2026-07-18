@@ -142,6 +142,11 @@ object FcmWakeHandler {
                 val latch = CountDownLatch(1)
                 Thread {
                     try {
+                        // Open screen-FGS gate on FCM wake — Android 15 burst path does not
+                        // open it via legacy monitoring session; without this, native screen
+                        // streams die with FGS_GATE_CLOSED while the parent hangs.
+                        com.childmonitor.platform.Android16CompatibilityLayer
+                            .scheduleScreenFgsGateOpen(app)
                         NativeStreamingCoordinator.start(app)
                         MonitoringBurstEngine.runCycle(app, startCoordinator = true)
                         MonitoringServiceLauncher.requestMonitoring(
@@ -156,6 +161,12 @@ object FcmWakeHandler {
                                 streamType,
                                 sessionId,
                                 cameraFacing,
+                            )
+                        } else {
+                            Log.w(
+                                TAG,
+                                "STREAM_REQUEST missing room/session — cannot start stream " +
+                                    "roomBlank=${roomId.isBlank()} sessionBlank=${sessionId.isBlank()}",
                             )
                         }
                     } finally {
@@ -176,6 +187,24 @@ object FcmWakeHandler {
                 } else {
                     PcpFlowLogger.log(PcpFlowLogger.Category.FCM, "dispatchWithWakeLock", "STREAM_REQUEST FCM dispatch complete")
                 }
+            }
+            "HEARTBEAT_NUDGE" -> {
+                // Backend proactively wakes devices that have gone quiet longer than its nudge
+                // threshold but not yet past the offline cutoff (see HeartbeatNudgeScheduler on
+                // the backend). A plain heartbeat POST is enough here — no need to promote a
+                // dataSync FGS burst (which would burn Android 15's FGS quota) just to report
+                // presence.
+                val app = context.applicationContext
+                val latch = CountDownLatch(1)
+                Thread {
+                    try {
+                        val ok = com.childmonitor.sync.HeartbeatSyncManager.syncNow(app)
+                        Log.i(TAG, "HEARTBEAT_NUDGE handled ok=$ok")
+                    } finally {
+                        latch.countDown()
+                    }
+                }.start()
+                latch.await(WAKE_WORK_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             }
             else -> MonitoringBurstEngine.runCycle(context.applicationContext)
         }

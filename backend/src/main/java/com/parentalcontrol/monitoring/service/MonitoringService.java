@@ -142,6 +142,7 @@ public class MonitoringService {
                         .packageName(item.getPackageName())
                         .appLabel(item.getAppLabel())
                         .appCategory(item.getAppCategory())
+                        .iconBase64(sanitizeIconBase64(item.getIconBase64()))
                         .syncedAt(syncedAt)
                         .build())
             .toList();
@@ -161,6 +162,7 @@ public class MonitoringService {
                     .packageName(app.getPackageName())
                     .appLabel(app.getAppLabel())
                     .appCategory(app.getAppCategory())
+                    .iconBase64(app.getIconBase64())
                     .syncedAt(app.getSyncedAt())
                     .build())
         .toList();
@@ -198,7 +200,7 @@ public class MonitoringService {
     requireMonitoringAccess(deviceId);
     Page<AppUsageLog> result =
         appUsageLogRepository.findByDeviceIdOrderByRecordedAtDesc(
-            deviceId, PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
+            deviceId, PageRequest.of(page, Math.min(Math.max(size, 1), 500)));
     return PageResponse.of(
         result.getContent().stream().map(this::toUsageStatsResponse).toList(),
         page,
@@ -233,6 +235,38 @@ public class MonitoringService {
         .packageName(log.getPackageName())
         .usageMs(log.getUsageMs())
         .recordedAt(log.getRecordedAt())
+        .createdAt(log.getCreatedAt())
         .build();
+  }
+
+  /** Strip data-URL prefix and reject oversized / non-base64 payloads. */
+  private static String sanitizeIconBase64(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    String value = raw.trim();
+    if (value.startsWith("data:")) {
+      int comma = value.indexOf(',');
+      if (comma >= 0) {
+        value = value.substring(comma + 1);
+      }
+    }
+    if (value.length() > 32768) {
+      return null;
+    }
+    for (int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+      boolean ok =
+          (c >= 'A' && c <= 'Z')
+              || (c >= 'a' && c <= 'z')
+              || (c >= '0' && c <= '9')
+              || c == '+'
+              || c == '/'
+              || c == '=';
+      if (!ok) {
+        return null;
+      }
+    }
+    return value;
   }
 }

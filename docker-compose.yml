@@ -87,6 +87,8 @@ services:
       - --use-auth-secret
       - --static-auth-secret=${TURN_SECRET:?Set TURN_SECRET in .env}
       - --listening-ip=0.0.0.0
+      - --relay-ip=0.0.0.0
+      - --external-ip=${TURN_EXTERNAL_HOST:?Set TURN_EXTERNAL_HOST in .env}
       - --listening-port=3478
       - --tls-listening-port=5349
       - --min-port=49160

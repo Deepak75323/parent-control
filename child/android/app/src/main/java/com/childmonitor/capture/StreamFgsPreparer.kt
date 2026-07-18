@@ -78,9 +78,22 @@ object StreamFgsPreparer {
         }
         val appContext = context.applicationContext
         if (kind == StreamKind.SCREEN) {
+            // Parent stream request is the user-initiated trigger — open the cold-start
+            // gate so MediaProjection FGS can start even when MainActivity never resumed
+            // (Android 15 burst + FCM-only wakes).
+            if (!ScreenFgsStartupGate.canStartScreenFgs()) {
+                ScreenFgsStartupGate.markReadyNow()
+                Log.i(TAG, "Screen FGS gate forced open for inbound stream request")
+            }
             if (!MediaProjectionSessionKeeper.ensureReady(appContext)) {
                 Log.w(TAG, "Screen projection session not ready for stream-request FGS start")
                 return false
+            }
+        }
+        if (kind == StreamKind.CAMERA) {
+            // Video call always needs the mic FGS alongside camera (Android 14+).
+            if (!StreamFgsHelper.isActive(StreamKind.AUDIO)) {
+                ensureKindReady(context, StreamKind.AUDIO, timeoutMs)
             }
         }
         val ready = StreamFgsHelper.startAndWait(appContext, kind, timeoutMs)

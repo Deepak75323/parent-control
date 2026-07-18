@@ -4,6 +4,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {TimeExtensionRequestItem, timeExtensionApi} from '../services/api';
 import {EmptyState, HeroBlock, PrimaryBtn, ScreenShell} from '../components/AppScreen';
+import {appDisplayName} from '../utils/appDisplayName';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Requests'>;
 
@@ -17,7 +18,7 @@ export function RequestsScreen({navigation}: Props) {
       const {data} = await timeExtensionApi.listPending();
       setItems(data.data);
     } catch {
-      Alert.alert('Error', 'Could not load requests');
+      Alert.alert('Error', 'Couldn’t load requests. Check your connection and try again.');
     }
   }, []);
 
@@ -33,11 +34,14 @@ export function RequestsScreen({navigation}: Props) {
       Alert.alert(
         approved ? 'Approved' : 'Denied',
         approved
-          ? `${item.appLabel ?? item.packageName} unlocked for ${item.requestedMinutes} minutes`
+          ? `${appDisplayName({
+              appLabel: item.appLabel,
+              packageName: item.packageName,
+            })} unlocked for ${item.requestedMinutes} minutes`
           : 'Request rejected',
       );
     } catch {
-      Alert.alert('Error', 'Could not respond to request');
+      Alert.alert('Error', 'Couldn’t update this request. Please try again.');
     } finally {
       setRespondingId(null);
     }
@@ -69,7 +73,9 @@ export function RequestsScreen({navigation}: Props) {
             <Text style={styles.cardTitle}>
               {item.deviceName ?? 'Device'} requests access
             </Text>
-            <Text style={styles.appName}>{item.appLabel ?? item.packageName}</Text>
+            <Text style={styles.appName}>
+              {appDisplayName({appLabel: item.appLabel, packageName: item.packageName})}
+            </Text>
             <Text style={styles.meta}>
               {item.requestedMinutes} min · {new Date(item.createdAt).toLocaleString()}
             </Text>

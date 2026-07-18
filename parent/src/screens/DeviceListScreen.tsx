@@ -17,16 +17,7 @@ import {deviceApi, DeviceSummary, childLoginPasswordApi} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {useAuthStore} from '../store/authStore';
 import {plog} from '../services/pairingLog';
-
-function apiErrorMessage(err: unknown, fallback: string): string {
-  if (err && typeof err === 'object' && 'response' in err) {
-    const data = (err as {response?: {data?: {message?: string}}}).response?.data;
-    if (data?.message?.trim()) {
-      return data.message.trim();
-    }
-  }
-  return fallback;
-}
+import {getApiErrorMessage} from '../utils/apiError';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DeviceList'>;
 
@@ -112,7 +103,7 @@ export function DeviceListScreen({navigation}: Props) {
       setDevices(list);
       useRealtimeStore.getState().mergeDevices(list);
     } catch {
-      Alert.alert('Error', 'Could not load devices');
+      Alert.alert('Error', 'Couldn’t load your devices. Check your connection and try again.');
     }
   }, []);
 
@@ -183,7 +174,10 @@ export function DeviceListScreen({navigation}: Props) {
       await load();
     } catch (err) {
       plog('pairing code failed', String(err));
-      const message = apiErrorMessage(err, 'Could not create pairing code');
+      const message = getApiErrorMessage(
+        err,
+        'Couldn’t create a pairing code. Check your connection and try again.',
+      );
       Alert.alert('Error', message);
     } finally {
       setGenerating(false);
@@ -244,8 +238,8 @@ export function DeviceListScreen({navigation}: Props) {
                 <Text style={styles.pairingLabel}>Active pairing code</Text>
                 <CodeDisplay code={pendingPairingCode} />
                 <Text style={styles.pairingHint}>
-                  Enter the setup code on the child phone only if recovery is needed. Children log in
-                  with your family password from Settings. One use only — expires in 15 minutes
+                  Children link with your family handle + family password from Settings. Use this
+                  setup code if recovery is needed. One use only — expires in 15 minutes
                   {codeExpiresAt
                     ? ` (until ${new Date(codeExpiresAt).toLocaleTimeString()})`
                     : ''}

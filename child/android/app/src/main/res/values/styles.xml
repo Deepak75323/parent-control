@@ -6,4 +6,12 @@
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     </style>
 
+    <!-- AppCompat fullscreen theme for BlockOverlayActivity (must not use platform Theme.*). -->
+    <style name="Theme.BlockOverlay" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:background">#0B1220</item>
+        <item name="android:windowBackground">#0B1220</item>
+    </style>
+
 </resources>

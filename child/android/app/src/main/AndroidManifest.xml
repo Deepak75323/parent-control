@@ -27,6 +27,24 @@
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
+    <!-- Best-effort stop of blocked apps after Home/Back (helps clear YouTube PiP leftovers). -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+
+    <!-- Android 11+ package visibility: without this, launcher query only returns a
+         sparse app list → parent App Rules / Screen Time miss most apps. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+        </intent>
+    </queries>
 
     <application
         android:name=".MainApplication"
@@ -133,7 +151,7 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
-            android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
+            android:theme="@style/Theme.BlockOverlay" />
 
         <activity
             android:name="com.childmonitor.tamper.TamperGateActivity"
@@ -190,6 +208,12 @@
                 <action android:name="android.intent.action.USER_PRESENT" />
             </intent-filter>
         </receiver>
+
+        <!-- Guarantees presence heartbeat ≤5 min (WorkManager floor is 15 min / Android 15). -->
+        <receiver
+            android:name="com.childmonitor.monitoring.PresenceHeartbeatReceiver"
+            android:exported="false"
+            android:enabled="true" />
 
         <!-- P1-03: CONNECTIVITY_ACTION manifest receiver removed — obsolete on Android 10+.
              Post-boot network recovery uses ConnectivityManager.NetworkCallback via

@@ -2,6 +2,7 @@ package com.childmonitor
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import org.json.JSONArray
@@ -16,11 +17,53 @@ object PolicyEnforcementEngine {
 
     private const val TAG = "PolicyEnforcement"
 
+    /** Packages always allowed during Accessibility “block all” / schedule lockdown. */
+    private val LOCK_EXEMPT_PACKAGES = setOf(
+        "com.android.systemui",
+        "com.android.phone",
+        "com.android.server.telecom",
+        "com.android.incallui",
+        "com.google.android.dialer",
+        "com.samsung.android.dialer",
+        "com.android.contacts",
+        "com.google.android.contacts",
+        "com.android.mms",
+        "com.google.android.apps.messaging",
+        "com.android.emergency",
+        "com.android.deskclock",
+        "com.google.android.deskclock",
+    )
+
     private var bundle: JSONObject? = null
     private val usageMsToday = ConcurrentHashMap<String, Long>()
     private val warnedPackages = ConcurrentHashMap.newKeySet<String>()
     private val tempUnlockUntil = ConcurrentHashMap<String, Long>()
     private var usageDay: LocalDate = LocalDate.now()
+    @Volatile private var lastUsageRefreshMs: Long = 0L
+
+    /** Avoid hammering UsageStatsManager on every accessibility window event. */
+    private const val USAGE_REFRESH_MIN_INTERVAL_MS = 15_000L
+
+    /**
+     * Pull absolute today-totals from the system into [usageMsToday] so screen-time limits
+     * work even before the next heartbeat sync (e.g. right after process restart).
+     */
+    fun refreshUsageFromSystemStatsIfNeeded(context: Context) {
+        val now = System.currentTimeMillis()
+        if (now - lastUsageRefreshMs < USAGE_REFRESH_MIN_INTERVAL_MS) return
+        if (!UsageStatsReader.hasPermission(context)) {
+            Log.w(TAG, "refreshUsageFromSystemStatsIfNeeded skipped — usage stats not granted")
+            return
+        }
+        lastUsageRefreshMs = now
+        try {
+            val entries = UsageStatsReader.readSince(context, UsageStatsReader.startOfTodayMs())
+            entries.forEach { setUsageToday(it.packageName, it.usageMs) }
+            Log.i(TAG, "refreshUsageFromSystemStats packages=${entries.size}")
+        } catch (e: Exception) {
+            Log.w(TAG, "refreshUsageFromSystemStatsIfNeeded failed", e)
+        }
+    }
 
     /** Reset in-memory usage when the calendar day changes (midnight rollover). */
     private fun ensureUsageDayCurrent() {
@@ -58,6 +101,12 @@ object PolicyEnforcementEngine {
 
     fun isPackageBlocked(context: Context, packageName: String): Boolean {
         if (isTemporarilyUnlocked(packageName)) return false
+        if (isExemptFromLock(context, packageName)) return false
+
+        // Screen-time limits need today's UsageStats totals. After process death / reinstall
+        // usageMsToday is empty until the next heartbeat sync — refresh here so a 15-min
+        // YouTube limit still enforces when the child opens the app.
+        refreshUsageFromSystemStatsIfNeeded(context)
 
         val b = bundle ?: PolicyStore.getBundle(context) ?: return false
         val blocks = b.optJSONArray("appBlocks") ?: JSONArray()
@@ -65,6 +114,7 @@ object PolicyEnforcementEngine {
         val today = DayOfWeek.from(LocalDate.now()).name.substring(0, 3)
         val category = AppCategoryResolver.resolve(context, packageName)
 
+        var blockAllActive = false
         for (i in 0 until blocks.length()) {
             val rule = blocks.getJSONObject(i)
             if (!rule.optBoolean("enabled", true)) continue
@@ -77,15 +127,39 @@ object PolicyEnforcementEngine {
                 }
                 continue
             }
-            if (pkg == "*" || pkg == "__category__") continue
+            // Accessibility “Block All Apps” (FlashGet-style) — not Device Owner kiosk.
+            if (pkg == "*" && schedule.optBoolean("blockAllApps", false)) {
+                if (isScheduleActive(rule, now, today)) blockAllActive = true
+                continue
+            }
+            if (pkg == "*" || pkg == "__category__" || pkg == "*_new") continue
             if (pkg != packageName) continue
             if (!isScheduleActive(rule, now, today)) continue
             return true
         }
 
+        if (blockAllActive) return true
         if (isDeviceScheduleLockActive(b, now, today)) return true
         if (isScreenTimeBlocked(context, b, packageName, category)) return true
         return false
+    }
+
+    /** Phone, Messages, system UI, Clock Time, and the default launcher must stay usable. */
+    fun isExemptFromLock(context: Context, packageName: String): Boolean {
+        if (packageName == context.packageName) return true
+        if (LOCK_EXEMPT_PACKAGES.contains(packageName)) return true
+        return isHomeLauncherPackage(context, packageName)
+    }
+
+    private fun isHomeLauncherPackage(context: Context, packageName: String): Boolean {
+        return try {
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            @Suppress("DEPRECATION")
+            val ri = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            ri?.activityInfo?.packageName == packageName
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun recordUsage(packageName: String, usageMs: Long) {
@@ -111,6 +185,7 @@ object PolicyEnforcementEngine {
         val rules = b.optJSONArray("screenTime") ?: return false
         for (i in 0 until rules.length()) {
             val rule = rules.getJSONObject(i)
+            if (!rule.optBoolean("enabled", true)) continue
             if (!matchesScreenTimeTarget(rule, packageName, category)) continue
             val limitMin = effectiveDailyLimitMinutes(rule)
             val warnPct = rule.optInt("warnAtPercent", 80)
@@ -158,21 +233,38 @@ object PolicyEnforcementEngine {
         val rules = b.optJSONArray("screenTime") ?: return false
         for (i in 0 until rules.length()) {
             val rule = rules.getJSONObject(i)
+            if (!rule.optBoolean("enabled", true)) continue
             if (!matchesScreenTimeTarget(rule, packageName, category)) continue
             val limitMin = effectiveDailyLimitMinutes(rule)
             if (limitMin <= 0) continue
             val used = usageMsToday[packageName] ?: 0L
             if (used >= limitMin * 60_000L) {
                 val action = rule.optString("actionOnLimit", "BLOCK_APP")
-                return action == "BLOCK_APP" || action == "LOCK_DEVICE"
+                if (action == "BLOCK_APP" || action == "LOCK_DEVICE") {
+                    Log.i(
+                        TAG,
+                        "screenTime limit exceeded pkg=$packageName usedMs=$used limitMin=$limitMin action=$action",
+                    )
+                    return true
+                }
             }
         }
         return false
     }
 
+    /**
+     * JSON null fields become the literal string `"null"` via [JSONObject.optString].
+     * Treat JSON null / blank / `"null"` as absent so package rules still match.
+     */
+    private fun jsonStringOrEmpty(rule: JSONObject, key: String): String {
+        if (rule.isNull(key)) return ""
+        val value = rule.optString(key, "")
+        return if (value.equals("null", ignoreCase = true)) "" else value
+    }
+
     private fun matchesScreenTimeTarget(rule: JSONObject, packageName: String, category: String): Boolean {
-        val pkg = rule.optString("packageName", "")
-        val cat = rule.optString("appCategory", "")
+        val pkg = jsonStringOrEmpty(rule, "packageName")
+        val cat = jsonStringOrEmpty(rule, "appCategory")
         if (cat.isNotBlank()) return cat.equals(category, ignoreCase = true)
         if (pkg.isNotBlank()) return pkg == packageName
         return true
@@ -210,8 +302,12 @@ object PolicyEnforcementEngine {
                 if (days.getString(d).equals(today, true)) dayOk = true
             }
             if (!dayOk) continue
-            val start = LocalTime.parse(s.getString("startTime"))
-            val end = LocalTime.parse(s.getString("endTime"))
+            val startRaw = s.getString("startTime")
+            val endRaw = s.getString("endTime")
+            // Full-day lock used by bedtime “all day” and parent Block All fallback.
+            if (startRaw.startsWith("00:00") && endRaw.startsWith("23:59")) return true
+            val start = LocalTime.parse(startRaw)
+            val end = LocalTime.parse(endRaw)
             if (isWithin(now, start, end)) return true
         }
         return false
@@ -247,6 +343,12 @@ object PolicyEnforcementEngine {
         usageMsToday.clear()
         warnedPackages.clear()
         usageDay = LocalDate.now()
+        bundle = null
+    }
+
+    @VisibleForTesting
+    internal fun setBundleForTests(json: JSONObject?) {
+        bundle = json
     }
 
     @VisibleForTesting

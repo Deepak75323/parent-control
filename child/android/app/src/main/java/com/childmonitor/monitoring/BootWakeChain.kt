@@ -33,6 +33,7 @@ object BootWakeChain {
     fun schedule(context: Context, trigger: Trigger) {
         if (!MonitoringPrefs.isPaired(context)) return
         val app = context.applicationContext
+        PresenceHeartbeatScheduler.schedule(app)
 
         if (trigger == Trigger.BOOT) {
             BootRecoveryTelemetry.recordBootReceived(app, trigger.name)

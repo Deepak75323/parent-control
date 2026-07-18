@@ -61,14 +61,13 @@ export function StreamIncomingScreen({navigation}: Props) {
         <Text style={s.sub}>
           Your parent wants to {streamLabel(pending.streamType)}.
           {pending.streamType === 'SCREEN'
-            ? ' If screen capture was not granted during setup, Android may ask you to approve — tap Start now or Allow.'
+            ? ' If screen sharing wasn’t finished during setup, you may be asked to allow it — tap Start now or Allow.'
             : ' Starting live view…'}
         </Text>
         <View style={s.statusBox}>
           <ActivityIndicator color={Colors.primaryContainer} />
           <Text style={s.status}>{status}</Text>
         </View>
-        <Text style={s.hint}>Session: {pending.sessionId.slice(0, 8)}…</Text>
       </View>
       <Pressable style={s.backBtn} onPress={() => navigation.replace('ServiceStatus')}>
         <Text style={s.backText}>← Back to home</Text>

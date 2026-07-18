@@ -5,8 +5,10 @@ import com.childmonitor.sync.CommandRecoveryManager
 import com.childmonitor.capture.MediaProjectionConsentState
 import com.childmonitor.capture.MediaProjectionLossHandler
 import com.childmonitor.capture.MediaProjectionTokenStore
+import com.childmonitor.capture.PlaybackCaptureInjector
 import com.childmonitor.monitoring.BootWakeChain
 import com.childmonitor.monitoring.MonitoringServiceLauncher
+import com.childmonitor.monitoring.PresenceHeartbeatScheduler
 import com.childmonitor.native.ChildMonitorNativePackage
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
@@ -19,6 +21,7 @@ import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
 import com.oney.WebRTCModule.WebRTCModuleOptions
+import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.Executors
 
 class MainApplication : Application(), ReactApplication {
@@ -36,7 +39,9 @@ class MainApplication : Application(), ReactApplication {
 
         override fun getJSMainModuleName(): String = "index"
 
-        override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
+        // When EMBEDDED_BUNDLE=true (Oracle staging APKs), use the assets bundle without Metro.
+        override fun getUseDeveloperSupport(): Boolean =
+            BuildConfig.DEBUG && !BuildConfig.EMBEDDED_BUNDLE
 
         override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
         override val isHermesEnabled: Boolean = BuildConfig.IS_HERMES_ENABLED
@@ -50,6 +55,9 @@ class MainApplication : Application(), ReactApplication {
     // Use ScreenCaptureForegroundService (mediaProjection FGS) only — WebRTC's
     // MediaProjectionService crashes on Android 14+ when started alongside it.
     WebRTCModuleOptions.getInstance().enableMediaProjectionService = false
+    // Install ADM before WebRTCModule init so AudioPlaybackCapture can inject system
+    // audio into getUserMedia audio tracks (device / screen-share audio).
+    installPlaybackCaptureAudioDeviceModule()
     SoLoader.init(this, OpenSourceMergedSoMapping)
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       load()
@@ -71,17 +79,31 @@ class MainApplication : Application(), ReactApplication {
         MediaProjectionConsentState.LOST_AFTER_PROCESS_DEATH,
         MediaProjectionConsentState.REQUIRES_RECONSENT,
         MediaProjectionConsentState.RECOVERY_FAILED,
-        -> MediaProjectionLossHandler.onProjectionUnavailable(applicationContext, "app_process_start")
-        MediaProjectionConsentState.RECOVERY_PENDING ->
-            com.childmonitor.capture.MediaProjectionRecoveryManager.attemptRecovery(
-                applicationContext,
-                "stale_recovery_resume",
-            )
+        MediaProjectionConsentState.RECOVERY_PENDING,
+        MediaProjectionConsentState.RECOVERY_DEFERRED,
+        ->
+            // Mark LOST + notify parent — never auto-launch Cast on process start.
+            MediaProjectionLossHandler.onProjectionUnavailable(applicationContext, "app_process_start")
         else -> { }
     }
+    PresenceHeartbeatScheduler.schedule(applicationContext)
     MonitoringServiceLauncher.requestMonitoring(
         applicationContext,
         MonitoringServiceLauncher.Reason.APP_START,
     )
+  }
+
+  private fun installPlaybackCaptureAudioDeviceModule() {
+    try {
+      val adm = JavaAudioDeviceModule.builder(this)
+          .setEnableVolumeLogger(false)
+          .setAudioRecordDataCallback { audioFormat, channelCount, sampleRate, audioBuffer ->
+            PlaybackCaptureInjector.fillWebRtcBuffer(channelCount, sampleRate, audioBuffer)
+          }
+          .createAudioDeviceModule()
+      WebRTCModuleOptions.getInstance().audioDeviceModule = adm
+    } catch (e: Exception) {
+      android.util.Log.e("MainApplication", "playback-capture ADM install failed", e)
+    }
   }
 }

@@ -27,7 +27,12 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
   public ResponseEntity<ApiResponse<Void>> handleValidation(MethodArgumentNotValidException ex) {
-    log.debug("Validation failed correlationId={}", correlationId());
+    log.warn(
+        "Validation failed correlationId={} fields={}",
+        correlationId(),
+        ex.getBindingResult().getFieldErrors().stream()
+            .map(err -> err.getField() + "=" + err.getDefaultMessage())
+            .toList());
     return ResponseEntity.badRequest()
         .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR, "Invalid request data"));
   }

@@ -13,7 +13,13 @@ import {
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
-import {InstalledAppItem, monitoringApi, policiesApi, PolicySummary} from '../services/api';
+import {
+  deviceApi,
+  InstalledAppItem,
+  monitoringApi,
+  policiesApi,
+} from '../services/api';
+import {appDisplayName} from '../utils/appDisplayName';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AppRules'>;
 
@@ -63,25 +69,56 @@ type RowItem =
 export function AppRulesScreen({navigation, route}: Props) {
   const {deviceId} = route.params;
   const [apps, setApps] = useState<InstalledAppItem[]>([]);
-  const [policies, setPolicies] = useState<PolicySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [blockNewApps, setBlockNewApps] = useState(false);
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
   const [pendingBlocks, setPendingBlocks] = useState<Set<string>>(new Set());
+  const [syncingApps, setSyncingApps] = useState(false);
+  const [blockedFromPolicies, setBlockedFromPolicies] = useState<Set<string>>(new Set());
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: {requestSyncIfEmpty?: boolean}) => {
     try {
-      const [appsRes, policiesRes] = await Promise.all([
+      const [appsRes, bundleRes] = await Promise.all([
         monitoringApi.installedApps(deviceId).catch(() => ({data: {data: [] as InstalledAppItem[]}})),
-        policiesApi.list('APP_BLOCK').catch(() => ({data: {data: [] as PolicySummary[]}})),
+        policiesApi.deviceBundle(deviceId).catch(() => null),
       ]);
-      setApps(appsRes.data.data);
-      const devicePolicies = policiesRes.data.data.filter(p => p.deviceIds.includes(deviceId));
-      setPolicies(devicePolicies);
+      let list = appsRes.data.data ?? [];
+      setApps(list);
+
+      const blocked = new Set<string>();
+      let blockNew = false;
+      for (const rule of bundleRes?.data?.data?.appBlocks ?? []) {
+        if (rule.enabled === false) continue;
+        if (rule.packageName === '*' && rule.scheduleJson?.blockAllApps) continue;
+        if (rule.packageName === '*_new' || rule.scheduleJson?.blockNewInstalls) {
+          blockNew = true;
+          continue;
+        }
+        if (rule.packageName && rule.packageName !== '*' && rule.packageName !== '__category__') {
+          blocked.add(rule.packageName);
+        }
+      }
+      setBlockedFromPolicies(blocked);
+      setBlockNewApps(blockNew);
+
+      if (list.length === 0 && opts?.requestSyncIfEmpty !== false) {
+        setSyncingApps(true);
+        try {
+          await deviceApi.sendCommand(deviceId, 'SYNC_INSTALLED_APPS');
+          await new Promise(r => setTimeout(r, 2500));
+          const again = await monitoringApi.installedApps(deviceId).catch(() => null);
+          list = again?.data?.data ?? [];
+          setApps(list);
+        } catch {
+          // Child may be offline — empty state remains.
+        } finally {
+          setSyncingApps(false);
+        }
+      }
     } catch {
-      Alert.alert('Error', 'Could not load apps');
+      Alert.alert('Error', 'Couldn’t load apps. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -91,19 +128,10 @@ export function AppRulesScreen({navigation, route}: Props) {
     load();
   }, [load]);
 
-  // Build a set of blocked packages from existing policies (name heuristic)
-  const blockedFromPolicies = useMemo(() => {
-    const set = new Set<string>();
-    policies.forEach(p => {
-      if (p.policyType === 'APP_BLOCK') {
-        // Policy name like "Block com.example" or "Block 3 app(s)" - can't reliably parse
-        // We'll use pendingBlocks as source of truth for UI
-      }
-    });
-    return set;
-  }, [policies]);
-
-  const allBlocked = useMemo(() => new Set([...blockedFromPolicies, ...pendingBlocks]), [blockedFromPolicies, pendingBlocks]);
+  const allBlocked = useMemo(
+    () => new Set([...blockedFromPolicies, ...pendingBlocks]),
+    [blockedFromPolicies, pendingBlocks],
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -123,6 +151,13 @@ export function AppRulesScreen({navigation, route}: Props) {
   };
 
   const toggleBlock = (pkg: string) => {
+    if (blockedFromPolicies.has(pkg) && !pendingBlocks.has(pkg)) {
+      Alert.alert(
+        'Already blocked',
+        'This app is already blocked on the child phone. Open Policies to remove the rule if you want to allow it again.',
+      );
+      return;
+    }
     setPendingBlocks(prev => {
       const next = new Set(prev);
       if (next.has(pkg)) next.delete(pkg);
@@ -152,8 +187,15 @@ export function AppRulesScreen({navigation, route}: Props) {
       await load();
       Alert.alert('Saved', `Rules applied to child device.`);
       setPendingBlocks(new Set());
-    } catch {
-      Alert.alert('Error', 'Failed to apply rules');
+    } catch (e) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as {response?: {data?: {message?: string}}}).response?.data?.message?.trim()
+          : undefined;
+      Alert.alert(
+        'Error',
+        msg || 'Couldn’t apply rules. Check the child is paired and try again.',
+      );
     } finally {
       setSaving(false);
     }
@@ -196,7 +238,9 @@ export function AppRulesScreen({navigation, route}: Props) {
           {isBlocked && <Text style={styles.appCircleCheck}>✓</Text>}
         </View>
         <View style={styles.appInfo}>
-          <Text style={styles.appName}>{app.appLabel}</Text>
+          <Text style={styles.appName}>
+            {appDisplayName({appLabel: app.appLabel, packageName: app.packageName})}
+          </Text>
         </View>
         {item.isAllowed ? (
           <View style={styles.allowedChip}>
@@ -261,8 +305,26 @@ export function AppRulesScreen({navigation, route}: Props) {
       ) : apps.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>📱</Text>
-          <Text style={styles.emptyTitle}>No apps found</Text>
-          <Text style={styles.emptySub}>The child device hasn't synced its app list yet.</Text>
+          <Text style={styles.emptyTitle}>
+            {syncingApps ? 'Syncing apps…' : 'No apps found'}
+          </Text>
+          <Text style={styles.emptySub}>
+            {syncingApps
+              ? 'Asking the child phone for its app list. Keep Clock Time running and online.'
+              : 'The child phone has not synced apps yet. Open Clock Time on the child, stay online, then tap Refresh.'}
+          </Text>
+          {!syncingApps ? (
+            <Pressable
+              style={styles.refreshEmptyBtn}
+              onPress={() => {
+                setLoading(true);
+                void load({requestSyncIfEmpty: true});
+              }}>
+              <Text style={styles.refreshEmptyBtnText}>Refresh app list</Text>
+            </Pressable>
+          ) : (
+            <ActivityIndicator color="#7c3aed" style={{marginTop: 16}} />
+          )}
         </View>
       ) : (
         <FlatList
@@ -397,7 +459,15 @@ const styles = StyleSheet.create({
 
   emptyState: {flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingTop: 60},
   emptyIcon: {fontSize: 52, marginBottom: 12},
-  emptyTitle: {fontSize: 18, fontWeight: '700', color: '#0f172a'},
+  emptyTitle: {fontSize: 18, fontWeight: '700', color: '#0f172a', textAlign: 'center'},
+  refreshEmptyBtn: {
+    marginTop: 20,
+    backgroundColor: '#7c3aed',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  refreshEmptyBtnText: {color: '#fff', fontWeight: '700', fontSize: 14},
   emptySub: {fontSize: 14, color: '#64748b', textAlign: 'center', marginTop: 8, lineHeight: 20},
 
   applyBar: {

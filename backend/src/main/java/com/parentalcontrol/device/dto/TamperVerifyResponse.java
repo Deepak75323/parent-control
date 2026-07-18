@@ -11,4 +11,7 @@ public class TamperVerifyResponse {
 
   /** ISO-8601 instant until which the child may complete device-admin deactivation. */
   private Instant unlockExpiresAt;
+
+  /** Refreshed when parent password verified online — child caches for offline unlock. */
+  private OfflinePinCredentialDto offlinePin;
 }

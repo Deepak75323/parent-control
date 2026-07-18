@@ -3,6 +3,7 @@ package com.childmonitor.sync
 import android.content.Context
 import android.util.Log
 import com.childmonitor.MonitoringPrefs
+import com.childmonitor.capture.NativeStreamPublisher
 import com.childmonitor.debug.PcpFlowLogger
 import com.childmonitor.native.ChildMonitorNativeModule
 import com.childmonitor.telemetry.StompOwnershipTelemetry
@@ -37,6 +38,10 @@ object NativeStompOwner {
   @Volatile
     private var appContext: Context? = null
 
+    /** Last API base used for a successful/attempted STOMP connect — skip no-op reconnects. */
+    @Volatile
+    private var lastConnectedApiBase: String? = null
+
     private val state = AtomicReference(OwnershipState.STOPPED)
     private val signalingRooms = ConcurrentHashMap<String, String>()
     private val dedupSeenAt = object : LinkedHashMap<String, Long>(DEDUP_MAX, 0.75f, true) {
@@ -63,6 +68,15 @@ object NativeStompOwner {
             state.set(OwnershipState.NATIVE_AUTHORITATIVE)
             return
         }
+        // Do not tear down a client that is already connecting/reconnecting —
+        // recreating mid-backoff multiplies open sockets and can exhaust nginx.
+        val current = state.get()
+        if (stompClient != null &&
+            (current == OwnershipState.CONNECTING || current == OwnershipState.RECONNECTING)
+        ) {
+            Log.d(TAG, "ensureConnected skipped — already $current")
+            return
+        }
         connectLocked(context.applicationContext)
     }
 
@@ -71,6 +85,7 @@ object NativeStompOwner {
         state.set(OwnershipState.STOPPED)
         stompClient?.disconnect()
         stompClient = null
+        lastConnectedApiBase = null
         signalingRooms.clear()
         synchronized(dedupSeenAt) { dedupSeenAt.clear() }
         appContext = null
@@ -80,7 +95,13 @@ object NativeStompOwner {
     @Synchronized
     fun onApiBaseUrlChanged(context: Context) {
         if (appContext == null && !MonitoringPrefs.isPaired(context)) return
+        val next = MonitoringPrefs.apiBaseUrl(context)?.trimEnd('/')
         appContext = context.applicationContext
+        // Dedup: JS used to push the same production URL on every axios request.
+        if (next != null && next == lastConnectedApiBase && isConnected()) {
+            Log.d(TAG, "API base unchanged ($next) — skip STOMP reconnect")
+            return
+        }
         Log.i(TAG, "API base changed — reconnecting authoritative STOMP")
         connectLocked(context.applicationContext)
     }
@@ -121,6 +142,7 @@ object NativeStompOwner {
         val apiBase = NativeApiResolver.resolveWorkingBase(context)
             ?: MonitoringPrefs.apiBaseUrl(context)
             ?: return
+        lastConnectedApiBase = apiBase.trimEnd('/')
         val deviceId = parseDeviceIdFromToken(token) ?: return
         val wsUrl = NativeStompClient.wsNativeUrl(apiBase)
 
@@ -167,6 +189,7 @@ object NativeStompOwner {
         when {
             destination.contains("/signaling/") -> {
                 val roomId = destination.substringAfterLast('/')
+                NativeStreamPublisher.onSignalingPush(roomId, body)
                 ChildMonitorNativeModule.emitSignalingMessage(roomId, body)
             }
             else -> NativeStreamingCoordinator.handleStompMessageFromOwner(

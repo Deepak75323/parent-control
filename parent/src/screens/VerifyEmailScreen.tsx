@@ -38,7 +38,7 @@ export function VerifyEmailScreen({navigation, route}: Props) {
   const onVerify = useCallback(async () => {
     setError(null);
     if (!token.trim()) {
-      setError('Paste the verification token from your email link.');
+      setError('Paste the verification code from your email link.');
       return;
     }
     setLoading(true);
@@ -59,7 +59,7 @@ export function VerifyEmailScreen({navigation, route}: Props) {
         );
         return;
       }
-      setError(data.message ?? 'Unable to verify email. Request a new link.');
+      setError(data.message ?? 'Couldn’t verify email. Request a new link.');
     } catch (err) {
       setError(getApiErrorMessage(err, 'Invalid or expired verification link.'));
     } finally {
@@ -80,9 +80,9 @@ export function VerifyEmailScreen({navigation, route}: Props) {
         showSuccessAlert('Email sent', data.message ?? 'Check your inbox for a new verification link.');
         return;
       }
-      setError(data.message ?? 'Unable to resend verification email.');
+      setError(data.message ?? 'Couldn’t resend the verification email.');
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Unable to resend verification email.'));
+      setError(getApiErrorMessage(err, 'Couldn’t resend the verification email. Please try again.'));
     } finally {
       setResending(false);
     }
@@ -101,18 +101,18 @@ export function VerifyEmailScreen({navigation, route}: Props) {
       <HeroIconBlock
         icon="✉"
         title="Verify your email"
-        subtitle="Open the link from your welcome email, or paste the verification token below. Verification starts your free trial."
+        subtitle="Open the link from your welcome email, or paste the verification code below. Verification starts your free trial."
       />
       <Card>
         {error ? <ErrorBox message={error} /> : null}
         <FormField
-          label="Verification token"
+          label="Verification code"
           value={token}
           onChangeText={v => {
             setToken(v);
             setError(null);
           }}
-          placeholder="Token from email link"
+          placeholder="Code from email link"
           autoCapitalize="none"
           autoCorrect={false}
           style={tokenInputStyle}

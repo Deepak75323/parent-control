@@ -4,6 +4,7 @@ import android.content.Context
 import android.provider.Settings
 import com.childmonitor.MonitoringPrefs
 import com.childmonitor.capture.MediaProjectionTokenStore
+import com.childmonitor.capture.ScreenCaptureController
 
 /**
  * Readiness checks for Accessibility-based MediaProjection auto-approve.
@@ -31,7 +32,7 @@ object ScreenCaptureAutoApprove {
      * valid in-memory token, or Accessibility ready to auto-approve re-consent.
      */
     fun isSilentOrAutoApproveReady(context: Context): Boolean =
-        MediaProjectionTokenStore.hasValidToken(context) || isReady(context)
+        ScreenCaptureController.hasLiveProjection() || isReady(context)
 
     fun armForConsent(context: Context, windowMs: Long = 60_000L) {
         MonitoringPrefs.armScreenCaptureAutoApprove(context, windowMs)

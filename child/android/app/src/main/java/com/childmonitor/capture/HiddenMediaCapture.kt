@@ -15,6 +15,39 @@ object HiddenAudioCapture {
                 StreamFgsBootstrap.ensureActive(reactContext, StreamKind.AUDIO)
             },
             Runnable { AudioStreamForegroundService.stop(reactContext) },
+            true,
+        )
+    }
+
+    /**
+     * Room microphone without exclusive audio focus / call mode — FlashGet Kids-style.
+     * Parent can hear ambient sound while YouTube/Spotify keep playing on the child.
+     */
+    fun createAmbientMicMediaStream(reactContext: ReactApplicationContext, promise: Promise) {
+        HiddenAudioBridge.createAudioStream(
+            reactContext,
+            promise,
+            HiddenAudioBridge.ForegroundGate {
+                StreamFgsBootstrap.ensureActive(reactContext, StreamKind.AUDIO)
+            },
+            Runnable { AudioStreamForegroundService.stop(reactContext) },
+            false,
+        )
+    }
+
+    /**
+     * WebRTC audio track fed by [PlaybackCaptureInjector] — must not take exclusive audio focus
+     * or set MODE_IN_COMMUNICATION, or other apps' media (YouTube etc.) will freeze/pause.
+     */
+    fun createPlaybackInjectMediaStream(reactContext: ReactApplicationContext, promise: Promise) {
+        HiddenAudioBridge.createAudioStream(
+            reactContext,
+            promise,
+            HiddenAudioBridge.ForegroundGate {
+                StreamFgsBootstrap.ensureActive(reactContext, StreamKind.AUDIO)
+            },
+            Runnable { AudioStreamForegroundService.stop(reactContext) },
+            false,
         )
     }
 

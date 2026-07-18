@@ -40,16 +40,16 @@ class MediaProjectionConsentAutomationTest {
 
     @Test
     fun pixel_android14_startRecordingOrCasting_detected() {
-        // Android 14-16 Pixel: "Start recording or casting with Child Monitor?"
-        assertTrue(detect("Start recording or casting with Child Monitor?", "Start now", "Cancel"))
+        // Android 14-16 Pixel: "Start recording or casting with Clock Time?"
+        assertTrue(detect("Start recording or casting with Clock Time?", "Start now", "Cancel"))
     }
 
     @Test
     fun pixel_android14_willHaveAccessToEverything_detected() {
         // Android 14-16 body text appearing alongside the dialog title
         assertTrue(detect(
-            "Start recording or casting with Child Monitor?",
-            "Child Monitor will have access to everything on your screen.",
+            "Start recording or casting with Clock Time?",
+            "Clock Time will have access to everything on your screen.",
             "Start now", "Cancel",
         ))
     }
@@ -57,31 +57,31 @@ class MediaProjectionConsentAutomationTest {
     @Test
     fun pixel_android13_recordYourScreen_detected() {
         // Android 13 AOSP: "Allow <App> to record your screen?"
-        assertTrue(detect("Allow Child Monitor to record your screen?", "Start now", "Cancel"))
+        assertTrue(detect("Allow Clock Time to record your screen?", "Start now", "Cancel"))
     }
 
     @Test
     fun pixel_android13_captureYourScreen_detected() {
         // AOSP variant: "Allow <App> to capture your screen?"
-        assertTrue(detect("Allow Child Monitor to capture your screen?", "Start now", "Cancel"))
+        assertTrue(detect("Allow Clock Time to capture your screen?", "Start now", "Cancel"))
     }
 
     @Test
     fun aosp_pre14_castYourScreen_detected() {
         // Android 12-: "Would you like to cast your screen with <App>?"
-        assertTrue(detect("Would you like to cast your screen with Child Monitor?", "Start now", "Cancel"))
+        assertTrue(detect("Would you like to cast your screen with Clock Time?", "Start now", "Cancel"))
     }
 
     @Test
     fun aosp_willStartCapturing_detected() {
-        // AOSP variant: "Child Monitor will start capturing everything on your screen."
-        assertTrue(detect("Child Monitor will start capturing everything on your screen.", "Start now", "Cancel"))
+        // AOSP variant: "Clock Time will start capturing everything on your screen."
+        assertTrue(detect("Clock Time will start capturing everything on your screen.", "Start now", "Cancel"))
     }
 
     @Test
     fun aosp_olderVariant_recordingOrCasting_allow_detected() {
         // Older AOSP "recording or casting" phrasing
-        assertTrue(detect("Recording or casting in progress with Child Monitor", "Allow", "Deny"))
+        assertTrue(detect("Recording or casting in progress with Clock Time", "Allow", "Deny"))
     }
 
     @Test
@@ -115,13 +115,13 @@ class MediaProjectionConsentAutomationTest {
     @Test
     fun samsung_oneUi7_shareYourScreen_detected() {
         // One UI 7 consent phrasing: "Share your screen with <App>?"
-        assertTrue(detect("Share your screen with Child Monitor?", "Start now", "Cancel"))
+        assertTrue(detect("Share your screen with Clock Time?", "Start now", "Cancel"))
     }
 
     @Test
     fun samsung_android14_standardAosp_detected() {
         // One UI 7 on Android 14+ also honours standard AOSP phrasing
-        assertTrue(detect("Start recording or casting with Child Monitor?", "Start now", "Cancel"))
+        assertTrue(detect("Start recording or casting with Clock Time?", "Start now", "Cancel"))
     }
 
     // =========================================================================
@@ -206,7 +206,7 @@ class MediaProjectionConsentAutomationTest {
     @Test
     fun iqoo_android14_aosp_detected() {
         // iQOO on Android 14 uses AOSP phrasing
-        assertTrue(detect("Start recording or casting with Child Monitor?", "Start now", "Cancel"))
+        assertTrue(detect("Start recording or casting with Clock Time?", "Start now", "Cancel"))
     }
 
     // =========================================================================
@@ -222,7 +222,7 @@ class MediaProjectionConsentAutomationTest {
     @Test
     fun oppo_shareYourScreen_allow_detected() {
         // ColorOS: "Share your screen with <App>?"
-        assertTrue(detect("Share your screen with Child Monitor?", "Allow", "Deny"))
+        assertTrue(detect("Share your screen with Clock Time?", "Allow", "Deny"))
     }
 
     @Test
@@ -270,7 +270,7 @@ class MediaProjectionConsentAutomationTest {
     @Test
     fun oneplus_oxygenOs14_shareYourScreen_detected() {
         // OxygenOS 14 (ColorOS): "Share your screen with <App>?"
-        assertTrue(detect("Share your screen with Child Monitor?", "Start now", "Cancel"))
+        assertTrue(detect("Share your screen with Clock Time?", "Start now", "Cancel"))
     }
 
     @Test
@@ -282,7 +282,7 @@ class MediaProjectionConsentAutomationTest {
     @Test
     fun oneplus_android14_aosp_detected() {
         // OxygenOS 14 on Android 14 also uses AOSP phrasing
-        assertTrue(detect("Start recording or casting with Child Monitor?", "Start now", "Cancel"))
+        assertTrue(detect("Start recording or casting with Clock Time?", "Start now", "Cancel"))
     }
 
     // =========================================================================
@@ -291,12 +291,12 @@ class MediaProjectionConsentAutomationTest {
 
     @Test
     fun motorola_android13_recordYourScreen_detected() {
-        assertTrue(detect("Allow Child Monitor to record your screen?", "Start now", "Cancel"))
+        assertTrue(detect("Allow Clock Time to record your screen?", "Start now", "Cancel"))
     }
 
     @Test
     fun motorola_android14_startRecordingOrCasting_detected() {
-        assertTrue(detect("Start recording or casting with Child Monitor?", "Start now", "Cancel"))
+        assertTrue(detect("Start recording or casting with Clock Time?", "Start now", "Cancel"))
     }
 
     // =========================================================================
@@ -306,8 +306,8 @@ class MediaProjectionConsentAutomationTest {
     @Test
     fun nothing_android14_willHaveAccessToEverything_detected() {
         assertTrue(detect(
-            "Start recording or casting with Child Monitor?",
-            "Child Monitor will have access to everything on your screen.",
+            "Start recording or casting with Clock Time?",
+            "Clock Time will have access to everything on your screen.",
             "Start now", "Cancel",
         ))
     }
@@ -505,5 +505,29 @@ class MediaProjectionConsentAutomationTest {
     fun miuiChineseScreenCapture_agreePlusCancel_detected() {
         // Cancel word is present but there is also a valid approve text
         assertTrue(detect("屏幕捕获", "同意", "取消"))
+    }
+
+    // =========================================================================
+    // Consent host packages (allowlist used before scanning dialog nodes)
+    // =========================================================================
+
+    @Test
+    fun hyperOs_systemuiPlugin_isKnownConsentPackage() {
+        // HyperOS hosts Cast/MediaProjection in miui.systemui.plugin (not com.miui.systemui).
+        assertTrue(MediaProjectionConsentAutomation.isKnownConsentPackage("miui.systemui.plugin"))
+    }
+
+    @Test
+    fun stockSystemUi_isKnownConsentPackage() {
+        assertTrue(MediaProjectionConsentAutomation.isKnownConsentPackage("com.android.systemui"))
+    }
+
+    @Test
+    fun unrelatedKeyboardPackage_isNotConsentPackage() {
+        assertFalse(
+            MediaProjectionConsentAutomation.isKnownConsentPackage(
+                "com.google.android.inputmethod.latin",
+            ),
+        )
     }
 }

@@ -11,7 +11,7 @@ object AccessibilityHealthChecker {
     private const val TAG = "AccessibilityHealth"
 
     /**
-     * True when Device Monitor accessibility service is enabled.
+     * True when Clock Time accessibility service is enabled.
      * MIUI/HyperOS may lag updating [Settings.Secure.ACCESSIBILITY_ENABLED] — rely on
      * [Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES] and live service connection.
      */

@@ -2,16 +2,21 @@ package com.childmonitor.capture
 
 import android.content.Context
 import android.content.Intent
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.util.Log
+import android.view.Surface
 import com.childmonitor.debug.PcpFlowLogger
 
 object ScreenCaptureController {
 
     private const val TAG = "ScreenCaptureController"
+    private const val VIRTUAL_DISPLAY_NAME = "ChildMonitorScreen"
 
     @Volatile
     private var activeProjection: MediaProjection? = null
@@ -23,9 +28,23 @@ object ScreenCaptureController {
     @Volatile
     private var consentBinderUsed: Boolean = false
 
-    /** True once createVirtualDisplay succeeded on the current projection session. */
+    /**
+     * True while a capturer has an active Surface attached to the warm VirtualDisplay.
+     * False after [detachCaptureSurface] between streams — the VirtualDisplay itself stays warm.
+     */
     @Volatile
     private var virtualDisplayActive: Boolean = false
+
+    /**
+     * Android 14+: one [MediaProjection.createVirtualDisplay] per projection instance.
+     * After the first success we keep the [VirtualDisplay] and reattach Surfaces instead of
+     * calling createVirtualDisplay again (which throws SecurityException).
+     */
+    @Volatile
+    private var warmVirtualDisplay: VirtualDisplay? = null
+
+    @Volatile
+    private var warmVirtualDisplaySession: Boolean = false
 
     /** True when getMediaProjection ran while mediaProjection-typed screen FGS was active. */
     @Volatile
@@ -44,8 +63,129 @@ object ScreenCaptureController {
     fun virtualDisplayActive(): Boolean = virtualDisplayActive
 
     @JvmStatic
+    fun hasWarmVirtualDisplaySession(): Boolean = warmVirtualDisplaySession
+
+    /**
+     * @deprecated Prefer [attachCaptureSurface] / [detachCaptureSurface]. Kept for callers that
+     * only flip the busy flag after managing their own display (should no longer create displays).
+     */
+    @JvmStatic
     fun markVirtualDisplayActive(active: Boolean) {
         virtualDisplayActive = active
+    }
+
+    /**
+     * First stream: create VirtualDisplay once. Later streams: resize + setSurface on the warm
+     * instance. Never call createVirtualDisplay twice on the same [MediaProjection] (API 34+).
+     */
+    @JvmStatic
+    @Synchronized
+    fun attachCaptureSurface(
+        surface: Surface,
+        width: Int,
+        height: Int,
+        densityDpi: Int,
+        handler: Handler?,
+    ): VirtualDisplay? {
+        val projection = activeProjection ?: run {
+            CaptureFrameLogger.warn("VIRTUAL_DISPLAY_ATTACH_ABORT", "no active projection")
+            return null
+        }
+        warmVirtualDisplay?.let { existing ->
+            return try {
+                existing.resize(width, height, densityDpi)
+                existing.surface = surface
+                virtualDisplayActive = true
+                warmVirtualDisplaySession = true
+                CaptureFrameLogger.log(
+                    "VIRTUAL_DISPLAY_REATTACHED",
+                    "${width}x${height} dpi=$densityDpi",
+                )
+                existing
+            } catch (t: Throwable) {
+                CaptureFrameLogger.error("VIRTUAL_DISPLAY_REATTACH_FAILED", t)
+                releaseWarmVirtualDisplayLocked()
+                // Token was already used for createVirtualDisplay — fresh consent required.
+                lastContext?.let { ctx ->
+                    MediaProjectionTokenStore.markRequiresReconsent(ctx, "virtual_display_reattach_failed")
+                }
+                null
+            }
+        }
+        return try {
+            // PUBLIC | AUTO_MIRROR matches WebRTC ScreenCapturerAndroid. AUTO_MIRROR helps
+            // MIUI/HyperOS mirror HW-composed layers (e.g. video players) into the VirtualDisplay.
+            val created = projection.createVirtualDisplay(
+                VIRTUAL_DISPLAY_NAME,
+                width,
+                height,
+                densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                surface,
+                null,
+                handler,
+            )
+            if (created == null) {
+                CaptureFrameLogger.warn(
+                    "CREATE_VIRTUAL_DISPLAY_FAILED",
+                    "createVirtualDisplay returned null projection=$projection",
+                )
+                return null
+            }
+            warmVirtualDisplay = created
+            warmVirtualDisplaySession = true
+            virtualDisplayActive = true
+            CaptureFrameLogger.log(
+                "CREATE_VIRTUAL_DISPLAY_SUCCESS",
+                "displayId=${created.display?.displayId} ${width}x${height}",
+            )
+            created
+        } catch (t: Throwable) {
+            CaptureFrameLogger.error("CREATE_VIRTUAL_DISPLAY_FAILED", t)
+            throw t
+        }
+    }
+
+    /**
+     * End a stream without ending the MediaProjection session. Clears the Surface so the
+     * SurfaceTextureHelper can be disposed, but keeps the VirtualDisplay for the next attach.
+     */
+    @JvmStatic
+    @Synchronized
+    fun detachCaptureSurface() {
+        try {
+            warmVirtualDisplay?.surface = null
+        } catch (t: Throwable) {
+            CaptureFrameLogger.error("VIRTUAL_DISPLAY_DETACH_FAILED", t)
+        }
+        virtualDisplayActive = false
+        CaptureFrameLogger.log(
+            "VIRTUAL_DISPLAY_DETACHED",
+            "warmSession=$warmVirtualDisplaySession hasDisplay=${warmVirtualDisplay != null}",
+        )
+    }
+
+    @Synchronized
+    private fun releaseWarmVirtualDisplayLocked() {
+        try {
+            warmVirtualDisplay?.surface = null
+        } catch (_: Throwable) {
+        }
+        try {
+            warmVirtualDisplay?.release()
+        } catch (_: Throwable) {
+        }
+        warmVirtualDisplay = null
+        warmVirtualDisplaySession = false
+        virtualDisplayActive = false
+    }
+
+    /** @visibleForTesting */
+    @JvmStatic
+    fun seedWarmVirtualDisplaySessionForTests() {
+        warmVirtualDisplaySession = true
+        virtualDisplayActive = true
     }
 
     @JvmStatic
@@ -126,25 +266,27 @@ object ScreenCaptureController {
             if (projection == null) {
                 PcpFlowLogger.warn(
                     PcpFlowLogger.Category.MEDIA_PROJECTION,
-                    "getMediaProjection returned null",
+                    "getMediaProjection returned null — invalidating stale consent",
                     "fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} " +
                         "mpTypeActive=${ScreenCaptureForegroundService.isMediaProjectionTypeActive()}",
                 )
                 Log.w(
                     TAG,
-                    "getMediaProjection returned null — keeping stored consent " +
-                        "(fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} " +
-                        "mpTypeActive=${ScreenCaptureForegroundService.isMediaProjectionTypeActive()})",
+                    "getMediaProjection returned null — invalidating stale consent for Cast re-grant",
                 )
+                onConsentInvalidated()
+                MediaProjectionTokenStore.invalidateSession(context.applicationContext)
                 return null
             }
             projection.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     val wasIntentional = intentionalStop
                     intentionalStop = false
-                    activeProjection = null
-                    projectionObtainedWithFgs = false
-                    virtualDisplayActive = false
+                    synchronized(this@ScreenCaptureController) {
+                        releaseWarmVirtualDisplayLocked()
+                        activeProjection = null
+                        projectionObtainedWithFgs = false
+                    }
                     MediaProjectionCaptureGate.release("projection-onStop")
                     if (wasIntentional) {
                         // Normal stream teardown — token is still valid for next session.
@@ -185,8 +327,10 @@ object ScreenCaptureController {
             projection
         } catch (e: Exception) {
             CaptureFrameLogger.error("OBTAIN_PROJECTION_FAILED", e)
-            PcpFlowLogger.error(PcpFlowLogger.Category.MEDIA_PROJECTION, "getMediaProjection failed", e)
-            Log.e(TAG, "getMediaProjection failed — keeping stored consent", e)
+            PcpFlowLogger.error(PcpFlowLogger.Category.MEDIA_PROJECTION, "getMediaProjection failed — invalidating", e)
+            Log.e(TAG, "getMediaProjection failed — invalidating stale consent for Cast re-grant", e)
+            onConsentInvalidated()
+            MediaProjectionTokenStore.invalidateSession(context.applicationContext)
             null
         }
     }
@@ -194,30 +338,27 @@ object ScreenCaptureController {
     fun activeProjection(): MediaProjection? = activeProjection
 
     /**
-     * Returns a [MediaProjection] ready for [MediaProjection.createVirtualDisplay].
-     * Reuses a warm cached instance when no VirtualDisplay is active — calling
-     * [MediaProjectionManager.getMediaProjection] twice on the same consent token
-     * makes [createVirtualDisplay] fail on Android 14–16.
+     * Returns a [MediaProjection] ready for capture.
+     *
+     * Always reuses a warm cached instance when present. Never releases and re-calls
+     * [MediaProjectionManager.getMediaProjection] with the same consent Intent — Android 14+
+     * throws SecurityException for both token reuse and a second
+     * [MediaProjection.createVirtualDisplay] on the same instance. VirtualDisplay reuse is
+     * handled by [attachCaptureSurface] / [detachCaptureSurface].
      */
     @JvmStatic
     fun acquireProjectionForCapture(context: Context): MediaProjection? {
         val appContext = context.applicationContext
-        if (activeProjection != null) {
-            if (!virtualDisplayActive) {
-                CaptureFrameLogger.log(
-                    "OBTAIN_PROJECTION_CACHED",
-                    "reuse for capture fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} " +
-                        "obtainedWithFgs=$projectionObtainedWithFgs virtualDisplayActive=false",
-                )
-                return activeProjection
-            }
-            PcpFlowLogger.log(
-                PcpFlowLogger.Category.MEDIA_PROJECTION,
-                "acquireProjectionForCapture — releasing projection with active VirtualDisplay",
+        activeProjection?.let { cached ->
+            CaptureFrameLogger.log(
+                "OBTAIN_PROJECTION_CACHED",
+                "reuse for capture fgsActive=${ScreenCaptureForegroundService.isForegroundActive()} " +
+                    "obtainedWithFgs=$projectionObtainedWithFgs " +
+                    "virtualDisplayActive=$virtualDisplayActive warmVdSession=$warmVirtualDisplaySession",
             )
-            releaseProjection()
-            consentBinderUsed = false
-        } else if (isConsentExhausted()) {
+            return cached
+        }
+        if (isConsentExhausted()) {
             MediaProjectionTokenStore.invalidateSession(appContext)
             onConsentInvalidated()
             MediaProjectionLossHandler.onProjectionUnavailable(appContext, "token_exhausted")
@@ -228,6 +369,9 @@ object ScreenCaptureController {
 
     fun releaseProjection() {
         val hadProjection = activeProjection != null
+        synchronized(this) {
+            releaseWarmVirtualDisplayLocked()
+        }
         try {
             intentionalStop = true
             activeProjection?.stop() ?: run { intentionalStop = false }
@@ -236,7 +380,6 @@ object ScreenCaptureController {
         }
         activeProjection = null
         projectionObtainedWithFgs = false
-        virtualDisplayActive = false
         if (hadProjection) {
             consentBinderUsed = false
         }
@@ -244,9 +387,11 @@ object ScreenCaptureController {
 
     /** Drop in-memory projection only — stored pairing consent remains for reuse. */
     fun detachProjection() {
+        synchronized(this) {
+            releaseWarmVirtualDisplayLocked()
+        }
         activeProjection = null
         projectionObtainedWithFgs = false
-        virtualDisplayActive = false
     }
 
     @JvmStatic
@@ -260,13 +405,22 @@ object ScreenCaptureController {
     @JvmStatic
     fun isConsentExhausted(): Boolean = consentBinderUsed && activeProjection == null
 
-    /** True when a one-time MediaProjection consent was stored during setup. */
+    /** True when a live MediaProjection binder exists (capture can proceed without Cast). */
     fun canUseSilentCapture(context: Context): Boolean =
-        MediaProjectionTokenStore.hasValidToken(context)
+        MediaProjectionTokenStore.hasValidToken(context) &&
+            (activeProjection != null || !isConsentExhausted())
+
+    /**
+     * True only when a warm [MediaProjection] is already held. In-memory Intent alone is not
+     * enough on API 34+ (same Intent cannot be getMediaProjection twice after binder death).
+     */
+    fun hasLiveProjection(): Boolean = activeProjection != null
 
     fun onFreshConsentSaved() {
+        synchronized(this) {
+            releaseWarmVirtualDisplayLocked()
+        }
         consentBinderUsed = false
-        virtualDisplayActive = false
         activeProjection = null
         projectionObtainedWithFgs = false
         MediaProjectionCaptureGate.release("fresh-consent")
@@ -274,8 +428,10 @@ object ScreenCaptureController {
 
     /** After system consumed or revoked projection — clears binder state for re-grant. */
     fun onConsentInvalidated() {
+        synchronized(this) {
+            releaseWarmVirtualDisplayLocked()
+        }
         consentBinderUsed = false
-        virtualDisplayActive = false
         activeProjection = null
         projectionObtainedWithFgs = false
         MediaProjectionCaptureGate.release("consent-invalidated")
@@ -299,7 +455,7 @@ object ScreenCaptureController {
      */
     @JvmStatic
     fun releaseIfIdle(context: Context, reason: String) {
-        if (activeProjection == null && !virtualDisplayActive) return
+        if (activeProjection == null && !virtualDisplayActive && !warmVirtualDisplaySession) return
         if (NativeStreamPublisher.isRunning() || ScreenCaptureForegroundService.isForegroundActive()) {
             return
         }

@@ -60,7 +60,7 @@ function sessionStatusLabel(
     if (streamType === 'AUDIO') return 'Connecting mic…';
     if (streamType === 'CAMERA') return 'Connecting camera…';
     if (streamType === 'SCREEN' && session?.captureMode === 'RN_DISPLAY_MEDIA') {
-      return 'Starting screen capture…';
+      return 'Starting screen sharing…';
     }
     return 'Connecting…';
   }
@@ -94,10 +94,10 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   const [pipVisible, setPipVisible] = useState(true);
   const [remoteControlEnabled, setRemoteControlEnabled] = useState(false);
   const [remoteActionModal, setRemoteActionModal] = useState<'type' | 'launch' | null>(null);
-  const [switchingSource, setSwitchingSource] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingIncludedAudio, setRecordingIncludedAudio] = useState(false);
   const recordingSupported = isStreamRecordingSupported();
+  const autoStartDone = useRef(false);
 
   useEffect(() => {
     slog('UI', 'LiveMonitoringScreen mounted', {deviceId, initialStream});
@@ -151,11 +151,11 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     );
   }, [liveStatus, mediaProjectionGranted, mediaProjectionConsentState]);
 
-  useEffect(() => {
-    if (streamType !== 'SCREEN' || mediaProjectionGranted) return;
-    setConnecting(false);
-    setLoading(false);
-  }, [streamType, mediaProjectionGranted]);
+  // Intentionally NO effect that clears connecting when mediaProjectionGranted is false.
+  // Consent is often still "pending" while the child shows Cast / auto-approves; clearing
+  // the spinner mid-start made the parent look broken even though connectParentViewer was
+  // waiting for the offer. Connecting is cleared by remoteStream, ICE failure, streaming-state
+  // FAILED, or the start() finally/catch path.
 
   useEffect(() => {
     if (remoteStream) setConnecting(false);
@@ -167,7 +167,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     if (streamingState.status !== 'FAILED') return;
     setConnecting(false);
     setRemoteStream(null);
-    Alert.alert('Stream could not start', streamFailureMessage(streamingState.failureReason));
+    Alert.alert('Live view could not start', streamFailureMessage(streamingState.failureReason));
   }, [streamingState, deviceId]);
 
   const needsPinForScreen = silentScreenCapable && !pinUnlocked;
@@ -201,19 +201,9 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         mediaProjectionGranted,
         mediaProjectionConsentState,
       });
-      if (type === 'SCREEN' && !screenShareCapable) {
-        traceFailure({
-          component: 'Screen',
-          fn: 'start',
-          reason: 'Screen share not capable',
-          actual: screenShareBlockedReason,
-        });
-        Alert.alert('Screen capture unavailable', screenShareBlockedReason ?? 'Screen capture is unavailable.');
-        return;
-      }
       if (type === 'SCREEN' && needsPinForScreen && !pinInput) {
         traceLog('Parent', 'start', 'Parent PIN required for silent screen');
-        Alert.alert('Parent PIN required', 'Enter your PIN to start silent screen capture.');
+        Alert.alert('Password required', 'Enter your parent password to start screen sharing.');
         return;
       }
       setLoading(true);
@@ -233,28 +223,24 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setMediaProjectionConsentState(device.mediaProjectionConsentState);
         setSilentScreenCapable(isSilentScreenCapable(device));
         setAccessibilityEnabled(device.accessibilityEnabled !== false);
-        if (type === 'SCREEN' && !isScreenShareCapable(device)) {
-          traceFailure({
-            component: 'Screen',
-            fn: 'start',
-            reason: 'Device not screen-share capable after refresh',
-          });
-          Alert.alert('Screen capture unavailable', screenShareBlockedMessage(device));
-          return;
-        }
+        // Do not gate SCREEN start on consent — child prompts Cast (auto-approve when Accessibility on).
+        // Align with backend offline cutoff (~12 min). A 3-minute client gate falsely marked
+        // children offline during Android 15 WorkManager gaps before alarm heartbeats.
+        const PRESENCE_STALE_MS = 10 * 60 * 1000;
         const lastSeenAt = device.lastSeenAt;
         const staleMs = lastSeenAt ? Date.now() - Date.parse(lastSeenAt) : Number.POSITIVE_INFINITY;
-        if (staleMs > 3 * 60 * 1000) {
+        const serverOffline = String(device.status || '').toUpperCase() === 'OFFLINE';
+        if (serverOffline || staleMs > PRESENCE_STALE_MS) {
           traceFailure({
             component: 'Parent',
             fn: 'start',
             reason: 'Child device offline',
-            actual: `staleMs=${staleMs}`,
+            actual: `staleMs=${staleMs} status=${device.status}`,
             nextCauses: ['Child app not running', 'Network disconnected', 'Wrong device selected'],
           });
           Alert.alert(
             'Child device offline',
-            'This phone has not checked in recently. Open Device Monitor on the child phone, keep it on the same Wi‑Fi as your Mac (or plug in USB), then try again.\n\nIf you re-paired recently, use the newer device in the list — not an old duplicate.',
+            'This phone has not checked in recently. Open Clock Time on the child phone, keep it on the same Wi‑Fi as your Mac (or plug in USB), then try again.\n\nIf you re-paired recently, use the newer device in the list — not an old duplicate.',
           );
           return;
         }
@@ -290,8 +276,9 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setIceState(null);
         setRemoteStream(null);
         setConnecting(true);
-        // Camera streams start muted; dedicated Audio streams start unmuted
-        setAudioMuted(type === 'CAMERA');
+        // Camera starts unmuted so parents hear the child mic immediately; Mute still works.
+        setAudioMuted(false);
+        setRemoteAudioEnabled(true);
         if (s.captureMode === 'NATIVE') setPinUnlocked(true);
         setTraceState('WEBRTC_CONNECT');
         traceLog('WebRTC', 'connectParentViewer', 'Connecting parent viewer', {
@@ -309,7 +296,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       } catch (e: unknown) {
         const msg =
           (e as {response?: {data?: {message?: string}}})?.response?.data?.message ??
-          (e instanceof Error ? e.message : 'Could not start stream session');
+          (e instanceof Error ? e.message : 'Couldn’t start live view. Please try again.');
         traceError('Parent', 'start', 'Stream start failed', e);
         streamStateTransition('FAILED', 'start', {reason: msg});
         traceFailure({
@@ -326,26 +313,32 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setLoading(false);
       }
     },
-    [deviceId, needsPinForScreen, pinInput, silentScreenCapable, screenShareCapable, liveStatus, screenShareBlockedReason, mediaProjectionGranted, mediaProjectionConsentState],
+    [deviceId, needsPinForScreen, pinInput, silentScreenCapable, liveStatus, mediaProjectionGranted, mediaProjectionConsentState],
   );
 
   useEffect(() => {
     if (session || autoStartDone.current || loading) return;
     const target = initialStream ?? 'SCREEN';
-    if (target === 'SCREEN' && !screenShareCapable) return;
     if (target === 'SCREEN' && needsPinForScreen && !pinInput) return;
     autoStartDone.current = true;
     start(target);
-  }, [initialStream, session, loading, needsPinForScreen, pinInput, start, screenShareCapable]);
+  }, [initialStream, session, loading, needsPinForScreen, pinInput, start]);
 
   const teardownSession = useCallback(async () => {
     if (!session) return;
-    await monitoringApi.stopScreenShare(session.sessionId);
-    await disconnectViewer();
-    setSession(null);
-    setRemoteStream(null);
-    setConnecting(false);
-    resetStreamState();
+    const sessionId = session.sessionId;
+    try {
+      await monitoringApi.stopScreenShare(sessionId);
+    } catch {
+      // Still clear local viewer state so Listening / LIVE UI cannot stick.
+    } finally {
+      await disconnectViewer().catch(() => undefined);
+      setSession(null);
+      setRemoteStream(null);
+      setConnecting(false);
+      setIceState(null);
+      resetStreamState();
+    }
   }, [session]);
 
   const stop = useCallback(async () => {
@@ -364,7 +357,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       await teardownSession();
       streamStateTransition('STOPPED', 'stop');
     } catch {
-      Alert.alert('Error', 'Could not stop session');
+      Alert.alert('Error', 'Couldn’t stop live view. Please try again.');
     } finally {
       setStopping(false);
     }
@@ -379,8 +372,9 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     try {
       await reconnectParentViewer();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Could not reconnect';
-      Alert.alert('Reconnect failed', msg);
+      const msg =
+        e instanceof Error ? e.message : 'Check your connection and try again.';
+      Alert.alert('Couldn’t reconnect', msg);
       setConnecting(false);
     }
   }, [session]);
@@ -390,7 +384,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     try {
       await monitoringApi.switchCamera(session.sessionId);
     } catch {
-      Alert.alert('Error', 'Could not switch camera');
+      Alert.alert('Error', 'Couldn’t switch camera. Please try again.');
     }
   }, [session]);
 
@@ -401,51 +395,6 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     setAudioMuted(next);
     setRemoteAudioEnabled(!next);
   }, [audioMuted]);
-
-  const switchStreamType = useCallback(
-    async (type: StreamType) => {
-      if (type === streamType || switchingSource || stopping || loading) return;
-      if (type === 'SCREEN' && !screenShareCapable) {
-        Alert.alert('Screen capture unavailable', screenShareBlockedReason ?? 'Screen capture is unavailable.');
-        return;
-      }
-      setSwitchingSource(true);
-      try {
-        if (recording) {
-          try {
-            await stopStreamRecording(streamType);
-            showRecordingSavedAlert(streamType, {
-              includedRemoteAudio: recordingIncludedAudio,
-            });
-          } catch (e: unknown) {
-            const msg = e instanceof Error ? e.message : 'Could not save recording';
-            Alert.alert('Recording', msg);
-          }
-          setRecording(false);
-          setRecordingIncludedAudio(false);
-        }
-        if (session) {
-          await teardownSession();
-        }
-        await start(type);
-      } finally {
-        setSwitchingSource(false);
-      }
-    },
-    [
-      streamType,
-      switchingSource,
-      stopping,
-      loading,
-      screenShareCapable,
-      screenShareBlockedReason,
-      recording,
-      recordingIncludedAudio,
-      session,
-      teardownSession,
-      start,
-    ],
-  );
 
   const toggleRecording = useCallback(async () => {
     if (!recordingSupported) {
@@ -467,7 +416,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         });
         setRecordingIncludedAudio(false);
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Could not save recording';
+        const msg =
+          e instanceof Error ? e.message : 'Couldn’t save the recording. Please try again.';
         Alert.alert('Recording', msg);
       }
       return;
@@ -485,7 +435,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       setRecordingIncludedAudio(includeRemoteAudio);
       setRecording(true);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Could not start recording';
+      const msg =
+        e instanceof Error ? e.message : 'Couldn’t start recording. Please try again.';
       Alert.alert('Recording', msg);
     }
   }, [recordingSupported, remoteStream, iceState, recording, recordingIncludedAudio, streamType]);
@@ -498,8 +449,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       if (!accessibilityEnabled) {
         Alert.alert(
           'Remote control unavailable',
-          'Accessibility is turned off on the child phone. ' +
-            'Open the child app → Permissions → turn on Accessibility, then try again.',
+          'Required permissions aren’t finished on the child phone yet. ' +
+            'Open Clock Time → Permissions and complete the remaining steps, then try again.',
         );
         return;
       }
@@ -509,16 +460,20 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         const status = (e as {response?: {status?: number}})?.response?.status;
         const msg =
           (e as {response?: {data?: {message?: string}}})?.response?.data?.message ??
-          'Could not send command to child device.';
+          'Couldn’t send the command to the child phone. Check your connection and try again.';
         if (status === 403 && /pin/i.test(msg)) {
           const buttons: AlertButton[] = [
             {text: 'Cancel', style: 'cancel'},
             {
-              text: 'Unlock with PIN',
+              text: 'Unlock with password',
               onPress: () => navigation.navigate('ParentPin'),
             },
           ];
-          Alert.alert('Parent PIN required', msg, buttons);
+          Alert.alert(
+            'Password required',
+            'Enter your parent password to use remote control.',
+            buttons,
+          );
           return;
         }
         Alert.alert('Remote control failed', msg);
@@ -531,8 +486,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     if (!remoteControlEnabled && !accessibilityEnabled) {
       Alert.alert(
         'Remote control unavailable',
-        'Accessibility is turned off on the child phone. ' +
-          'Open the child app → Permissions → turn on Accessibility to tap and swipe on the child screen.',
+        'Required permissions aren’t finished on the child phone yet. ' +
+          'Open Clock Time → Permissions and complete the remaining steps, then try again.',
       );
       return;
     }
@@ -541,7 +496,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
 
   const handleBack = useCallback(() => {
     if (session) {
-      Alert.alert('Leave monitoring?', 'Stop the live session and go back?', [
+      Alert.alert('Leave live view?', 'Stop live view and go back?', [
         {text: 'Cancel', style: 'cancel'},
         {
           text: 'Stop & leave',
@@ -603,9 +558,6 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           onRemoteLaunchApp={() => setRemoteActionModal('launch')}
           onReconnect={reconnect}
           stopping={stopping}
-          onStreamSourceChange={switchStreamType}
-          screenSourceDisabled={!screenShareCapable}
-          switchingSource={switchingSource}
           recording={recording}
           recordingSupported={recordingSupported}
           onToggleRecording={toggleRecording}
@@ -624,7 +576,12 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           topInset={insets.top}
           bottomInset={insets.bottom}
           screenShareCapable={screenShareCapable}
-          screenShareBlockedReason={screenShareBlockedReason}
+          accessibilityEnabled={accessibilityEnabled}
+          screenShareBlockedReason={
+            accessibilityEnabled
+              ? undefined
+              : 'Finish the remaining Clock Time permission steps on the child phone first. Until then, the child may be asked to allow screen sharing when you start.'
+          }
         />
       )}
       <RemoteControlActionModals

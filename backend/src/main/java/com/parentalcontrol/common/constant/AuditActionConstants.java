@@ -8,6 +8,7 @@ public final class AuditActionConstants {
   public static final String BILLING_CHECKOUT_STARTED = "BILLING_CHECKOUT_STARTED";
 
   public static final String DEFAULT_CHILD_LOGIN_PASSWORD_SET = "DEFAULT_CHILD_LOGIN_PASSWORD_SET";
+  public static final String FAMILY_HANDLE_SET = "FAMILY_HANDLE_SET";
 
   public static final String DEVICE_COMMAND_ = "DEVICE_COMMAND_";
 

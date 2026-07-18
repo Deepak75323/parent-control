@@ -51,6 +51,17 @@ class CameraXCaptureController(
 
     override fun getDeviceId(): String? = if (useFrontCamera) "0" else "1"
 
+    /**
+     * Include facingMode so JS [MediaStreamTrack._switchCamera] / applyConstraints
+     * can tell front from back. The base class omits it, which made Flip always
+     * request "user" and no-op on the default front camera.
+     */
+    override fun getSettings(): com.facebook.react.bridge.WritableMap {
+        val settings = super.getSettings()
+        settings.putString("facingMode", if (useFrontCamera) "user" else "environment")
+        return settings
+    }
+
     override fun createVideoCapturer(): VideoCapturer {
         Log.i(TAG, "Creating CameraX capturer front=$useFrontCamera")
         return CameraXVideoCapturer(appContext, useFrontCamera)
@@ -67,26 +78,52 @@ class CameraXCaptureController(
             return
         }
         this.constraints = constraints
-        targetWidth = constraints.getInt("width")
-        targetHeight = constraints.getInt("height")
-        targetFps = constraints.getInt("frameRate")
+        if (constraints.hasKey("width")) {
+            targetWidth = constraints.getInt("width")
+        }
+        if (constraints.hasKey("height")) {
+            targetHeight = constraints.getInt("height")
+        }
+        if (constraints.hasKey("frameRate")) {
+            targetFps = constraints.getInt("frameRate")
+        }
 
-        if (wantFront == useFrontCamera) {
-            capturer.changeCaptureFormat(targetWidth, targetHeight, targetFps)
+        switchFacing(wantFront, onFinishedCallback)
+    }
+
+    /**
+     * Switch to an absolute facing without a second rebind. Calling [changeCaptureFormat]
+     * after setFacing was rebinding again and left Flip stuck after the first click.
+     */
+    fun switchFacing(wantFront: Boolean, onFinishedCallback: Consumer<Exception>?) {
+        val capturer = videoCapturer as? CameraXVideoCapturer
+        if (capturer == null) {
+            onFinishedCallback?.accept(
+                UnsupportedOperationException("CameraX capturer not initialized"),
+            )
+            return
+        }
+        if (wantFront == capturer.isFrontFacing()) {
+            useFrontCamera = wantFront
+            Log.i(TAG, "switchFacing no-op already front=$wantFront")
             onFinishedCallback?.accept(null)
             return
         }
-        useFrontCamera = wantFront
-        capturer.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
-            override fun onCameraSwitchDone(isFrontCamera: Boolean) {
-                useFrontCamera = isFrontCamera
-                capturer.changeCaptureFormat(targetWidth, targetHeight, targetFps)
-                onFinishedCallback?.accept(null)
-            }
+        capturer.setFacing(
+            wantFront,
+            object : CameraVideoCapturer.CameraSwitchHandler {
+                override fun onCameraSwitchDone(isFrontCamera: Boolean) {
+                    useFrontCamera = isFrontCamera
+                    Log.i(TAG, "switchFacing done front=$isFrontCamera")
+                    onFinishedCallback?.accept(null)
+                }
 
-            override fun onCameraSwitchError(errorDescription: String?) {
-                onFinishedCallback?.accept(Exception(errorDescription ?: "Camera switch failed"))
-            }
-        })
+                override fun onCameraSwitchError(errorDescription: String?) {
+                    useFrontCamera = capturer.isFrontFacing()
+                    Log.w(TAG, "switchFacing error: $errorDescription")
+                    onFinishedCallback?.accept(Exception(errorDescription ?: "Camera switch failed"))
+                }
+            },
+        )
     }
 }

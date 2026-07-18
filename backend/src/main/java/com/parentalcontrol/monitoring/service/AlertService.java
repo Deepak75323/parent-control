@@ -152,8 +152,8 @@ public class AlertService {
   }
 
   /**
-   * P1-08 — parent visibility when child monitoring falls back from dataSync FGS
-   * (quota exhaustion / standby) to WorkManager + FCM.
+   * P1-08 — parent visibility when child monitoring falls back from dataSync FGS (quota exhaustion
+   * / standby) to WorkManager + FCM.
    */
   @Transactional
   public void checkMonitoringDegraded(
@@ -177,10 +177,14 @@ public class AlertService {
             + safeReason
             + (standbyBucket != null ? " · standby=" + standbyBucket : ""),
         Map.of(
-            "deviceId", device.getId().toString(),
-            "monitoringMode", safeMode,
-            "reason", safeReason,
-            "standbyBucket", standbyBucket != null ? standbyBucket : "UNKNOWN"));
+            "deviceId",
+            device.getId().toString(),
+            "monitoringMode",
+            safeMode,
+            "reason",
+            safeReason,
+            "standbyBucket",
+            standbyBucket != null ? standbyBucket : "UNKNOWN"));
   }
 
   @Transactional

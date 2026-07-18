@@ -22,9 +22,7 @@ import {StreamControlBar} from './StreamControlBar';
 import {flowLog} from '../../services/streamDebug';
 import {mapContainTouchToNorm, videoAspectFromStream} from './remoteControlCoords';
 
-import {StreamSource} from './StreamSourceSwitcher';
-
-type StreamType = StreamSource;
+type StreamType = 'SCREEN' | 'CAMERA' | 'AUDIO';
 
 type Props = {
   deviceName: string;
@@ -56,9 +54,6 @@ type Props = {
   audioMuted?: boolean;
   /** Called when the parent presses the mute/unmute audio button in camera view */
   onToggleAudioMute?: () => void;
-  onStreamSourceChange?: (type: StreamType) => void;
-  screenSourceDisabled?: boolean;
-  switchingSource?: boolean;
   recording?: boolean;
   recordingSupported?: boolean;
   onToggleRecording?: () => void;
@@ -125,9 +120,6 @@ export function LiveStreamViewport({
   bottomInset,
   audioMuted,
   onToggleAudioMute,
-  onStreamSourceChange,
-  screenSourceDisabled,
-  switchingSource,
   recording,
   recordingSupported,
   onToggleRecording,
@@ -353,10 +345,6 @@ export function LiveStreamViewport({
           bottomInset={bottomInset}
           audioMuted={streamType === 'CAMERA' ? audioMuted : undefined}
           onToggleAudioMute={streamType === 'CAMERA' ? onToggleAudioMute : undefined}
-          streamSource={streamType}
-          onStreamSourceChange={onStreamSourceChange ?? (() => undefined)}
-          screenSourceDisabled={screenSourceDisabled}
-          switchingSource={switchingSource}
           recording={recording}
           recordingSupported={recordingSupported}
           onToggleRecording={onToggleRecording}

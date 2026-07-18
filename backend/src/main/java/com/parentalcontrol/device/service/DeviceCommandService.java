@@ -87,6 +87,34 @@ public class DeviceCommandService {
     return toResponse(command);
   }
 
+  /**
+   * Enqueue a non-interactive sync command and FCM-wake the device (used when parent policies
+   * change). Skips parent step-up / subscription checks that apply to parent-initiated commands.
+   */
+  @Transactional
+  public void enqueueSystemCommand(UUID deviceId, DeviceCommandType type) {
+    Device device =
+        deviceRepository
+            .findById(deviceId)
+            .orElseThrow(
+                () ->
+                    new BusinessException(
+                        ErrorCode.NOT_FOUND, MessageConstants.DEVICE_NOT_FOUND));
+    DeviceCommand command =
+        deviceCommandRepository.save(
+            DeviceCommand.builder()
+                .deviceId(device.getId())
+                .commandType(type)
+                .payload(null)
+                .status(DeviceCommandStatus.PENDING)
+                .build());
+    CorrelationContext.setCommandId(command.getId());
+    commandObservabilityService.recordSent(type);
+    applicationEventPublisher.publishEvent(
+        new DeviceCommandCreatedEvent(device.getId(), command.getId(), type.name()));
+    log.info("Enqueued system command type={} deviceId={} commandId={}", type, deviceId, command.getId());
+  }
+
   @Transactional
   public List<PendingDeviceCommandResponse> listPendingForDevice() {
     UUID deviceId = SecurityUtils.requireDeviceId();

@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   View,
   Text,
@@ -10,42 +10,175 @@ import {
   Modal,
   TextInput,
   ScrollView,
+  Image,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
-import {InstalledAppItem, monitoringApi, policiesApi, PolicySummary} from '../services/api';
+import {
+  InstalledAppItem,
+  deviceApi,
+  monitoringApi,
+  policiesApi,
+  PolicySummary,
+  ScreenTimeBundleRule,
+  UsageStatEntry,
+} from '../services/api';
+import {formatUsageMs} from '../utils/formatUsage';
+import {appDisplayName} from '../utils/appDisplayName';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AppTimeLimits'>;
 
 const QUICK_LIMITS = [15, 30, 60, 90, 120];
+const AVATAR_COLORS = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#db2777', '#4f46e5'];
 
-function LimitCard({policy, onDelete}: {policy: PolicySummary; onDelete: () => void}) {
-  const hours = Math.floor(0);
-  const mins = 0;
-  // Parse limit from name like "Screen time YouTube - 60 min"
-  const match = policy.name.match(/(\d+)\s*min/);
-  const limitMin = match ? parseInt(match[1], 10) : 60;
-  const h = Math.floor(limitMin / 60);
-  const m = limitMin % 60;
-  const timeLabel = h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''}`.trim() : `${m}m`;
+type LimitRow = {
+  policy: PolicySummary;
+  packageName: string | null;
+  appLabel: string;
+  iconBase64?: string | null;
+  limitMin: number;
+  usedMs: number;
+};
+
+function localDateKey(iso: string | undefined | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return iso.length >= 10 ? iso.slice(0, 10) : null;
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function todayKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function usageMsForPackage(entries: UsageStatEntry[], packageName: string): number {
+  const today = todayKey();
+  const dayEntries = entries.filter(
+    e => e.packageName === packageName && localDateKey(e.recordedAt) === today,
+  );
+  if (dayEntries.length === 0) return 0;
+  const sorted = [...dayEntries].sort((a, b) => {
+    const ca = a.createdAt ?? a.recordedAt ?? '';
+    const cb = b.createdAt ?? b.recordedAt ?? '';
+    return cb.localeCompare(ca);
+  });
+  return sorted[0]?.usageMs ?? 0;
+}
+
+function parseLimitFromName(name: string): number | null {
+  const match = name.match(/(\d+)\s*min/i);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+function AppIcon({
+  label,
+  iconBase64,
+  index,
+  size = 44,
+}: {
+  label: string;
+  iconBase64?: string | null;
+  index: number;
+  size?: number;
+}) {
+  const letter = (label.trim().charAt(0) || '?').toUpperCase();
+  const bg = AVATAR_COLORS[index % AVATAR_COLORS.length];
+  if (iconBase64) {
+    return (
+      <Image
+        source={{uri: `data:image/png;base64,${iconBase64}`}}
+        style={{width: size, height: size, borderRadius: size * 0.27}}
+        resizeMode="cover"
+      />
+    );
+  }
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size * 0.27,
+        backgroundColor: bg,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+      <Text style={{color: '#fff', fontWeight: '800', fontSize: size * 0.4}}>{letter}</Text>
+    </View>
+  );
+}
+
+function LimitCard({
+  row,
+  index,
+  onDelete,
+}: {
+  row: LimitRow;
+  index: number;
+  onDelete: () => void;
+}) {
+  const overLimit = row.usedMs >= row.limitMin * 60_000;
+  const usedLabel = formatUsageMs(row.usedMs);
+  const limitLabel =
+    row.limitMin >= 60
+      ? `${Math.floor(row.limitMin / 60)}h${row.limitMin % 60 ? ` ${row.limitMin % 60}m` : ''}`
+      : `${row.limitMin}m`;
+  const progress = Math.min(1, row.usedMs / Math.max(1, row.limitMin * 60_000));
 
   return (
     <View style={styles.limitCard}>
       <View style={styles.limitLeft}>
         <View style={styles.limitIconWrap}>
-          <Text style={styles.limitIcon}>⏱️</Text>
+          <AppIcon label={row.appLabel} iconBase64={row.iconBase64} index={index} />
         </View>
         <View style={styles.limitInfo}>
-          <Text style={styles.limitName} numberOfLines={1}>{policy.name}</Text>
+          <Text style={styles.limitName} numberOfLines={1}>
+            {row.appLabel}
+          </Text>
           <View style={styles.limitMeta}>
-            <Text style={styles.limitTime}>{timeLabel}</Text>
+            <Text style={[styles.limitTime, overLimit && styles.limitTimeOver]}>
+              {usedLabel} / {limitLabel}
+            </Text>
             <Text style={styles.limitSep}> · </Text>
-            <View style={[styles.limitStatus, {backgroundColor: policy.enabled ? '#dcfce7' : '#f1f5f9'}]}>
-              <Text style={[styles.limitStatusText, {color: policy.enabled ? '#16a34a' : '#94a3b8'}]}>
-                {policy.enabled ? 'Active' : 'Paused'}
+            <View
+              style={[
+                styles.limitStatus,
+                {
+                  backgroundColor: overLimit
+                    ? '#fee2e2'
+                    : row.policy.enabled
+                      ? '#dcfce7'
+                      : '#f1f5f9',
+                },
+              ]}>
+              <Text
+                style={[
+                  styles.limitStatusText,
+                  {
+                    color: overLimit
+                      ? '#dc2626'
+                      : row.policy.enabled
+                        ? '#16a34a'
+                        : '#94a3b8',
+                  },
+                ]}>
+                {overLimit ? 'Over limit' : row.policy.enabled ? 'Active' : 'Paused'}
               </Text>
             </View>
+          </View>
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${Math.round(progress * 100)}%`,
+                  backgroundColor: overLimit ? '#dc2626' : '#7c3aed',
+                },
+              ]}
+            />
           </View>
         </View>
       </View>
@@ -60,11 +193,12 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
   const {deviceId} = route.params;
   const [policies, setPolicies] = useState<PolicySummary[]>([]);
   const [installedApps, setInstalledApps] = useState<InstalledAppItem[]>([]);
+  const [screenTimeRules, setScreenTimeRules] = useState<ScreenTimeBundleRule[]>([]);
+  const [usageEntries, setUsageEntries] = useState<UsageStatEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Form state
   const [selectedApp, setSelectedApp] = useState<InstalledAppItem | null>(null);
   const [appSearch, setAppSearch] = useState('');
   const [limitMin, setLimitMin] = useState(60);
@@ -72,14 +206,20 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
 
   const load = useCallback(async () => {
     try {
-      const [policiesRes, appsRes] = await Promise.all([
+      const [policiesRes, appsRes, bundleRes, usageRes] = await Promise.all([
         policiesApi.list('SCREEN_TIME').catch(() => ({data: {data: [] as PolicySummary[]}})),
         monitoringApi.installedApps(deviceId).catch(() => ({data: {data: [] as InstalledAppItem[]}})),
+        policiesApi.deviceBundle(deviceId).catch(() => ({data: {data: {screenTime: []}}})),
+        monitoringApi.usageStats(deviceId, 0, 100).catch(() => ({
+          data: {data: {content: [] as UsageStatEntry[]}},
+        })),
       ]);
       setPolicies(policiesRes.data.data.filter(p => p.deviceIds.includes(deviceId)));
       setInstalledApps(appsRes.data.data);
+      setScreenTimeRules(bundleRes.data.data.screenTime ?? []);
+      setUsageEntries(usageRes.data.data.content ?? []);
     } catch {
-      Alert.alert('Error', 'Could not load limits');
+      Alert.alert('Error', 'Couldn’t load time limits. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -88,6 +228,35 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  const rows: LimitRow[] = useMemo(() => {
+    const appByPkg = new Map(installedApps.map(a => [a.packageName, a]));
+    const ruleByPolicy = new Map(
+      screenTimeRules.filter(r => r.policyId).map(r => [r.policyId, r]),
+    );
+    return policies.map(policy => {
+      const rule = ruleByPolicy.get(policy.id);
+      const packageName = rule?.packageName ?? null;
+      const app = packageName ? appByPkg.get(packageName) : undefined;
+      const limitMin =
+        rule?.dailyLimitMinutes ?? parseLimitFromName(policy.name) ?? 60;
+      const appLabel = appDisplayName({
+        appLabel:
+          app?.appLabel ??
+          (policy.name.replace(/\s*-\s*\d+\s*min.*/i, '').trim() || null),
+        packageName,
+        fallback: 'App',
+      });
+      return {
+        policy,
+        packageName,
+        appLabel,
+        iconBase64: app?.iconBase64,
+        limitMin,
+        usedMs: packageName ? usageMsForPackage(usageEntries, packageName) : 0,
+      };
+    });
+  }, [policies, installedApps, screenTimeRules, usageEntries]);
 
   const openModal = () => {
     setStep('pick_app');
@@ -102,18 +271,28 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
     setSaving(true);
     try {
       await policiesApi.createScreenTime({
-        name: `${selectedApp.appLabel} - ${limitMin} min`,
+        name: `${appDisplayName({
+          appLabel: selectedApp.appLabel,
+          packageName: selectedApp.packageName,
+        })} - ${limitMin} min`,
         deviceIds: [deviceId],
         packageName: selectedApp.packageName,
         dailyLimitMinutes: limitMin,
         actionOnLimit: 'BLOCK_APP',
         warnAtPercent: 80,
       });
+      void deviceApi.sendCommand(deviceId, 'SYNC_POLICIES').catch(() => undefined);
       await load();
       setModalVisible(false);
-      Alert.alert('Saved', `${limitMin} min/day limit set for ${selectedApp.appLabel}`);
+      Alert.alert(
+        'Saved',
+        `${limitMin} min/day limit set for ${appDisplayName({
+          appLabel: selectedApp.appLabel,
+          packageName: selectedApp.packageName,
+        })}`,
+      );
     } catch {
-      Alert.alert('Error', 'Could not save limit');
+      Alert.alert('Error', 'Couldn’t save this limit. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -128,9 +307,10 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
         onPress: async () => {
           try {
             await policiesApi.delete(policyId);
+            void deviceApi.sendCommand(deviceId, 'SYNC_POLICIES').catch(() => undefined);
             await load();
           } catch {
-            Alert.alert('Error', 'Could not remove limit');
+            Alert.alert('Error', 'Couldn’t remove this limit. Please try again.');
           }
         },
       },
@@ -149,7 +329,6 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-      {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backText}>‹</Text>
@@ -159,16 +338,15 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
 
       {loading ? (
         <ActivityIndicator color="#7c3aed" size="large" style={{marginTop: 60}} />
-      ) : policies.length === 0 ? (
-        /* Empty state */
+      ) : rows.length === 0 ? (
         <View style={styles.emptyState}>
           <View style={styles.emptyIllustration}>
             <Text style={styles.emptyIllustrationText}>⏱️</Text>
           </View>
           <Text style={styles.emptyTitle}>No time limits yet</Text>
           <Text style={styles.emptyBody}>
-            You can set the Available Time and Timespan Limits for apps on your child's device.{'\n'}
-            Limited apps will be blocked during unavailable times.
+            Set a daily limit for an app. When the child reaches the limit, that app is blocked for
+            the rest of the day.
           </Text>
           <Pressable style={styles.addBtn} onPress={openModal}>
             <Text style={styles.addBtnText}>Add limits</Text>
@@ -178,10 +356,14 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
         <>
           <FlatList
             contentContainerStyle={styles.listContent}
-            data={policies}
-            keyExtractor={p => p.id}
-            renderItem={({item}) => (
-              <LimitCard policy={item} onDelete={() => deletePolicy(item.id)} />
+            data={rows}
+            keyExtractor={r => r.policy.id}
+            renderItem={({item, index}) => (
+              <LimitCard
+                row={item}
+                index={index}
+                onDelete={() => deletePolicy(item.policy.id)}
+              />
             )}
           />
           <View style={styles.fab}>
@@ -192,8 +374,11 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
         </>
       )}
 
-      {/* Add Limit Modal */}
-      <Modal visible={modalVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setModalVisible(false)}>
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setModalVisible(false)}>
         <SafeAreaView style={styles.modal} edges={['top', 'bottom']}>
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setModalVisible(false)}>
@@ -229,7 +414,7 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
                 data={filteredApps}
                 keyExtractor={a => a.packageName}
                 contentContainerStyle={{paddingBottom: 20}}
-                renderItem={({item}) => (
+                renderItem={({item, index}) => (
                   <Pressable
                     style={styles.modalAppRow}
                     onPress={() => {
@@ -237,9 +422,22 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
                       setStep('pick_time');
                     }}>
                     <View style={styles.modalAppIcon}>
-                      <Text style={{fontSize: 20}}>📱</Text>
+                      <AppIcon
+                        label={appDisplayName({
+                          appLabel: item.appLabel,
+                          packageName: item.packageName,
+                        })}
+                        iconBase64={item.iconBase64}
+                        index={index}
+                        size={36}
+                      />
                     </View>
-                    <Text style={styles.modalAppName}>{item.appLabel}</Text>
+                    <Text style={styles.modalAppName}>
+                      {appDisplayName({
+                        appLabel: item.appLabel,
+                        packageName: item.packageName,
+                      })}
+                    </Text>
                     <Text style={styles.modalAppChevron}>›</Text>
                   </Pressable>
                 )}
@@ -254,8 +452,27 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
           ) : (
             <ScrollView contentContainerStyle={styles.timePickerContent}>
               <View style={styles.selectedAppCard}>
-                <Text style={styles.selectedAppIcon}>📱</Text>
-                <Text style={styles.selectedAppName}>{selectedApp?.appLabel}</Text>
+                <AppIcon
+                  label={
+                    selectedApp
+                      ? appDisplayName({
+                          appLabel: selectedApp.appLabel,
+                          packageName: selectedApp.packageName,
+                        })
+                      : 'App'
+                  }
+                  iconBase64={selectedApp?.iconBase64}
+                  index={0}
+                  size={64}
+                />
+                <Text style={[styles.selectedAppName, {marginTop: 12}]}>
+                  {selectedApp
+                    ? appDisplayName({
+                        appLabel: selectedApp.appLabel,
+                        packageName: selectedApp.packageName,
+                      })
+                    : 'App'}
+                </Text>
               </View>
 
               <Text style={styles.timePickerLabel}>Daily time limit</Text>
@@ -264,7 +481,6 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
                 <Text style={styles.timeBigSub}>per day</Text>
               </View>
 
-              {/* Quick limits */}
               <Text style={styles.quickTitle}>Quick select</Text>
               <View style={styles.quickRow}>
                 {QUICK_LIMITS.map(mins => (
@@ -272,23 +488,26 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
                     key={mins}
                     style={[styles.quickChip, limitMin === mins && styles.quickChipActive]}
                     onPress={() => setLimitMin(mins)}>
-                    <Text style={[styles.quickChipText, limitMin === mins && styles.quickChipTextActive]}>
+                    <Text
+                      style={[
+                        styles.quickChipText,
+                        limitMin === mins && styles.quickChipTextActive,
+                      ]}>
                       {mins < 60 ? `${mins}m` : `${mins / 60}h`}
                     </Text>
                   </Pressable>
                 ))}
               </View>
 
-              {/* Fine controls */}
               <View style={styles.fineRow}>
                 <Pressable
                   style={styles.fineBtn}
-                  onPress={() => setLimitMin(m => Math.max(15, m - 15))}>
+                  onPress={() => setLimitMin(prev => Math.max(15, prev - 15))}>
                   <Text style={styles.fineBtnText}>−15m</Text>
                 </Pressable>
                 <Pressable
                   style={styles.fineBtn}
-                  onPress={() => setLimitMin(m => Math.min(480, m + 15))}>
+                  onPress={() => setLimitMin(prev => Math.min(480, prev + 15))}>
                   <Text style={styles.fineBtnText}>+15m</Text>
                 </Pressable>
               </View>
@@ -319,16 +538,22 @@ const styles = StyleSheet.create({
   backText: {fontSize: 28, color: '#0f172a', lineHeight: 32},
   headerTitle: {flex: 1, fontSize: 18, fontWeight: '800', color: '#0f172a'},
 
-  // Empty state
   emptyState: {flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32},
-  emptyIllustration: {width: 120, height: 120, borderRadius: 60, backgroundColor: '#ede9fe', alignItems: 'center', justifyContent: 'center', marginBottom: 24},
+  emptyIllustration: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#ede9fe',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
   emptyIllustrationText: {fontSize: 54},
   emptyTitle: {fontSize: 18, fontWeight: '800', color: '#0f172a', textAlign: 'center', marginBottom: 12},
   emptyBody: {fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 22, marginBottom: 32},
   addBtn: {backgroundColor: '#7c3aed', borderRadius: 28, paddingHorizontal: 40, paddingVertical: 16},
   addBtnText: {color: '#fff', fontSize: 16, fontWeight: '800'},
 
-  // List
   listContent: {padding: 16, paddingBottom: 100},
   limitCard: {
     backgroundColor: '#fff',
@@ -344,24 +569,37 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   limitLeft: {flex: 1, flexDirection: 'row', alignItems: 'center'},
-  limitIconWrap: {width: 44, height: 44, borderRadius: 12, backgroundColor: '#ede9fe', alignItems: 'center', justifyContent: 'center', marginRight: 12},
-  limitIcon: {fontSize: 22},
+  limitIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginRight: 12,
+    backgroundColor: '#ede9fe',
+  },
   limitInfo: {flex: 1},
   limitName: {fontSize: 15, fontWeight: '700', color: '#0f172a'},
-  limitMeta: {flexDirection: 'row', alignItems: 'center', marginTop: 4},
+  limitMeta: {flexDirection: 'row', alignItems: 'center', marginTop: 4, flexWrap: 'wrap'},
   limitTime: {fontSize: 13, fontWeight: '700', color: '#7c3aed'},
+  limitTimeOver: {color: '#dc2626'},
   limitSep: {color: '#94a3b8', fontSize: 12},
   limitStatus: {paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8},
   limitStatusText: {fontSize: 11, fontWeight: '700'},
+  progressTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#e2e8f0',
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  progressFill: {height: 4, borderRadius: 2},
   deleteBtn: {padding: 8},
   deleteBtnText: {fontSize: 20},
 
-  // FAB
   fab: {position: 'absolute', bottom: 24, left: 16, right: 16},
   fabBtn: {backgroundColor: '#7c3aed', borderRadius: 16, paddingVertical: 16, alignItems: 'center'},
   fabText: {color: '#fff', fontSize: 16, fontWeight: '800'},
 
-  // Modal
   modal: {flex: 1, backgroundColor: '#f5f5fa'},
   modalHeader: {
     flexDirection: 'row',
@@ -403,27 +641,58 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 1,
   },
-  modalAppIcon: {width: 36, height: 36, borderRadius: 8, backgroundColor: '#ede9fe', alignItems: 'center', justifyContent: 'center', marginRight: 12},
+  modalAppIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginRight: 12,
+    backgroundColor: '#ede9fe',
+  },
   modalAppName: {flex: 1, fontSize: 15, fontWeight: '600', color: '#0f172a'},
   modalAppChevron: {fontSize: 20, color: '#d1d5db'},
 
-  // Time picker
   timePickerContent: {padding: 24, alignItems: 'center'},
   selectedAppCard: {alignItems: 'center', marginBottom: 24},
-  selectedAppIcon: {fontSize: 48, marginBottom: 8},
   selectedAppName: {fontSize: 18, fontWeight: '800', color: '#0f172a'},
   timePickerLabel: {fontSize: 14, fontWeight: '600', color: '#64748b', marginBottom: 12},
-  timeBig: {alignItems: 'center', backgroundColor: '#ede9fe', borderRadius: 20, paddingHorizontal: 40, paddingVertical: 20, marginBottom: 24},
+  timeBig: {
+    alignItems: 'center',
+    backgroundColor: '#ede9fe',
+    borderRadius: 20,
+    paddingHorizontal: 40,
+    paddingVertical: 20,
+    marginBottom: 24,
+  },
   timeBigNum: {fontSize: 48, fontWeight: '800', color: '#7c3aed'},
   timeBigSub: {fontSize: 14, color: '#7c3aed', fontWeight: '600'},
-  quickTitle: {fontSize: 13, fontWeight: '700', color: '#94a3b8', marginBottom: 10, alignSelf: 'flex-start'},
+  quickTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#94a3b8',
+    marginBottom: 10,
+    alignSelf: 'flex-start',
+  },
   quickRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16},
-  quickChip: {paddingHorizontal: 18, paddingVertical: 10, borderRadius: 20, borderWidth: 1.5, borderColor: '#e2e8f0', backgroundColor: '#fff'},
+  quickChip: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
   quickChipActive: {backgroundColor: '#7c3aed', borderColor: '#7c3aed'},
   quickChipText: {fontSize: 14, fontWeight: '700', color: '#475569'},
   quickChipTextActive: {color: '#fff'},
   fineRow: {flexDirection: 'row', gap: 16, marginBottom: 20},
-  fineBtn: {flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: '#f1f5f9', alignItems: 'center'},
+  fineBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+  },
   fineBtnText: {fontSize: 14, fontWeight: '700', color: '#475569'},
   timeLimitNote: {fontSize: 13, color: '#94a3b8', textAlign: 'center', lineHeight: 18, marginTop: 8},
 });

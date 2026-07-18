@@ -3,17 +3,27 @@ import {Animated, FlatList, Pressable, RefreshControl, StyleSheet, Text, View} f
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
-import {alertsApi, AlertItem, NotificationItem, timeExtensionApi, TimeExtensionRequestItem} from '../services/api';
+import {
+  alertsApi,
+  AlertItem,
+  deviceApi,
+  DeviceSummary,
+  monitoringApi,
+  NotificationItem,
+  timeExtensionApi,
+  TimeExtensionRequestItem,
+} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {Colors, Spacing, Radii, Elevation, Typography, Layout} from '../theme/design';
 import {useFadeSlideIn} from '../utils/animations';
+import {appDisplayName} from '../utils/appDisplayName';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 type NoticeItem =
   | {kind: 'request'; data: TimeExtensionRequestItem}
   | {kind: 'alert'; data: AlertItem}
-  | {kind: 'notification'; data: NotificationItem};
+  | {kind: 'notification'; data: NotificationItem & {deviceId?: string}};
 
 function fmtTime(iso: string) {
   const d = new Date(iso);
@@ -49,7 +59,10 @@ function RequestCard({item, onYes, onNo}: {item: TimeExtensionRequestItem; onYes
         <View style={styles.reqBody}>
           <Text style={styles.reqBadge}>TIME REQUEST</Text>
           <Text style={styles.reqTitle}>{item.deviceName ?? 'Child'} wants more time</Text>
-          <Text style={styles.reqSub}>{item.appLabel ?? item.packageName} · {item.requestedMinutes} min</Text>
+          <Text style={styles.reqSub}>
+            {appDisplayName({appLabel: item.appLabel, packageName: item.packageName})} ·{' '}
+            {item.requestedMinutes} min
+          </Text>
         </View>
         <Text style={styles.reqTime}>{fmtTime(item.createdAt)}</Text>
       </View>
@@ -91,35 +104,73 @@ function AlertCard({item}: {item: AlertItem}) {
   );
 }
 
-function NotifCard({item}: {item: NotificationItem}) {
+function NotifCard({
+  item,
+  onOpen,
+}: {
+  item: NotificationItem & {deviceId?: string};
+  onOpen?: () => void;
+}) {
   return (
-    <View style={styles.notifCard}>
+    <Pressable style={styles.notifCard} onPress={onOpen} disabled={!onOpen}>
       <View style={styles.notifIconWrap}><Text style={{fontSize: 18}}>🔔</Text></View>
       <View style={styles.notifBody}>
-        <Text style={styles.notifPkg} numberOfLines={1}>{item.packageName ?? 'App Notification'}</Text>
+        <Text style={styles.notifPkg} numberOfLines={1}>
+          {appDisplayName({
+            title: item.title,
+            packageName: item.packageName,
+            fallback: 'App notification',
+          })}
+        </Text>
         <Text style={styles.notifTitle}>{item.title ?? 'Notification'}</Text>
         {item.body ? <Text style={styles.notifMsg} numberOfLines={1}>{item.body}</Text> : null}
       </View>
       <Text style={styles.notifTime}>{fmtTime(item.postedAt)}</Text>
-    </View>
+    </Pressable>
   );
 }
 
 export function NoticeScreen({navigation}: {navigation: Nav}) {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [requests, setRequests] = useState<TimeExtensionRequestItem[]>([]);
+  const [historyNotifs, setHistoryNotifs] = useState<Array<NotificationItem & {deviceId?: string}>>([]);
+  const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const liveAlerts = useRealtimeStore(s => s.liveAlerts);
   const liveNotifications = useRealtimeStore(s => s.liveNotifications);
   const headerAnim = useFadeSlideIn(0);
 
   const load = useCallback(async () => {
-    const [a, r] = await Promise.allSettled([alertsApi.list(0, 30), timeExtensionApi.listPending()]);
+    const [a, r, d] = await Promise.allSettled([
+      alertsApi.list(0, 30),
+      timeExtensionApi.listPending(),
+      deviceApi.list(),
+    ]);
     if (a.status === 'fulfilled') setAlerts(a.value.data.data.content);
     if (r.status === 'fulfilled') setRequests(r.value.data.data);
+    const deviceList =
+      d.status === 'fulfilled' ? (d.value.data.data ?? []) : [];
+    setDevices(deviceList);
+
+    if (deviceList.length === 0) {
+      setHistoryNotifs([]);
+      return;
+    }
+    const perDevice = await Promise.allSettled(
+      deviceList.slice(0, 5).map(async device => {
+        const res = await monitoringApi.notifications(device.id, 0, 20);
+        return (res.data.data.content ?? []).map(n => ({...n, deviceId: device.id}));
+      }),
+    );
+    const merged: Array<NotificationItem & {deviceId?: string}> = [];
+    perDevice.forEach(result => {
+      if (result.status === 'fulfilled') merged.push(...result.value);
+    });
+    merged.sort((x, y) => new Date(y.postedAt).getTime() - new Date(x.postedAt).getTime());
+    setHistoryNotifs(merged.slice(0, 40));
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const respondRequest = async (id: string, approved: boolean, minutes: number) => {
     try { await timeExtensionApi.respond(id, approved, minutes); await load(); } catch {}
@@ -132,10 +183,15 @@ export function NoticeScreen({navigation}: {navigation: Nav}) {
   }, [alerts, liveAlerts]);
 
   const mergedNotifs = useMemo(() => {
-    const map = new Map<string, NotificationItem>();
+    const map = new Map<string, NotificationItem & {deviceId?: string}>();
+    historyNotifs.forEach(n => map.set(n.id, n));
     liveNotifications.forEach(n => map.set(n.id, n));
-    return Array.from(map.values()).sort((a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime()).slice(0, 15);
-  }, [liveNotifications]);
+    return Array.from(map.values())
+      .sort((a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime())
+      .slice(0, 25);
+  }, [historyNotifs, liveNotifications]);
+
+  const primaryDeviceId = devices[0]?.id;
 
   const items: NoticeItem[] = [
     ...requests.map(d => ({kind: 'request' as const, data: d})),
@@ -160,6 +216,13 @@ export function NoticeScreen({navigation}: {navigation: Nav}) {
             <Text style={styles.headerBadgeText}>{total}</Text>
           </View>
         </View>
+        {primaryDeviceId ? (
+          <Pressable
+            style={styles.childNotifLink}
+            onPress={() => navigation.navigate('Notifications', {deviceId: primaryDeviceId})}>
+            <Text style={styles.childNotifLinkText}>Child notifications ›</Text>
+          </Pressable>
+        ) : null}
       </Animated.View>
 
       <FlatList
@@ -177,13 +240,22 @@ export function NoticeScreen({navigation}: {navigation: Nav}) {
             />
           );
           if (item.kind === 'alert') return <AlertCard item={item.data} />;
-          return <NotifCard item={item.data} />;
+          const notif = item.data;
+          const openId = notif.deviceId ?? primaryDeviceId;
+          return (
+            <NotifCard
+              item={notif}
+              onOpen={openId ? () => navigation.navigate('Notifications', {deviceId: openId}) : undefined}
+            />
+          );
         }}
         ListEmptyComponent={
           <View style={styles.empty}>
             <View style={styles.emptyIcon}><Text style={{fontSize: 40}}>✅</Text></View>
             <Text style={styles.emptyTitle}>All clear!</Text>
-            <Text style={styles.emptyBody}>No alerts or pending requests right now.</Text>
+            <Text style={styles.emptyBody}>
+              No alerts yet. Child phone notifications appear here after Clock Time syncs — open a device → Child notifications for full history.
+            </Text>
           </View>
         }
       />
@@ -197,60 +269,153 @@ const styles = StyleSheet.create({
   header: {
     paddingBottom: Layout.gutter,
     overflow: 'hidden',
-    position: 'relative',
-    ...Elevation.hero,
+    paddingHorizontal: Layout.screenPadding,
   },
-  headerGradientBase: {...StyleSheet.absoluteFillObject, backgroundColor: Colors.primaryContainer},
-  headerGradientOverlay: {position: 'absolute', top: 0, right: 0, bottom: 0, left: '35%', backgroundColor: Colors.accent, opacity: 0.88},
-  headerBubble: {position: 'absolute', width: 200, height: 200, borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.08)', top: -80, right: -40},
-  headerContent: {paddingHorizontal: Layout.screenPadding, paddingTop: Layout.componentInternal, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', zIndex: 1},
-  headerEyebrow: {...Typography.caption, color: Colors.textOnDarkSoft},
-  headerTitle: {...Typography.largeTitle, color: Colors.textOnDark},
-  headerBadge: {backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: Radii.pill, paddingHorizontal: Spacing.md, paddingVertical: 6, minWidth: 36, alignItems: 'center'},
-  headerBadgeText: {fontSize: 16, fontWeight: '800', color: '#fff'},
+  headerGradientBase: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: Colors.primary,
+  },
+  headerGradientOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  headerBubble: {
+    position: 'absolute',
+    right: -40,
+    top: -40,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: Spacing.md,
+  },
+  headerEyebrow: {...Typography.smallLabel, color: 'rgba(255,255,255,0.75)'},
+  headerTitle: {...Typography.pageTitle, color: '#fff'},
+  headerBadge: {
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  headerBadgeText: {color: '#fff', fontWeight: '700', fontSize: 13},
+  childNotifLink: {marginTop: Spacing.sm, alignSelf: 'flex-start'},
+  childNotifLinkText: {color: '#fff', fontWeight: '600', fontSize: 14, opacity: 0.95},
 
-  listContent: {padding: Spacing.base, gap: Spacing.sm, paddingBottom: Spacing.xxl},
+  listContent: {padding: Layout.screenPadding, paddingBottom: 40},
 
-  // Request card
-  reqCard: {backgroundColor: Colors.surface, borderRadius: Radii.xl, padding: Spacing.base, ...Elevation.cardHigh, borderWidth: 1.5, borderColor: Colors.primary + '40'},
-  reqTop: {flexDirection: 'row', alignItems: 'flex-start', marginBottom: Spacing.md},
-  reqIconWrap: {width: 44, height: 44, borderRadius: Radii.md, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.md},
+  reqCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    ...Elevation.card,
+  },
+  reqTop: {flexDirection: 'row', alignItems: 'flex-start'},
+  reqIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: Colors.primaryContainer + '22',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.sm,
+  },
   reqBody: {flex: 1},
-  reqBadge: {fontSize: 10, fontWeight: '800', color: Colors.primary, letterSpacing: 0.5, marginBottom: 3},
-  reqTitle: {fontSize: 15, fontWeight: '800', color: Colors.textPrimary},
-  reqSub: {fontSize: 13, color: Colors.textSecondary, marginTop: 2},
-  reqTime: {fontSize: 11, color: Colors.textTertiary, marginLeft: Spacing.sm},
-  reqActions: {flexDirection: 'row', gap: Spacing.sm},
-  reqNo: {flex: 1, backgroundColor: Colors.background, borderRadius: Radii.md, paddingVertical: Spacing.md, alignItems: 'center', borderWidth: 1, borderColor: Colors.border},
-  reqYes: {flex: 1.5, backgroundColor: Colors.primaryContainer, borderRadius: Radii.md, paddingVertical: Spacing.md, alignItems: 'center'},
-  reqNoText: {fontSize: 14, fontWeight: '700', color: Colors.textSecondary},
-  reqYesText: {fontSize: 14, fontWeight: '800', color: '#fff'},
+  reqBadge: {...Typography.smallLabel, color: Colors.primary, marginBottom: 2},
+  reqTitle: {...Typography.cardTitle, color: Colors.onSurface},
+  reqSub: {...Typography.caption, color: Colors.onSurfaceVariant, marginTop: 2},
+  reqTime: {...Typography.caption, color: Colors.onSurfaceVariant},
+  reqActions: {flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md},
+  reqNo: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: Radii.md,
+    backgroundColor: Colors.surfaceContainer,
+    alignItems: 'center',
+  },
+  reqNoText: {fontWeight: '600', color: Colors.onSurfaceVariant},
+  reqYes: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: Radii.md,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+  },
+  reqYesText: {fontWeight: '700', color: '#fff'},
 
-  // Alert card
-  alertCard: {backgroundColor: Colors.surface, borderRadius: Radii.xl, padding: Spacing.base, flexDirection: 'row', alignItems: 'center', ...Elevation.card, borderWidth: 1, borderColor: Colors.borderLight, overflow: 'hidden'},
-  alertStripe: {position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, borderTopLeftRadius: Radii.xl, borderBottomLeftRadius: Radii.xl},
-  alertIconWrap: {width: 44, height: 44, borderRadius: Radii.md, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.md, marginLeft: Spacing.sm},
-  alertBody: {flex: 1},
-  alertType: {fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginBottom: 3},
-  alertTitle: {fontSize: 14, fontWeight: '700', color: Colors.textPrimary},
-  alertMsg: {fontSize: 12, color: Colors.textTertiary, marginTop: 2, lineHeight: 17},
-  codeBox: {marginTop: 8, backgroundColor: '#ede9fe', borderRadius: Radii.md, padding: Spacing.sm},
-  codeLabel: {fontSize: 11, fontWeight: '700', color: '#6d28d9'},
-  codeValue: {fontSize: 24, fontWeight: '900', color: '#5b21b6', letterSpacing: 4, marginTop: 2},
-  alertTime: {fontSize: 11, color: Colors.textTertiary, marginLeft: Spacing.sm},
+  alertCard: {
+    flexDirection: 'row',
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.lg,
+    marginBottom: Spacing.sm,
+    overflow: 'hidden',
+    ...Elevation.card,
+  },
+  alertStripe: {width: 4},
+  alertIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: Spacing.sm,
+  },
+  alertBody: {flex: 1, paddingVertical: Spacing.sm, paddingRight: Spacing.sm},
+  alertType: {...Typography.smallLabel, marginBottom: 2},
+  alertTitle: {...Typography.body, fontWeight: '600', color: Colors.onSurface},
+  alertMsg: {...Typography.caption, color: Colors.onSurfaceVariant, marginTop: 2},
+  alertTime: {...Typography.caption, color: Colors.onSurfaceVariant, padding: Spacing.sm},
+  codeBox: {
+    marginTop: Spacing.sm,
+    padding: Spacing.sm,
+    borderRadius: Radii.md,
+    backgroundColor: Colors.surfaceContainer,
+  },
+  codeLabel: {...Typography.caption, color: Colors.onSurfaceVariant},
+  codeValue: {...Typography.cardTitle, letterSpacing: 2, marginTop: 4},
 
-  // Notification card
-  notifCard: {backgroundColor: Colors.surface, borderRadius: Radii.lg, padding: Spacing.md, flexDirection: 'row', alignItems: 'center', ...Elevation.card, borderWidth: 1, borderColor: Colors.borderLight},
-  notifIconWrap: {width: 38, height: 38, borderRadius: Spacing.sm, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.md},
+  notifCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.lg,
+    padding: Spacing.sm,
+    marginBottom: Spacing.sm,
+    ...Elevation.card,
+  },
+  notifIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: Colors.surfaceContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.sm,
+  },
   notifBody: {flex: 1},
-  notifPkg: {fontSize: 10, fontWeight: '700', color: Colors.primary, letterSpacing: 0.3, marginBottom: 2},
-  notifTitle: {fontSize: 14, fontWeight: '700', color: Colors.textPrimary},
-  notifMsg: {fontSize: 12, color: Colors.textTertiary, marginTop: 1},
-  notifTime: {fontSize: 11, color: Colors.textTertiary, marginLeft: Spacing.sm},
+  notifPkg: {...Typography.smallLabel, color: Colors.onSurfaceVariant},
+  notifTitle: {...Typography.body, fontWeight: '600', color: Colors.onSurface},
+  notifMsg: {...Typography.caption, color: Colors.onSurfaceVariant, marginTop: 2},
+  notifTime: {...Typography.caption, color: Colors.onSurfaceVariant, marginLeft: Spacing.xs},
 
-  // Empty
-  empty: {alignItems: 'center', paddingTop: 70},
-  emptyIcon: {width: 88, height: 88, borderRadius: 44, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.lg},
-  emptyTitle: {fontSize: 20, fontWeight: '800', color: Colors.textPrimary},
-  emptyBody: {fontSize: 14, color: Colors.textTertiary, textAlign: 'center', marginTop: 8, lineHeight: 21, paddingHorizontal: Spacing.xxl},
+  empty: {alignItems: 'center', paddingTop: 48, paddingHorizontal: Spacing.lg},
+  emptyIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: Colors.surfaceContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
+  },
+  emptyTitle: {...Typography.cardTitle, color: Colors.onSurface},
+  emptyBody: {...Typography.body, color: Colors.onSurfaceVariant, textAlign: 'center', marginTop: Spacing.xs, lineHeight: 22},
 });

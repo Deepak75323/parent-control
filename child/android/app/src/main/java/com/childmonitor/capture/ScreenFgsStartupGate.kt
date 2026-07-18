@@ -47,6 +47,13 @@ object ScreenFgsStartupGate {
         markReadyRunnable.run()
     }
 
+    /** @visibleForTesting — reset between unit tests. */
+    @JvmStatic
+    internal fun resetForTests() {
+        handler.removeCallbacks(markReadyRunnable)
+        screenFgsAllowed = false
+    }
+
     private val markReadyRunnable = Runnable {
         if (!screenFgsAllowed) {
             screenFgsAllowed = true

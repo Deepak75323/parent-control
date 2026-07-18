@@ -473,13 +473,9 @@ function createPeerConnection(
     }
     if (remoteStream) {
       if (ev.track?.kind === 'audio') {
-        // For camera streams the audio track starts muted so the parent
-        // actively chooses to unmute (via the Mute/Unmute button).
-        // For dedicated AUDIO streams (ambient listening) audio is always on.
-        ev.track.enabled = viewerStreamType !== 'CAMERA';
-        if (viewerStreamType !== 'CAMERA') {
-          enableViewerAudioPlayback().catch(() => undefined);
-        }
+        // Enable remote audio for all stream types. Parents can mute from the UI.
+        ev.track.enabled = true;
+        enableViewerAudioPlayback().catch(() => undefined);
       }
       ev.track?.addEventListener('mute', () => slog('RENDER', 'track muted', ev.track?.kind));
       ev.track?.addEventListener('unmute', () => {
@@ -488,7 +484,7 @@ function createPeerConnection(
           streamStateTransition('FIRST_FRAME_RECEIVED', 'ontrack', {roomId: activeRoomId});
           flowLog('WEBRTC_FLOW', 'FIRST_REMOTE_FRAME', {roomId: activeRoomId});
         }
-        if (ev.track?.kind === 'audio' && viewerStreamType !== 'CAMERA') {
+        if (ev.track?.kind === 'audio') {
           enableViewerAudioPlayback().catch(() => undefined);
         }
       });
@@ -613,10 +609,10 @@ export async function connectParentViewer(
   }, 2000);
   if (!offerOk) {
     const streamKind = roomId.startsWith('screen_')
-      ? 'screen capture'
+      ? 'screen sharing'
       : roomId.startsWith('audio_')
-        ? 'microphone'
-        : 'camera';
+        ? 'listening'
+        : 'camera view';
     traceFailure({
       component: 'WebRTC',
       fn: 'connectParentViewer',
@@ -637,7 +633,7 @@ export async function connectParentViewer(
       remoteDesc: pc?.remoteDescription?.type ?? null,
     });
     throw new Error(
-      `Child ${streamKind} did not start — check the child device is online and permissions are granted`,
+      `Child ${streamKind} didn’t start. Confirm the child phone is online and Clock Time permissions are finished, then try again.`,
     );
   }
   const iceOk = await waitForIceConnected();
@@ -678,7 +674,7 @@ export async function connectParentViewer(
 /** Re-run viewer negotiation on the active room (network handoff / transient ICE loss). */
 export async function reconnectParentViewer(): Promise<void> {
   if (!activeRoomId) {
-    throw new Error('No active stream to reconnect');
+    throw new Error('Nothing is live to reconnect. Start live view again.');
   }
   slog('FLOW', 'reconnectParentViewer', {roomId: activeRoomId, sessionId: activeSessionId});
   await connectParentViewer(activeRoomId, activeSessionId);

@@ -25,10 +25,10 @@ class BlockOverlayActivity : AppCompatActivity() {
 
         if (reason == "time_limit") {
             titleView.text = "Time limit exceeded"
-            messageView.text = "Daily limit reached for $appLabel.\n\n($packageName)"
+            messageView.text = "Daily limit reached for $appLabel."
         } else {
             titleView.text = "App blocked"
-            messageView.text = "This app is blocked by your parent.\n\n$appLabel ($packageName)"
+            messageView.text = "This app is blocked by your parent.\n\n$appLabel"
         }
 
         askBtn.setOnClickListener {
@@ -47,7 +47,7 @@ class BlockOverlayActivity : AppCompatActivity() {
                     statusView.text = if (ok) {
                         "Request sent — waiting for parent approval"
                     } else {
-                        "Could not send request. Try again later."
+                        "Couldn’t send the request. Check your connection and try again."
                     }
                     askBtn.isEnabled = !ok
                 }

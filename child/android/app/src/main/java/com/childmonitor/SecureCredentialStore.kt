@@ -13,6 +13,9 @@ object SecureCredentialStore {
     private const val PREFS = "child_monitor_secure_prefs"
     private const val KEY_DEVICE_TOKEN = "device_token"
     private const val KEY_DEVICE_HMAC = "device_hmac_key"
+    private const val KEY_OFFLINE_PIN_SALT = "offline_parent_pin_salt"
+    private const val KEY_OFFLINE_PIN_HASH = "offline_parent_pin_hash"
+    private const val KEY_OFFLINE_PIN_ITERATIONS = "offline_parent_pin_iterations"
 
     @Volatile
     private var encryptedPrefs: SharedPreferences? = null
@@ -68,6 +71,37 @@ object SecureCredentialStore {
 
     fun deviceHmacKey(context: Context): String? =
         prefs(context).getString(KEY_DEVICE_HMAC, null)
+
+    fun saveOfflineParentPin(
+        context: Context,
+        saltBase64: String,
+        hashBase64: String,
+        iterations: Int,
+    ) {
+        if (saltBase64.isBlank() || hashBase64.isBlank() || iterations < 1) return
+        prefs(context).edit()
+            .putString(KEY_OFFLINE_PIN_SALT, saltBase64)
+            .putString(KEY_OFFLINE_PIN_HASH, hashBase64)
+            .putInt(KEY_OFFLINE_PIN_ITERATIONS, iterations)
+            .commit()
+    }
+
+    fun offlineParentPinMaterial(context: Context): Triple<String, String, Int>? {
+        val p = prefs(context)
+        val salt = p.getString(KEY_OFFLINE_PIN_SALT, null) ?: return null
+        val hash = p.getString(KEY_OFFLINE_PIN_HASH, null) ?: return null
+        val iterations = p.getInt(KEY_OFFLINE_PIN_ITERATIONS, 0)
+        if (salt.isBlank() || hash.isBlank() || iterations < 1) return null
+        return Triple(salt, hash, iterations)
+    }
+
+    fun clearOfflineParentPin(context: Context) {
+        prefs(context).edit()
+            .remove(KEY_OFFLINE_PIN_SALT)
+            .remove(KEY_OFFLINE_PIN_HASH)
+            .remove(KEY_OFFLINE_PIN_ITERATIONS)
+            .apply()
+    }
 
     fun clear(context: Context) {
         prefs(context).edit().clear().apply()

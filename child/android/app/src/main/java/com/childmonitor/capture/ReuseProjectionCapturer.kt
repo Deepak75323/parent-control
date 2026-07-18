@@ -1,8 +1,6 @@
 package com.childmonitor.capture
 
 import android.content.Context
-import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
 import android.os.Looper
 import android.view.Surface
@@ -19,8 +17,11 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Screen capturer that reuses an already-obtained MediaProjection instance.
+ *
  * VirtualDisplay creation runs on the SurfaceTextureHelper thread — same as
- * WebRTC's ScreenCapturerAndroid — so frames reach VideoSource reliably.
+ * WebRTC's ScreenCapturerAndroid. Android 14+ allows only one
+ * [MediaProjection.createVirtualDisplay] per projection; [ScreenCaptureController]
+ * keeps that display warm and this capturer attaches / detaches Surfaces.
  */
 class ReuseProjectionCapturer(
     private val projection: MediaProjection,
@@ -31,16 +32,22 @@ class ReuseProjectionCapturer(
     companion object {
         private val firstFrameSent = AtomicBoolean(false)
 
+        /**
+         * Stable gate owner — must match across capturer instances and
+         * [NativeStreamPublisher] teardown. Per-instance identity hashes left the
+         * gate stuck (CAPTURE_GATE_BLOCKED) after incomplete stops.
+         */
+        const val GATE_OWNER = "ReuseProjectionCapturer"
+
         fun resetFirstFrameFlag() {
             firstFrameSent.set(false)
         }
     }
 
-    private val captureOwnerId = "ReuseProjectionCapturer@${System.identityHashCode(this)}"
+    private val captureOwnerId = GATE_OWNER
 
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
     private var capturerObserver: CapturerObserver? = null
-    private var virtualDisplay: VirtualDisplay? = null
     private var width = 0
     private var height = 0
 
@@ -54,7 +61,7 @@ class ReuseProjectionCapturer(
                 // releaseProjection() for re-capture — do not notify WebRTC (VideoSource may
                 // be disposed → SIGSEGV in NativeAndroidVideoTrackSource.setState).
                 CaptureFrameLogger.log("MEDIA_PROJECTION_CALLBACK_ON_STOP_INTENTIONAL", threadContext())
-                releaseVirtualDisplayOnly()
+                detachCaptureSurfaceOnly()
                 return
             }
             // System or user revoked projection — invalidate consent and notify publisher.
@@ -130,22 +137,36 @@ class ReuseProjectionCapturer(
         width = requestedWidth
         height = requestedHeight
 
-        if (ScreenCaptureController.virtualDisplayActive() || MediaProjectionCaptureGate.isHeld()) {
+        // Stale "active" flag after a half-torn-down session blocks all future streams.
+        // Detach first so attachCaptureSurface can reattach the warm VirtualDisplay
+        // (Android 14+ forbids a second createVirtualDisplay on the same projection).
+        if (ScreenCaptureController.virtualDisplayActive()) {
             CaptureFrameLogger.warn(
-                "CAPTURE_START_ABORT",
-                "virtual display already active gateHeld=${MediaProjectionCaptureGate.isHeld()} " +
-                    threadContext(),
+                "CAPTURE_START_STALE_VD_ACTIVE",
+                "detaching before reattach ${threadContext()}",
             )
-            observer.onCapturerStarted(false)
-            return
+            ScreenCaptureController.detachCaptureSurface()
         }
         if (!MediaProjectionCaptureGate.tryAcquire(captureOwnerId, appContext)) {
-            observer.onCapturerStarted(false)
-            return
+            // Previous session left a foreign/stuck owner with no live surface — steal.
+            if (!ScreenCaptureController.virtualDisplayActive()) {
+                MediaProjectionCaptureGate.forceAcquire(
+                    captureOwnerId,
+                    "stale_owner_before_start prev=${MediaProjectionCaptureGate.activeOwner()}",
+                )
+            } else {
+                CaptureFrameLogger.warn(
+                    "CAPTURE_START_ABORT",
+                    "gate held while virtual display still attached " +
+                        "activeOwner=${MediaProjectionCaptureGate.activeOwner()} ${threadContext()}",
+                )
+                observer.onCapturerStarted(false)
+                return
+            }
         }
 
         val invokeError = AtomicReference<Throwable?>(null)
-        val displayCreated = AtomicReference(false)
+        val displayAttached = AtomicReference(false)
 
         CaptureFrameLogger.log(
             "INVOKE_HELPER_THREAD_ENTER",
@@ -177,37 +198,30 @@ class ReuseProjectionCapturer(
 
                     CaptureFrameLogger.log(
                         "CREATE_VIRTUAL_DISPLAY_ENTER",
-                        "${width}x${height} dpi=$densityDpi ${threadContext()}",
+                        "${width}x${height} dpi=$densityDpi " +
+                            "warmSession=${ScreenCaptureController.hasWarmVirtualDisplaySession()} " +
+                            threadContext(),
                     )
                     val surface = Surface(helper.surfaceTexture)
-                    virtualDisplay = projection.createVirtualDisplay(
-                        "ChildMonitorScreen",
+                    val display = ScreenCaptureController.attachCaptureSurface(
+                        surface,
                         width,
                         height,
                         densityDpi,
-                        DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC,
-                        surface,
-                        null,
                         helper.handler,
                     )
-                    val display = virtualDisplay
-                    val created = display != null
-                    displayCreated.set(created)
-                    if (created) {
-                        CaptureFrameLogger.log(
-                            "CREATE_VIRTUAL_DISPLAY_SUCCESS",
-                            "displayId=${display?.display?.displayId} ${width}x${height} " +
-                                threadContext(),
-                        )
+                    val attached = display != null
+                    displayAttached.set(attached)
+                    if (attached) {
                         CaptureFrameLogger.log(
                             "VIRTUAL_DISPLAY_CREATED",
-                            "${width}x${height} dpi=$densityDpi",
+                            "${width}x${height} dpi=$densityDpi " +
+                                "reattach=${ScreenCaptureController.hasWarmVirtualDisplaySession()}",
                         )
-                        ScreenCaptureController.markVirtualDisplayActive(true)
                     } else {
                         CaptureFrameLogger.warn(
                             "CREATE_VIRTUAL_DISPLAY_FAILED",
-                            "createVirtualDisplay returned null projection=$projection " +
+                            "attachCaptureSurface returned null projection=$projection " +
                                 "surface=$surface ${threadContext()}",
                         )
                     }
@@ -234,7 +248,7 @@ class ReuseProjectionCapturer(
         } finally {
             CaptureFrameLogger.log(
                 "INVOKE_HELPER_THREAD_EXIT",
-                "displayCreated=${displayCreated.get()} " +
+                "displayAttached=${displayAttached.get()} " +
                     "error=${invokeError.get()?.javaClass?.simpleName} ${threadContext()}",
             )
         }
@@ -244,7 +258,7 @@ class ReuseProjectionCapturer(
             throw if (err is RuntimeException) err else RuntimeException(err)
         }
 
-        if (!displayCreated.get()) {
+        if (!displayAttached.get()) {
             MediaProjectionCaptureGate.release(captureOwnerId)
             observer.onCapturerStarted(false)
             return
@@ -276,24 +290,23 @@ class ReuseProjectionCapturer(
 
     override fun stopCapture() {
         CaptureFrameLogger.log("CAPTURE_STOP_ENTER", threadContext())
-        releaseVirtualDisplayOnly()
+        detachCaptureSurfaceOnly()
         surfaceTextureHelper?.stopListening()
         capturerObserver?.onCapturerStopped()
         CaptureFrameLogger.log("CAPTURE_STOP_EXIT", threadContext())
     }
 
-    /** Release VirtualDisplay only — no WebRTC observer callback (safe from MediaProjection.onStop). */
-    private fun releaseVirtualDisplayOnly() {
+    /**
+     * Detach Surface from the warm VirtualDisplay — do not release the display.
+     * Android 14+ forbids createVirtualDisplay again on the same MediaProjection.
+     */
+    private fun detachCaptureSurfaceOnly() {
         val helper = surfaceTextureHelper
         if (helper != null) {
             try {
                 ThreadUtils.invokeAtFrontUninterruptibly(helper.handler) {
-                    if (virtualDisplay != null) {
-                        CaptureFrameLogger.log("VIRTUAL_DISPLAY_RELEASED", threadContext())
-                    }
-                    virtualDisplay?.release()
-                    virtualDisplay = null
-                    ScreenCaptureController.markVirtualDisplayActive(false)
+                    CaptureFrameLogger.log("VIRTUAL_DISPLAY_RELEASED", "detach only ${threadContext()}")
+                    ScreenCaptureController.detachCaptureSurface()
                     MediaProjectionCaptureGate.release(captureOwnerId)
                     try {
                         projection.unregisterCallback(mediaProjectionCallback)
@@ -306,9 +319,7 @@ class ReuseProjectionCapturer(
                 throw if (t is RuntimeException) t else RuntimeException(t)
             }
         } else {
-            virtualDisplay?.release()
-            virtualDisplay = null
-            ScreenCaptureController.markVirtualDisplayActive(false)
+            ScreenCaptureController.detachCaptureSurface()
             MediaProjectionCaptureGate.release(captureOwnerId)
         }
     }

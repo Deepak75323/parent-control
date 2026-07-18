@@ -43,6 +43,13 @@ public class ParentProfile extends BaseEntity {
   @Column(name = "default_child_login_password_hash")
   private String defaultChildLoginPasswordHash;
 
+  /**
+   * Unique public family handle (lowercase, no leading @). Child first-time login uses handle +
+   * family password to identify this parent without ambiguous password-only matching.
+   */
+  @Column(name = "family_handle", length = 32)
+  private String familyHandle;
+
   public UUID getUserId() {
     return user != null ? user.getId() : null;
   }

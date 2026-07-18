@@ -38,4 +38,10 @@ public interface ParentProfileDao {
   Optional<ParentProfile> findByIdWithUser(UUID id);
 
   Optional<UUID> findUserIdByProfileId(UUID profileId);
+
+  Optional<ParentProfile> findByFamilyHandleIgnoreCase(String handle);
+
+  boolean existsByFamilyHandleIgnoreCase(String handle);
+
+  boolean existsByFamilyHandleIgnoreCaseAndIdNot(String handle, UUID excludeId);
 }

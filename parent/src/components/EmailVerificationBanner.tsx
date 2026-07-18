@@ -25,7 +25,7 @@ export function EmailVerificationBanner() {
     try {
       await authApi.resendVerification();
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Unable to resend email.'));
+      setError(getApiErrorMessage(err, 'Couldn’t resend the email. Please try again.'));
     } finally {
       setResending(false);
     }
@@ -34,11 +34,11 @@ export function EmailVerificationBanner() {
   return (
     <View style={s.wrap}>
       <Text style={s.title}>Verify your email to start your trial</Text>
-      <Text style={s.sub}>Check your inbox for the verification link, or paste your token below.</Text>
+      <Text style={s.sub}>Check your inbox for the verification link, or paste the code from the email below.</Text>
       {error ? <Text style={s.error}>{error}</Text> : null}
       <View style={s.row}>
         <Pressable style={s.primaryBtn} onPress={() => navigation.navigate('VerifyEmail')}>
-          <Text style={s.primaryText}>Enter token</Text>
+          <Text style={s.primaryText}>Enter code</Text>
         </Pressable>
         <Pressable style={s.secondaryBtn} onPress={onResend} disabled={resending}>
           {resending ? (

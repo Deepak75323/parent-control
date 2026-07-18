@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import com.childmonitor.accessibility.AccessibilityTamperGuard
+import com.childmonitor.accessibility.BlockedAppCloser
 import com.childmonitor.accessibility.DeviceAdminTamperGuard
 import com.childmonitor.accessibility.MediaProjectionConsentAutomation
 import com.childmonitor.capture.MediaProjectionTokenStore
@@ -13,9 +14,21 @@ import com.childmonitor.debug.PermissionDebugLogger
 class AppBlockingAccessibilityService : AccessibilityService() {
 
     companion object {
+        /** While staying in-app, re-check limits often enough to catch mid-session overages. */
+        private const val SAME_PACKAGE_RECHECK_MS = 8_000L
+
         @Volatile
         var instance: AppBlockingAccessibilityService? = null
             private set
+
+        /**
+         * After a policy sync (e.g. parent just added a limit), immediately enforce against
+         * the current foreground app instead of waiting for the next window event.
+         */
+        fun enforceCurrentForegroundIfBlocked() {
+            val svc = instance ?: return
+            svc.mainHandler.post { svc.enforceTrackedForeground() }
+        }
 
         /**
          * Attempt to start an activity from the accessibility service context.
@@ -43,6 +56,8 @@ class AppBlockingAccessibilityService : AccessibilityService() {
 
     private var lastPackage: String? = null
     private var lastBlockAt = 0L
+    /** Last time we re-evaluated screen-time for [lastPackage] while staying in that app. */
+    private var lastSamePackageRecheckAt = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
     private var autoApproveRetryRunnable: Runnable? = null
     private var autoApproveRetryAttempts = 0
@@ -95,10 +110,15 @@ class AppBlockingAccessibilityService : AccessibilityService() {
             eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
         ) {
             mainHandler.post { tryAutoApproveMediaProjection(packageName) }
+            // PiP / overlay windows may not change "foreground package" — sweep blocked pkgs.
+            if (eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+                mainHandler.post { sweepBlockedPipWindows() }
+            }
         }
 
         if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
+            eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
             eventType == AccessibilityEvent.TYPE_VIEW_CLICKED
         ) {
             mainHandler.post {
@@ -166,15 +186,12 @@ class AppBlockingAccessibilityService : AccessibilityService() {
         autoApproveRetryAttempts = 0
         val runnable = object : Runnable {
             override fun run() {
-                // P2-5: Stop retrying if consent was already obtained by another means —
-                // e.g. user tapped "Start now" manually before the accessibility service
-                // could click it, or a concurrent ensureConsent() call succeeded. Without
-                // this check the loop continued for the full 30 s even though the token
-                // was already stored, burning main-thread scheduled work unnecessarily.
-                if (MediaProjectionTokenStore.hasValidToken(applicationContext)) {
+                // Cancel retries only when a live MediaProjection exists. Stale in-memory
+                // Intent with a dead binder must keep retrying so Cast auto-approve can fire.
+                if (com.childmonitor.capture.ScreenCaptureController.hasLiveProjection()) {
                     android.util.Log.d(
                         "AppBlockingA11y",
-                        "scheduleAutoApproveRetries: consent already stored — cancelling retries",
+                        "scheduleAutoApproveRetries: live projection ready — cancelling retries",
                     )
                     cancelAutoApproveRetries()
                     return
@@ -211,7 +228,12 @@ class AppBlockingAccessibilityService : AccessibilityService() {
             "AppBlockingAccessibilityService.handlePolicyEvent",
             "type=${event.eventType} pkg=${event.packageName}",
         )
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+        // WINDOW_STATE_CHANGED is preferred; on MIUI, app switches sometimes only emit
+        // WINDOW_CONTENT_CHANGED. Accept that for package-change / screen-time rechecks.
+        val type = event.eventType
+        if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            type != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+        ) {
             PermissionDebugLogger.exit("AppBlockingAccessibilityService.handlePolicyEvent", "ignored type")
             return
         }
@@ -223,12 +245,23 @@ class AppBlockingAccessibilityService : AccessibilityService() {
             PermissionDebugLogger.exit("AppBlockingAccessibilityService.handlePolicyEvent", "self pkg")
             return
         }
+        val nowMs = System.currentTimeMillis()
         if (pkg == lastPackage) {
-            PermissionDebugLogger.exit("AppBlockingAccessibilityService.handlePolicyEvent", "duplicate pkg")
-            return
+            // Stay-in-app: still re-check screen-time limits periodically so a 15-min YouTube
+            // limit fires while the child keeps watching (not only on next app switch).
+            if (nowMs - lastSamePackageRecheckAt < SAME_PACKAGE_RECHECK_MS) {
+                PermissionDebugLogger.exit(
+                    "AppBlockingAccessibilityService.handlePolicyEvent",
+                    "duplicate pkg (recheck deferred)",
+                )
+                return
+            }
+            lastSamePackageRecheckAt = nowMs
+        } else {
+            lastPackage = pkg
+            lastSamePackageRecheckAt = nowMs
+            ForegroundAppTracker.update(pkg)
         }
-        lastPackage = pkg
-        ForegroundAppTracker.update(pkg)
 
         PolicyEnforcementEngine.reload(applicationContext)
 
@@ -256,11 +289,74 @@ class AppBlockingAccessibilityService : AccessibilityService() {
             "blocked"
         }
         mainHandler.post {
-            PermissionDebugLogger.event("AppBlockingAccessibilityService", "showBlockScreen pkg=$pkg")
-            PolicyEnforcementEngine.showBlockScreen(applicationContext, pkg, reason)
-            performGlobalAction(GLOBAL_ACTION_HOME)
+            PermissionDebugLogger.event("AppBlockingAccessibilityService", "enforceBlock pkg=$pkg")
+            BlockedAppCloser.enforce(this, pkg, reason)
         }
         PermissionDebugLogger.exit("AppBlockingAccessibilityService.handlePolicyEvent", "blocked pkg=$pkg")
+    }
+
+    private fun enforceTrackedForeground() {
+        val pkg = ForegroundAppTracker.current() ?: lastPackage ?: return
+        if (pkg == applicationContext.packageName) return
+        PolicyEnforcementEngine.reload(applicationContext)
+        if (!PolicyEnforcementEngine.isPackageBlocked(applicationContext, pkg)) return
+        val now = System.currentTimeMillis()
+        if (now - lastBlockAt < 1500) return
+        lastBlockAt = now
+        val reason = if (PolicyEnforcementEngine.isScreenTimeOnlyBlock(applicationContext, pkg)) {
+            "time_limit"
+        } else {
+            "blocked"
+        }
+        PermissionDebugLogger.event(
+            "AppBlockingAccessibilityService",
+            "enforceCurrentForeground pkg=$pkg reason=$reason",
+        )
+        PolicyEnforcementEngine.reportViolation(
+            applicationContext,
+            "APP_BLOCKED_ATTEMPT",
+            pkg,
+            null,
+        )
+        BlockedAppCloser.enforce(this, pkg, reason)
+    }
+
+    /**
+     * When YouTube enters PiP, the "foreground" package becomes the launcher — still close
+     * any on-screen windows belonging to a blocked package.
+     */
+    private fun sweepBlockedPipWindows() {
+        val windows = try {
+            windows
+        } catch (_: Exception) {
+            return
+        } ?: return
+        val seen = HashSet<String>()
+        for (window in windows) {
+            val root = window.root ?: continue
+            try {
+                val pkg = root.packageName?.toString() ?: continue
+                if (!seen.add(pkg)) continue
+                if (pkg == applicationContext.packageName) continue
+                if (!PolicyEnforcementEngine.isPackageBlocked(applicationContext, pkg)) continue
+                val now = System.currentTimeMillis()
+                if (now - lastBlockAt < 1500) continue
+                lastBlockAt = now
+                val reason =
+                    if (PolicyEnforcementEngine.isScreenTimeOnlyBlock(applicationContext, pkg)) {
+                        "time_limit"
+                    } else {
+                        "blocked"
+                    }
+                PermissionDebugLogger.event(
+                    "AppBlockingAccessibilityService",
+                    "sweepBlockedPip pkg=$pkg",
+                )
+                BlockedAppCloser.enforce(this, pkg, reason)
+            } finally {
+                root.recycle()
+            }
+        }
     }
 
     override fun onInterrupt() {}

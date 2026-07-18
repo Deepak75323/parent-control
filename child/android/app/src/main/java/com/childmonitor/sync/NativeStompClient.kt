@@ -45,11 +45,19 @@ class NativeStompClient(
     }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val connected = AtomicBoolean(false)
+    /** Once true, no further sockets or reconnects are allowed. */
+    private val stopped = AtomicBoolean(false)
+    /** Guards against OkHttp calling both onFailure and onClosed for one teardown. */
+    private val reconnectScheduled = AtomicBoolean(false)
     private val subscriptions = mutableListOf<Pair<String, String>>()
     private var webSocket: WebSocket? = null
     private var reconnectAttempts = 0
+    private var reconnectRunnable: Runnable? = null
 
     fun connect(subscriptions: List<Pair<String, String>>) {
+        stopped.set(false)
+        reconnectScheduled.set(false)
+        cancelPendingReconnect()
         synchronized(this.subscriptions) {
             this.subscriptions.clear()
             this.subscriptions.addAll(subscriptions)
@@ -58,7 +66,10 @@ class NativeStompClient(
     }
 
     fun disconnect() {
-        reconnectAttempts = MAX_RECONNECT_ATTEMPTS
+        stopped.set(true)
+        reconnectAttempts = StompReconnectPolicy.MAX_ATTEMPTS
+        reconnectScheduled.set(false)
+        cancelPendingReconnect()
         connected.set(false)
         webSocket?.close(1000, "shutdown")
         webSocket = null
@@ -94,6 +105,8 @@ class NativeStompClient(
     }
 
     private fun openSocket() {
+        if (stopped.get()) return
+        reconnectScheduled.set(false)
         val request = Request.Builder()
             .url(wsUrl)
             .header("Authorization", "Bearer $bearerToken")
@@ -101,6 +114,10 @@ class NativeStompClient(
         webSocket?.cancel()
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (stopped.get()) {
+                    webSocket.close(1000, "stopped")
+                    return
+                }
                 Log.i(tag, "WebSocket open — sending STOMP CONNECT")
                 sendFrame(
                     webSocket,
@@ -168,9 +185,10 @@ class NativeStompClient(
             "CONNECTED" -> {
                 connected.set(true)
                 reconnectAttempts = 0
+                reconnectScheduled.set(false)
                 Log.i(tag, "STOMP CONNECTED")
                 val subsCopy = synchronized(subscriptions) { subscriptions.toList() }
-                subsCopy.forEachIndexed { index, (id, destination) ->
+                subsCopy.forEach { (id, destination) ->
                     sendFrame(
                         webSocket,
                         "SUBSCRIBE",
@@ -194,6 +212,7 @@ class NativeStompClient(
     }
 
     private fun handleDisconnect() {
+        if (stopped.get()) return
         val wasConnected = connected.getAndSet(false)
         if (wasConnected) {
             mainHandler.post { onDisconnected() }
@@ -202,11 +221,33 @@ class NativeStompClient(
     }
 
     private fun scheduleReconnect() {
-        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return
+        if (stopped.get()) return
+        if (reconnectAttempts >= StompReconnectPolicy.MAX_ATTEMPTS) {
+            Log.w(tag, "Giving up STOMP reconnect after $reconnectAttempts attempts")
+            return
+        }
+        // onFailure + onClosed for the same teardown must not schedule twice.
+        if (!reconnectScheduled.compareAndSet(false, true)) {
+            Log.d(tag, "Reconnect already scheduled — skipping duplicate")
+            return
+        }
         reconnectAttempts++
-        val delay = RECONNECT_BASE_MS * reconnectAttempts.coerceAtMost(5)
+        val delay = StompReconnectPolicy.delayMs(reconnectAttempts)
         Log.i(tag, "Scheduling STOMP reconnect in ${delay}ms (attempt $reconnectAttempts)")
-        mainHandler.postDelayed({ openSocket() }, delay)
+        cancelPendingReconnect()
+        val runnable = Runnable {
+            reconnectRunnable = null
+            if (!stopped.get()) {
+                openSocket()
+            }
+        }
+        reconnectRunnable = runnable
+        mainHandler.postDelayed(runnable, delay)
+    }
+
+    private fun cancelPendingReconnect() {
+        reconnectRunnable?.let { mainHandler.removeCallbacks(it) }
+        reconnectRunnable = null
     }
 
     private fun sendFrame(
@@ -225,9 +266,6 @@ class NativeStompClient(
     }
 
     companion object {
-        private const val MAX_RECONNECT_ATTEMPTS = 100
-        private const val RECONNECT_BASE_MS = 3000L
-
         fun wsNativeUrl(apiBaseUrl: String): String {
             val trimmed = apiBaseUrl.trimEnd('/')
             val wsBase = when {

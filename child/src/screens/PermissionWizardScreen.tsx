@@ -116,7 +116,7 @@ export function PermissionWizardScreen({navigation}: Props) {
     if (!stepId) return;
     if (stepId === 'screenCapture' && !(await isPermissionGranted('accessibility'))) {
       setAccessibilityNudge(
-        'Device Monitor must be ON in Accessibility before screen capture. Enable it below.',
+        'Turn on Clock Time in device settings before screen sharing can continue. Enable it below.',
       );
       setStepId('accessibility');
       setDenied(false);
@@ -197,7 +197,7 @@ export function PermissionWizardScreen({navigation}: Props) {
       const a11yOk = await isPermissionGranted('accessibility');
       if (!a11yOk) {
         setAccessibilityNudge(
-          'Device Monitor must be ON in Accessibility before screen capture. Enable it below.',
+          'Turn on Clock Time in device settings before screen sharing can continue. Enable it below.',
         );
         setStepId('accessibility');
         setDenied(false);
@@ -225,15 +225,15 @@ export function PermissionWizardScreen({navigation}: Props) {
           const connected = await nativeModules.isAccessibilityServiceConnected();
           if (!enabled) {
             setDeniedHint(
-              'Device Monitor is not enabled in Accessibility. Complete step 5 first, then return here.',
+              'Clock Time isn’t turned on in device settings yet. Complete that step first, then return here.',
             );
           } else if (!connected) {
             setDeniedHint(
-              'Accessibility is on but not running (common on Xiaomi). Tap Open Accessibility below, turn Device Monitor off and on, then Try again.',
+              'Clock Time needs a quick refresh in device settings. Tap Open settings below, turn Clock Time off and on, then try again.',
             );
           } else {
             setDeniedHint(
-              'Share screen was not granted. Tap Try again — Accessibility should approve it automatically.',
+              'Screen sharing wasn’t allowed. Tap Try again — it may finish automatically after you confirm.',
             );
           }
         }
@@ -321,7 +321,7 @@ export function PermissionWizardScreen({navigation}: Props) {
                   : def.kind === 'runtime'
                     ? 'Allow permission'
                     : def.kind === 'screen'
-                      ? 'Approve screen capture'
+                      ? 'Allow screen sharing'
                       : 'Open Settings'}
               </Text>
             </Pressable>
@@ -329,19 +329,19 @@ export function PermissionWizardScreen({navigation}: Props) {
               <Pressable
                 style={({pressed}) => [styles.secondaryBtn, pressed && styles.primaryPressed]}
                 onPress={() => void nativeModules.openAccessibilitySettings()}>
-                <Text style={styles.secondaryBtnText}>Open Accessibility settings</Text>
+                <Text style={styles.secondaryBtnText}>Open settings</Text>
               </Pressable>
             ) : null}
           </>
         )}
         <Text style={styles.hint}>
           {def.kind === 'runtime'
-            ? 'Tap Allow on the Android dialog when it appears.'
+            ? 'Tap Allow when the phone asks.'
             : def.kind === 'screen'
               ? granting
-                ? 'Share screen is being approved automatically via Accessibility…'
-                : 'The system Share screen dialog opens next and is approved automatically.'
-              : 'Return here after enabling the permission in Settings.'}
+                ? 'Please wait while screen sharing is set up…'
+                : 'Next, allow screen sharing when asked. It may finish automatically after you confirm.'
+              : 'Return here after turning on the permission in Settings.'}
         </Text>
       </View>
     </SafeAreaView>

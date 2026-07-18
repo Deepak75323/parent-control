@@ -1,5 +1,6 @@
 import axios, {type AxiosError, type InternalAxiosRequestConfig} from 'axios';
 import {config} from '../utils/config';
+import {correlationHeaders} from '../utils/correlation';
 import {useAuthStore} from '../store/authStore';
 import {useApiDebugStore} from '../store/apiDebugStore';
 import {logErrorCurl, logRequestCurl, logResponseCurl, toCurl} from '../utils/curlLogger';
@@ -255,7 +256,9 @@ export type DeviceCommandType =
   | 'GLOBAL_HOME'
   | 'TYPE_TEXT'
   | 'LAUNCH_APP'
-  | 'SYNC_INSTALLED_APPS';
+  | 'SYNC_INSTALLED_APPS'
+  | 'SYNC_USAGE_STATS'
+  | 'SYNC_POLICIES';
 
 export interface AuditLogItem {
   id: string;
@@ -269,6 +272,7 @@ export interface AuditLogItem {
 
 export interface NotificationItem {
   id: string;
+  deviceId?: string;
   packageName?: string;
   title?: string;
   body?: string;
@@ -289,6 +293,7 @@ export interface UsageStatEntry {
   packageName: string;
   usageMs: number;
   recordedAt: string;
+  createdAt?: string;
 }
 
 export interface InstalledAppItem {
@@ -296,6 +301,8 @@ export interface InstalledAppItem {
   packageName: string;
   appLabel: string;
   appCategory?: string;
+  /** Small PNG as base64 (no data-URL prefix). */
+  iconBase64?: string | null;
   syncedAt: string;
 }
 
@@ -508,9 +515,40 @@ export interface PolicySummary {
   updatedAt: string;
 }
 
+export interface AppBlockBundleRule {
+  policyId: string;
+  ruleId?: string;
+  packageName: string;
+  scheduleType?: string;
+  scheduleJson?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface ScreenTimeBundleRule {
+  policyId: string;
+  ruleId?: string;
+  packageName?: string | null;
+  appCategory?: string | null;
+  dailyLimitMinutes?: number;
+  actionOnLimit?: string;
+  warnAtPercent?: number;
+  enabled?: boolean;
+}
+
+export interface PolicyBundle {
+  policyVersion?: number;
+  appBlocks?: AppBlockBundleRule[];
+  screenTime?: ScreenTimeBundleRule[];
+  deviceSchedules?: unknown[];
+}
+
+export const BLOCK_ALL_APPS_POLICY_NAME = 'Block All Apps';
+
 export const policiesApi = {
   list: (type?: string) =>
     api.get<ApiResponse<PolicySummary[]>>(ApiPaths.POLICIES, {params: type ? {type} : {}}),
+  deviceBundle: (deviceId: string) =>
+    api.get<ApiResponse<PolicyBundle>>(ApiPaths.policyDeviceBundle(deviceId)),
   createAppBlock: (body: {
     name: string;
     deviceIds: string[];
@@ -572,6 +610,18 @@ export const childLoginPasswordApi = {
   status: () =>
     api.get<ApiResponse<{configured: boolean; linkedDeviceCount: number}>>(
       ApiPaths.PARENT_CHILD_LOGIN_PASSWORD_STATUS,
+    ),
+};
+
+export const familyHandleApi = {
+  setHandle: (familyHandle: string) =>
+    api.post<ApiResponse<{configured: boolean; familyHandle: string | null}>>(
+      ApiPaths.PARENT_FAMILY_HANDLE,
+      {familyHandle},
+    ),
+  status: () =>
+    api.get<ApiResponse<{configured: boolean; familyHandle: string | null}>>(
+      ApiPaths.PARENT_FAMILY_HANDLE_STATUS,
     ),
 };
 

@@ -24,7 +24,9 @@ class MainApplication : Application(), ReactApplication {
 
         override fun getJSMainModuleName(): String = "index"
 
-        override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
+        // When EMBEDDED_BUNDLE=true (Oracle staging APKs), use the assets bundle without Metro.
+        override fun getUseDeveloperSupport(): Boolean =
+            BuildConfig.DEBUG && !BuildConfig.EMBEDDED_BUNDLE
 
         override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
         override val isHermesEnabled: Boolean = BuildConfig.IS_HERMES_ENABLED

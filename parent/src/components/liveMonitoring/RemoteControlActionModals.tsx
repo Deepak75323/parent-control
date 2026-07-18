@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import {InstalledAppItem, monitoringApi} from '../../services/api';
 import {STREAM_COLORS} from './layout';
+import {appDisplayName} from '../../utils/appDisplayName';
 
 type Props = {
   deviceId: string;
@@ -119,9 +120,11 @@ export function RemoteControlActionModals({
                       onSendLaunchApp(item.packageName);
                       onClose();
                     }}>
-                    <Text style={styles.appLabel}>{item.appLabel}</Text>
-                    <Text style={styles.appPkg} numberOfLines={1}>
-                      {item.packageName}
+                    <Text style={styles.appLabel}>
+                      {appDisplayName({
+                        appLabel: item.appLabel,
+                        packageName: item.packageName,
+                      })}
                     </Text>
                   </Pressable>
                 )}
@@ -200,5 +203,4 @@ const styles = StyleSheet.create({
     borderBottomColor: '#334155',
   },
   appLabel: {color: STREAM_COLORS.text, fontSize: 15, fontWeight: '600'},
-  appPkg: {color: STREAM_COLORS.textMuted, fontSize: 12, marginTop: 2},
 });

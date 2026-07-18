@@ -132,9 +132,11 @@ export function ProfileScreen({navigation}: {navigation: Nav}) {
           {/* Security */}
           <Text style={styles.groupLabel}>SECURITY</Text>
           <SectionGroup>
+            <MenuRow icon="@" label="Family handle" sub="Unique ID children use to find you" onPress={() => navigation.navigate('FamilyHandle')} />
+            <View style={styles.divider} />
             <MenuRow icon="🔑" label="Child login password" sub="Same on every child phone" onPress={() => navigation.navigate('ChildLoginPassword')} />
             <View style={styles.divider} />
-            <MenuRow icon="🔒" label="Parent PIN" sub="Unlock silent monitoring" onPress={() => navigation.navigate('ParentPin')} />
+            <MenuRow icon="🔒" label="Parent password" sub="Protects screen sharing and sensitive actions" onPress={() => navigation.navigate('ParentPin')} />
             <View style={styles.divider} />
             <MenuRow icon="💳" label="Subscription" sub="Plan & billing" onPress={() => navigation.navigate('Subscription')} />
           </SectionGroup>

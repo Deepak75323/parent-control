@@ -25,6 +25,7 @@ ios/build/
 *.jks
 .env
 .env.local
+scripts/deploy/oracle.env
 
 # OS
 .DS_Store

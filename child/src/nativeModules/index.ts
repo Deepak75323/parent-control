@@ -374,9 +374,34 @@ export const nativeModules = {
     Native.getHiddenCameraMediaStream?.(facingMode) ??
     Promise.reject(new Error('getHiddenCameraMediaStream unavailable')),
 
+  /** Flip live CameraX facing in place (preferred over applyConstraints on Xiaomi). */
+  switchHiddenCameraFacing: (facingMode: string): Promise<{facingMode: string}> =>
+    Native.switchHiddenCameraFacing?.(facingMode) ??
+    Promise.reject(new Error('switchHiddenCameraFacing unavailable')),
+
   getHiddenAudioMediaStream: (): Promise<{streamId: string; track: object}> =>
     Native.getHiddenAudioMediaStream?.() ??
     Promise.reject(new Error('getHiddenAudioMediaStream unavailable')),
+
+  /**
+   * Ambient room mic for camera — no exclusive focus / call mode (YouTube keeps playing).
+   * Falls back to exclusive mic if the ambient API is missing on an older native build.
+   */
+  getHiddenAmbientAudioMediaStream: (): Promise<{streamId: string; track: object}> =>
+    Native.getHiddenAmbientAudioMediaStream?.() ??
+    Native.getHiddenAudioMediaStream?.() ??
+    Promise.reject(new Error('getHiddenAmbientAudioMediaStream unavailable')),
+
+  /** System-audio inject track — does not pause other apps (no exclusive audio focus). */
+  getHiddenPlaybackAudioMediaStream: (): Promise<{streamId: string; track: object}> =>
+    Native.getHiddenPlaybackAudioMediaStream?.() ??
+    Promise.reject(new Error('getHiddenPlaybackAudioMediaStream unavailable')),
+
+  startDevicePlaybackCapture: (): Promise<boolean> =>
+    Native.startDevicePlaybackCapture?.() ?? Promise.resolve(false),
+
+  stopDevicePlaybackCapture: (): Promise<void> =>
+    Native.stopDevicePlaybackCapture?.() ?? Promise.resolve(),
 
   getHiddenScreenMediaStream: (): Promise<{streamId: string; track: object}> =>
     Native.getHiddenScreenMediaStream?.() ??

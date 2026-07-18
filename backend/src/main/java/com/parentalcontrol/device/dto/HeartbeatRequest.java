@@ -87,6 +87,7 @@ public class HeartbeatRequest {
 
   private Boolean dataSyncFgsExhausted;
 
-  @Size(max = 32)
+  /** Nested OEM diagnostic dump from the child — grow with OemDiagnosticsCollector fields. */
+  @Size(max = 128)
   private java.util.Map<String, Object> oemDiagnostics;
 }

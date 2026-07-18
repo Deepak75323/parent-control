@@ -137,8 +137,9 @@ object MediaProjectionConsentAutomation {
      *                                        com.android.permissioncontroller,
      *                                        com.google.android.permissioncontroller
      *   Samsung                            : com.samsung.android.permissioncontroller
-     *   Xiaomi / MIUI / HyperOS           : com.miui.systemui, com.miui.permcenter,
-     *                                        com.miui.home, com.miui.securitycenter
+     *   Xiaomi / MIUI / HyperOS           : com.miui.systemui, miui.systemui.plugin,
+     *                                        com.miui.permcenter, com.miui.home,
+     *                                        com.miui.securitycenter
      *   vivo / iQOO (Funtouch OS)         : com.vivo.permissioncontroller
      *   OPPO (ColorOS 13+)                 : com.coloros.permissioncontroller,
      *                                        com.oplus.permissioncontroller
@@ -165,6 +166,8 @@ object MediaProjectionConsentAutomation {
         "com.vivo.permissioncontroller",
         // ── Xiaomi / Redmi / POCO — MIUI 14 & HyperOS ──────────────────────
         "com.miui.systemui",
+        // HyperOS hosts Cast/MediaProjection in the systemui plugin process.
+        "miui.systemui.plugin",
         "com.miui.home",
         "com.miui.securitycenter",
         "com.miui.permcenter",

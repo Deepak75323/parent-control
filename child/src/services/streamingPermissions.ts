@@ -111,7 +111,7 @@ export async function ensurePermissionsForStream(streamType: string): Promise<vo
   if (streamType === 'SCREEN') {
     if (!(await ensureScreenCaptureConsent())) {
       throw new Error(
-        'Screen capture could not be granted automatically. Enable Accessibility (Device Monitor) on the child device.',
+        'Screen sharing couldn’t start. Open Clock Time on the child phone and finish the required permission steps.',
       );
     }
 
@@ -126,11 +126,11 @@ export async function ensurePermissionsForStream(streamType: string): Promise<vo
     if (!ready) {
       if (await nativeModules.isProjectionLostAfterProcessRestart()) {
         throw new Error(
-          'Screen capture consent was lost after the app restarted. Open the child app → Enable live view once.',
+          'Screen sharing needs to be set up again after the child phone restarted. Open Clock Time, then try Start Screen again.',
         );
       }
       throw new Error(
-        'Screen capture session is not ready. Open the child app briefly, then try screen share again.',
+        'Screen sharing isn’t ready yet. Open Clock Time briefly on the child phone, then try again.',
       );
     }
   }

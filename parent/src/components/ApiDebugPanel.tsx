@@ -7,6 +7,16 @@ import {config} from '../utils/config';
 export function ApiDebugPanel() {
   const last = useApiDebugStore(s => s.last);
 
+  // Always show baseURL so embedded Oracle APKs (often __DEV__=false) are diagnosable.
+  if (!__DEV__ && !last) {
+    return (
+      <View style={styles.wrap}>
+        <Text style={styles.title}>API</Text>
+        <Text style={styles.meta}>baseURL: {config.apiBaseUrl}</Text>
+      </View>
+    );
+  }
+
   if (!__DEV__) return null;
 
   return (

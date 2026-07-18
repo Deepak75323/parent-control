@@ -140,8 +140,10 @@ export function connectWebSocket(): void {
           body?: string;
           postedAt: string;
         }>(msg);
+        const notifDeviceId = normalizeDeviceId(event.deviceId);
         const item: NotificationItem = {
           id: event.id,
+          deviceId: notifDeviceId || undefined,
           packageName: event.packageName,
           title: event.title,
           body: event.body,

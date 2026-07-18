@@ -34,8 +34,8 @@ public class RateLimitProperties {
   private int pairingCodeCreationPerMinute = 10;
 
   /**
-   * P2-07: Per-email login attempts per minute (distributed brute-force defence).
-   * Complements IP rate limit + account lockout.
+   * P2-07: Per-email login attempts per minute (distributed brute-force defence). Complements IP
+   * rate limit + account lockout.
    */
   private int authEmailRequestsPerMinute = 10;
 

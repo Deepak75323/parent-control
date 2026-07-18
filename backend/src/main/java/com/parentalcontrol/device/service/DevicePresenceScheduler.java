@@ -18,7 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class DevicePresenceScheduler {
 
-  private static final long OFFLINE_THRESHOLD_MINUTES = 10;
+  /**
+   * Must stay comfortably above HeartbeatNudgeScheduler.NUDGE_AFTER_MINUTES (5) plus realistic
+   * FCM/Doze/OEM delivery jitter, so a nudge has time to land before a device flips OFFLINE.
+   */
+  private static final long OFFLINE_THRESHOLD_MINUTES = 12;
 
   private final DeviceDao deviceRepository;
   private final RealtimeEventService realtimeEventService;

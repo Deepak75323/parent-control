@@ -19,31 +19,55 @@ object DeviceHttpClient {
 
     private const val TAG = "DeviceHttpClient"
 
+    sealed class HttpResult {
+        data class Ok(val body: String) : HttpResult()
+        /** No API base URL or device token — not a network outage. */
+        data object NotReady : HttpResult()
+        data class HttpError(val code: Int, val errorBody: String?) : HttpResult()
+        data class NetworkFailure(val cause: Exception) : HttpResult()
+    }
+
     fun get(context: Context, path: String): String? {
-        val base = NativeApiResolver.resolveWorkingBase(context) ?: return null
-        val token = MonitoringPrefs.deviceToken(context) ?: return null
+        return when (val result = getDetailed(context, path)) {
+            is HttpResult.Ok -> result.body
+            else -> null
+        }
+    }
+
+    fun getDetailed(context: Context, path: String): HttpResult {
+        val base = NativeApiResolver.resolveWorkingBase(context) ?: return HttpResult.NotReady
+        val token = MonitoringPrefs.deviceToken(context) ?: return HttpResult.NotReady
         val urlString = "$base$path"
         return try {
             val conn = openConnection(urlString, "GET", token, context, null)
-            if (conn.responseCode !in 200..299) {
-                Log.w(TAG, "GET $path failed: ${conn.responseCode}")
-                null
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                val err = conn.errorStream?.bufferedReader()?.use(BufferedReader::readText)
+                Log.w(TAG, "GET $path failed: $code $err")
+                HttpResult.HttpError(code, err)
             } else {
-                conn.inputStream.bufferedReader().readText()
+                HttpResult.Ok(conn.inputStream.bufferedReader().readText())
             }
         } catch (e: Exception) {
             Log.e(TAG, "GET $path error", e)
-            null
+            HttpResult.NetworkFailure(e)
         }
     }
 
     fun postJson(context: Context, path: String, jsonBody: String): Boolean {
-        return postJsonResponse(context, path, jsonBody) != null
+        return postJsonDetailed(context, path, jsonBody) is HttpResult.Ok
     }
 
     fun postJsonResponse(context: Context, path: String, jsonBody: String): String? {
-        val base = NativeApiResolver.resolveWorkingBase(context) ?: return null
-        val token = MonitoringPrefs.deviceToken(context) ?: return null
+        return when (val result = postJsonDetailed(context, path, jsonBody)) {
+            is HttpResult.Ok -> result.body
+            else -> null
+        }
+    }
+
+    fun postJsonDetailed(context: Context, path: String, jsonBody: String): HttpResult {
+        val base = NativeApiResolver.resolveWorkingBase(context) ?: return HttpResult.NotReady
+        val token = MonitoringPrefs.deviceToken(context) ?: return HttpResult.NotReady
         val urlString = "$base$path"
         return try {
             val conn = openConnection(urlString, "POST", token, context, jsonBody)
@@ -52,13 +76,13 @@ object DeviceHttpClient {
             if (code !in 200..299) {
                 val err = conn.errorStream?.bufferedReader()?.use(BufferedReader::readText)
                 Log.w(TAG, "POST $path failed: $code $err")
-                null
+                HttpResult.HttpError(code, err)
             } else {
-                conn.inputStream.bufferedReader().readText()
+                HttpResult.Ok(conn.inputStream.bufferedReader().readText())
             }
         } catch (e: Exception) {
             Log.e(TAG, "POST $path error", e)
-            null
+            HttpResult.NetworkFailure(e)
         }
     }
     /** Returns true when the server transitioned PENDING → DELIVERED for this command. */

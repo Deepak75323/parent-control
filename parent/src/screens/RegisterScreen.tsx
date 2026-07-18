@@ -136,14 +136,14 @@ export function RegisterScreen({navigation}: Props) {
         );
         return;
       }
-      const message = data.message ?? 'Unable to create account.';
+      const message = data.message ?? 'Couldn’t create your account.';
       const hint = message.toLowerCase().includes('already registered')
         ? `${message} Use Sign in if you already have an account.`
         : message;
       setError(hint);
       showError('Registration failed', hint);
     } catch (err) {
-      const message = getApiErrorMessage(err, 'Unable to create account. Please try again.');
+      const message = getApiErrorMessage(err, 'Couldn’t create your account. Please try again.');
       setError(message);
       showError('Registration failed', message);
     } finally {

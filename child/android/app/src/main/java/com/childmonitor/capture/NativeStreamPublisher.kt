@@ -2,11 +2,12 @@ package com.childmonitor.capture
 
 import android.content.Context
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
 import android.util.Log
 import com.childmonitor.debug.PcpFlowLogger
 import com.childmonitor.debug.StreamState
 import com.childmonitor.sync.DeviceHttpClient
+import com.childmonitor.sync.NativeStompOwner
 import com.childmonitor.telemetry.StreamLifecycleTelemetry
 import org.json.JSONObject
 import org.webrtc.DefaultVideoDecoderFactory
@@ -22,6 +23,7 @@ import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoCapturer
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
+import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -39,8 +41,11 @@ object NativeStreamPublisher {
     private var eglBase: EglBase? = null
     private var capturer: VideoCapturer? = null
     private var videoSource: VideoSource? = null
+    private var audioDeviceModule: org.webrtc.audio.AudioDeviceModule? = null
     private var pollHandler: Handler? = null
+    private var pollThread: HandlerThread? = null
     private var pollRunnable: Runnable? = null
+    private var appContext: Context? = null
     private var activeRoomId: String? = null
     private var activeSessionId: String? = null
     private val seenMessageIds = mutableSetOf<String>()
@@ -66,6 +71,7 @@ object NativeStreamPublisher {
             stopCaptureOnly()
         }
 
+        appContext = context.applicationContext
         activeRoomId = roomId
         activeSessionId = sessionId
         seenMessageIds.clear()
@@ -128,10 +134,26 @@ object NativeStreamPublisher {
 
             val videoTrack = peerConnectionFactory!!.createVideoTrack("screen_video", videoSource)
             peerConnection!!.addTrack(videoTrack, listOf("stream"))
+
+            // System / device audio via AudioPlaybackCapture on the same MediaProjection.
+            try {
+                if (DevicePlaybackAudioCapturer.start(projection)) {
+                    val audioSource = peerConnectionFactory!!.createAudioSource(MediaConstraints())
+                    val audioTrack = peerConnectionFactory!!.createAudioTrack("screen_audio", audioSource)
+                    peerConnection!!.addTrack(audioTrack, listOf("stream"))
+                    (audioDeviceModule as? JavaAudioDeviceModule)?.setMicrophoneMute(true)
+                    Log.i(TAG, "PLAYBACK_CAPTURE_STARTED native screen audio track added")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "PLAYBACK_CAPTURE_FAILED native path reason=${e.message}")
+            }
+
             PcpFlowLogger.transitionState(StreamState.WEBRTC_CONNECTING, "NativeStreamPublisher.start",
                 "peerConnection ready session=$sessionId")
 
             createAndSendOffer(context, roomId, sessionId)
+            // STOMP push + HTTP poll (must run off main — NetworkOnMainThreadException otherwise).
+            NativeStompOwner.subscribeSignalingRoom(roomId)
             startSignalingPoll(context, roomId)
             true
         } catch (e: Exception) {
@@ -188,14 +210,20 @@ object NativeStreamPublisher {
 
     fun stop(context: Context) {
         running.set(false)
-        iceRecoveryRunnable?.let { pollHandler?.removeCallbacks(it) }
-        iceRecoveryRunnable = null
+        DevicePlaybackAudioCapturer.stop()
+        try {
+            (audioDeviceModule as? JavaAudioDeviceModule)?.setMicrophoneMute(false)
+        } catch (_: Exception) {
+        }
+        val room = activeRoomId
+        stopSignalingPoll()
         iceRecoveryStage = 0
-        pollRunnable?.let { pollHandler?.removeCallbacks(it) }
-        pollRunnable = null
-        pollHandler = null
+        if (!room.isNullOrBlank()) {
+            NativeStompOwner.unsubscribeSignalingRoom(room)
+        }
         activeRoomId = null
         activeSessionId = null
+        appContext = null
         seenMessageIds.clear()
         remoteAnswerApplied = false
         StreamSessionRegistry.release(StreamSessionRegistry.Owner.NATIVE_PUBLISHER)
@@ -208,17 +236,36 @@ object NativeStreamPublisher {
         // Keep the warm MediaProjection session for the next parent request — releasing it
         // forces getMediaProjection on API 34+ which needs project_media we no longer hold.
     }
+    fun onSignalingPush(roomId: String, body: String) {
+        if (!running.get() || roomId != activeRoomId) return
+        val ctx = appContext ?: return
+        try {
+            val msg = JSONObject(body)
+            handleParentSignalingMessage(ctx, msg)
+        } catch (e: Exception) {
+            Log.w(TAG, "onSignalingPush parse failed", e)
+        }
+    }
 
     private fun stopCaptureOnly() {
         try {
             capturer?.stopCapture()
         } catch (_: Exception) {
         }
-        capturer?.dispose()
+        try {
+            capturer?.dispose()
+        } catch (_: Exception) {
+        }
         capturer = null
-        videoSource?.dispose()
+        try {
+            videoSource?.dispose()
+        } catch (_: Exception) {
+        }
         videoSource = null
-        MediaProjectionCaptureGate.release("native-publisher-stop")
+        // Must match ReuseProjectionCapturer.GATE_OWNER — previous "native-publisher-stop"
+        // never released the gate and caused CAPTURE_GATE_BLOCKED on the next stream.
+        MediaProjectionCaptureGate.release(ReuseProjectionCapturer.GATE_OWNER)
+        MediaProjectionCaptureGate.forceRelease("native-publisher-stopCaptureOnly")
     }
 
     fun isRunning(): Boolean = running.get()
@@ -234,7 +281,15 @@ object NativeStreamPublisher {
             }
             val encoderFactory = DefaultVideoEncoderFactory(eglBase!!.eglBaseContext, true, true)
             val decoderFactory = DefaultVideoDecoderFactory(eglBase!!.eglBaseContext)
+            val adm = JavaAudioDeviceModule.builder(context)
+                .setEnableVolumeLogger(false)
+                .setAudioRecordDataCallback { _, channelCount, sampleRate, audioBuffer ->
+                    PlaybackCaptureInjector.fillWebRtcBuffer(channelCount, sampleRate, audioBuffer)
+                }
+                .createAudioDeviceModule()
+            audioDeviceModule = adm
             peerConnectionFactory = PeerConnectionFactory.builder()
+                .setAudioDeviceModule(adm)
                 .setVideoEncoderFactory(encoderFactory)
                 .setVideoDecoderFactory(decoderFactory)
                 .createPeerConnectionFactory()
@@ -381,33 +436,65 @@ object NativeStreamPublisher {
     }
 
     private fun startSignalingPoll(context: Context, roomId: String) {
-        pollHandler = Handler(Looper.getMainLooper())
+        stopSignalingPoll()
+        val appCtx = context.applicationContext
+        val handler = ensureBackgroundPollHandler()
         pollRunnable = object : Runnable {
             override fun run() {
                 if (!running.get()) return
-                processSignalingMessages(context, roomId)
-                pollHandler?.postDelayed(this, 1500)
+                try {
+                    processSignalingMessages(appCtx, roomId)
+                } catch (e: Exception) {
+                    Log.w(TAG, "signaling poll failed", e)
+                }
+                if (running.get()) {
+                    pollHandler?.postDelayed(this, 1500)
+                }
             }
         }
-        pollHandler?.post(pollRunnable!!)
+        handler.post(pollRunnable!!)
+    }
+
+    private fun ensureBackgroundPollHandler(): Handler {
+        pollHandler?.let { return it }
+        val thread = HandlerThread("NativeSignalingPoll").also { it.start() }
+        pollThread = thread
+        return Handler(thread.looper).also { pollHandler = it }
+    }
+
+    private fun stopSignalingPoll() {
+        iceRecoveryRunnable?.let { pollHandler?.removeCallbacks(it) }
+        iceRecoveryRunnable = null
+        pollRunnable?.let { pollHandler?.removeCallbacks(it) }
+        pollRunnable = null
+        pollHandler = null
+        pollThread?.quitSafely()
+        pollThread = null
     }
 
     private fun processSignalingMessages(context: Context, roomId: String) {
         val messages = SignalingHttpClient.fetchRecent(context, roomId) ?: return
+        // Answers first, then ICE (ICE needs remote description).
         for (i in 0 until messages.length()) {
             val msg = messages.optJSONObject(i) ?: continue
-            val id = msg.optString("id", "$i-${msg.optString("messageType")}")
-            if (seenMessageIds.contains(id) || msg.optString("senderRole") == "CHILD") continue
-            if (msg.optString("messageType") == "answer") {
-                applyAnswer(context, msg.optString("payload"), id)
-            }
+            if (msg.optString("messageType") != "answer") continue
+            handleParentSignalingMessage(context, msg)
         }
         if (!remoteAnswerApplied) return
         for (i in 0 until messages.length()) {
             val msg = messages.optJSONObject(i) ?: continue
-            val id = msg.optString("id", "$i-${msg.optString("messageType")}")
-            if (seenMessageIds.contains(id) || msg.optString("senderRole") == "CHILD") continue
-            if (msg.optString("messageType") == "ice") {
+            if (msg.optString("messageType") != "ice") continue
+            handleParentSignalingMessage(context, msg)
+        }
+    }
+
+    private fun handleParentSignalingMessage(context: Context, msg: JSONObject) {
+        val id = msg.optString("id", "${msg.optString("messageType")}-${msg.optString("payload").hashCode()}")
+        if (seenMessageIds.contains(id) || msg.optString("senderRole") == "CHILD") return
+        when (msg.optString("messageType")) {
+            "answer" -> applyAnswer(context, msg.optString("payload"), id)
+            "ice" -> {
+                if (!remoteAnswerApplied) return
                 applyIce(msg.optString("payload"), id)
             }
         }
@@ -454,7 +541,7 @@ object NativeStreamPublisher {
 
     private fun scheduleIceRecovery(context: Context) {
         if (iceRecoveryRunnable != null || !running.get()) return
-        val handler = pollHandler ?: Handler(Looper.getMainLooper()).also { pollHandler = it }
+        val handler = ensureBackgroundPollHandler()
         iceRecoveryRunnable = Runnable {
             iceRecoveryRunnable = null
             if (!running.get()) return@Runnable

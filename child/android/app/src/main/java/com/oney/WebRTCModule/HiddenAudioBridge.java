@@ -62,13 +62,17 @@ public final class HiddenAudioBridge {
         if (activeStreamId == null || activeReactContext == null) {
             return;
         }
-        if (focusChange == AudioManager.AUDIOFOCUS_LOSS
-                || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
-                || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+        if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
+            // Permanent loss only — TRANSIENT/DUCK must not tear down the child's mic mid-call
+            // (another app briefly playing media is common on the child device).
             boolean regained = requestAudioFocus(activeReactContext.getApplicationContext());
             if (!regained) {
                 handleUnrecoverableFocusLoss();
             }
+        } else if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
+                || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+            Log.i(TAG, "MIC_FOCUS_TRANSIENT change=" + focusChange + " — keeping capture alive");
+            requestAudioFocus(activeReactContext.getApplicationContext());
         }
     };
 
@@ -151,6 +155,21 @@ public final class HiddenAudioBridge {
             ForegroundGate foregroundGate,
             Runnable onStopForeground
     ) {
+        createAudioStream(reactContext, promise, foregroundGate, onStopForeground, true);
+    }
+
+    /**
+     * @param exclusiveAudioFocus when true (mic / video-call), request AUDIOFOCUS_GAIN which
+     *     pauses other media apps. When false (system AudioPlaybackCapture injection), do not
+     *     steal focus or other apps' YouTube/Spotify video+audio will freeze/pause.
+     */
+    public static void createAudioStream(
+            ReactApplicationContext reactContext,
+            Promise promise,
+            ForegroundGate foregroundGate,
+            Runnable onStopForeground,
+            boolean exclusiveAudioFocus
+    ) {
         new Thread(() -> {
             try {
                 stopActiveCapture(reactContext);
@@ -162,11 +181,16 @@ public final class HiddenAudioBridge {
                             "Microphone foreground service did not start — required for background audio on Android 14+");
                     return;
                 }
+                Log.i(TAG, exclusiveAudioFocus ? "MIC_CAPTURE_STARTED" : "PLAYBACK_INJECT_CAPTURE_STARTED");
 
-                if (!requestAudioFocus(reactContext.getApplicationContext())) {
-                    onStopForeground.run();
-                    promise.reject("AUDIO_FOCUS_DENIED", "Microphone audio focus was denied by the system");
-                    return;
+                if (exclusiveAudioFocus) {
+                    if (!requestAudioFocus(reactContext.getApplicationContext())) {
+                        onStopForeground.run();
+                        promise.reject("AUDIO_FOCUS_DENIED", "Microphone audio focus was denied by the system");
+                        return;
+                    }
+                } else {
+                    Log.i(TAG, "skipping exclusive audio focus — playback capture must not pause media apps");
                 }
 
                 WebRTCModule webrtc = reactContext.getNativeModule(WebRTCModule.class);
@@ -179,9 +203,11 @@ public final class HiddenAudioBridge {
                 GetUserMediaImpl mediaImpl = getUserMediaImpl(webrtc);
                 WritableMap constraints = Arguments.createMap();
                 WritableMap audio = Arguments.createMap();
-                audio.putBoolean("echoCancellation", true);
-                audio.putBoolean("noiseSuppression", true);
-                audio.putBoolean("autoGainControl", true);
+                // Playback-inject path: disable AEC/NS/AGC so we do not process system mix as speech.
+                boolean processing = exclusiveAudioFocus;
+                audio.putBoolean("echoCancellation", processing);
+                audio.putBoolean("noiseSuppression", processing);
+                audio.putBoolean("autoGainControl", processing);
                 constraints.putMap("audio", audio);
 
                 mediaImpl.getUserMedia(
@@ -199,6 +225,7 @@ public final class HiddenAudioBridge {
                                 activeStreamId = streamId;
                                 activeReactContext = reactContext;
                                 onStopForegroundCallback = onStopForeground;
+                                Log.i(TAG, "MIC_PCM_GENERATED track=" + tracks.getMap(0).getString("id"));
                                 WritableMap data = Arguments.createMap();
                                 data.putString("streamId", streamId);
                                 data.putMap("track", tracks.getMap(0));

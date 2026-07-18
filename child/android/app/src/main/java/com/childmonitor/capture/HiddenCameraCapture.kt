@@ -33,4 +33,8 @@ object HiddenCameraCapture {
     fun stopCaptureOnly(reactContext: ReactApplicationContext) {
         HiddenCameraBridge.stopActiveCapture(reactContext)
     }
+
+    fun switchFacing(facingMode: String, promise: Promise) {
+        HiddenCameraBridge.switchFacing(facingMode, promise)
+    }
 }

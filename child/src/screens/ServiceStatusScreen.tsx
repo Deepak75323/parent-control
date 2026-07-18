@@ -17,7 +17,6 @@ import {ChildStackParamList, usePairingComplete} from './RootNavigator';
 import {runSyncCycle} from '../services/syncService';
 import {slog} from '../services/streamDebug';
 import {nativeModules} from '../nativeModules';
-import {grantScreenCaptureWithAlerts} from '../services/grantScreenCapture';
 import {ConfirmModal} from '../components/AppScreen';
 import {useFadeSlideIn, usePulse, useOpacityPulse, usePressScale} from '../utils/animations';
 import {
@@ -128,6 +127,7 @@ export function ServiceStatusScreen({navigation}: Props) {
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [busy, setBusy] = useState(false);
   const [screenCaptureOk, setScreenCaptureOk] = useState(true);
+  const [accessibilityOk, setAccessibilityOk] = useState(true);
   const [grantBusy, setGrantBusy] = useState(false);
   const [missingCritical, setMissingCritical] = useState(false);
 
@@ -179,14 +179,17 @@ export function ServiceStatusScreen({navigation}: Props) {
         Alert.alert(
           next ? 'App hidden' : 'App visible',
           next
-            ? 'The app icon is now hidden from the launcher. Open it again via Settings → Apps if needed.'
-            : 'The app icon is now visible in the launcher.',
+            ? 'Clock Time is hidden from the app list. You can open it again from Settings → Apps if needed.'
+            : 'Clock Time is visible in the app list again.',
         );
       } else {
-        Alert.alert('Not available', 'Device admin must be active to hide the app icon.');
+        Alert.alert(
+          'Not available',
+          'Turn on device protection first, then try hiding the app icon again.',
+        );
       }
     } catch (e) {
-      Alert.alert('Error', String(e));
+      Alert.alert('Error', 'Something went wrong. Please try again.');
     } finally {
       setHideBusy(false);
     }
@@ -212,8 +215,10 @@ export function ServiceStatusScreen({navigation}: Props) {
   );
 
   const screenCaptureOkRef = useRef(screenCaptureOk);
+  const accessibilityOkRef = useRef(accessibilityOk);
   const missingCriticalRef = useRef(missingCritical);
   screenCaptureOkRef.current = screenCaptureOk;
+  accessibilityOkRef.current = accessibilityOk;
   missingCriticalRef.current = missingCritical;
 
   useFocusEffect(
@@ -227,9 +232,12 @@ export function ServiceStatusScreen({navigation}: Props) {
             nativeModules.isOverlayGranted(),
           ]);
           const prevScreenCaptureOk = screenCaptureOkRef.current;
+          const prevAccessibilityOk = accessibilityOkRef.current;
           const prevMissingCritical = missingCriticalRef.current;
+          const nextAccessibilityOk = accessibility;
           const nextScreenCaptureOk = projection && accessibility;
           const nextMissingCritical = !accessibility || !usageStats || !overlay;
+          setAccessibilityOk(nextAccessibilityOk);
           setScreenCaptureOk(nextScreenCaptureOk);
           setMissingCritical(nextMissingCritical);
           navTracePermissions('ServiceStatus permission poll', {
@@ -240,19 +248,27 @@ export function ServiceStatusScreen({navigation}: Props) {
           }, false, {
             touchReady,
             screenCaptureOk: nextScreenCaptureOk,
+            accessibilityOk: nextAccessibilityOk,
             missingCritical: nextMissingCritical,
           });
-          if (prevScreenCaptureOk !== nextScreenCaptureOk || prevMissingCritical !== nextMissingCritical) {
+          if (
+            prevScreenCaptureOk !== nextScreenCaptureOk ||
+            prevAccessibilityOk !== nextAccessibilityOk ||
+            prevMissingCritical !== nextMissingCritical
+          ) {
             navTraceObserver('ServiceStatus', 'permission poll state change', {
               screenCaptureOk: prevScreenCaptureOk,
+              accessibilityOk: prevAccessibilityOk,
               missingCritical: prevMissingCritical,
             }, {
               screenCaptureOk: nextScreenCaptureOk,
+              accessibilityOk: nextAccessibilityOk,
               missingCritical: nextMissingCritical,
             }, false);
           }
         } catch (e) {
           setScreenCaptureOk(false);
+          setAccessibilityOk(false);
           navTrace('ServiceStatus permission poll error', {error: String(e)});
         }
       };
@@ -262,14 +278,11 @@ export function ServiceStatusScreen({navigation}: Props) {
     }, [touchReady]),
   );
 
-  const grantLiveView = async () => {
+  const openAccessibilitySettings = async () => {
     if (grantBusy) return;
     setGrantBusy(true);
     try {
-      const granted = await grantScreenCaptureWithAlerts();
-      if (granted) {
-        setScreenCaptureOk(true);
-      }
+      await nativeModules.openAccessibilitySettings();
     } finally {
       setGrantBusy(false);
     }
@@ -366,7 +379,7 @@ export function ServiceStatusScreen({navigation}: Props) {
               </View>
             </View>
 
-            <Text style={styles.heroTitle}>Monitoring Active</Text>
+            <Text style={styles.heroTitle}>Clock Time Active</Text>
             <Text style={styles.heroSub}>Your device is protected</Text>
 
             <View style={styles.parentChip}>
@@ -376,33 +389,33 @@ export function ServiceStatusScreen({navigation}: Props) {
           </Animated.View>
         </View>
 
-        {!screenCaptureOk ? (
+        {!accessibilityOk ? (
           <AnimCard delay={80} style={styles.alertCard}>
-            <Text style={styles.alertTitle}>Screen capture required</Text>
+            <Text style={styles.alertTitle}>One more step</Text>
             <Text style={styles.alertBody}>
-              Live screen sharing needs a one-time grant. Tap below — we open Accessibility first, then Share screen is approved automatically.
+              Please turn on Clock Time in the next settings screen so everything can work as expected.
             </Text>
             <Pressable
               style={({pressed}) => [styles.alertBtn, pressed && {opacity: 0.9}, grantBusy && {opacity: 0.6}]}
-              onPress={() => void grantLiveView()}
+              onPress={() => void openAccessibilitySettings()}
               disabled={grantBusy}>
               <Text style={styles.alertBtnText}>
-                {grantBusy ? 'Waiting…' : 'Enable live view'}
+                {grantBusy ? 'Opening…' : 'Continue'}
               </Text>
             </Pressable>
           </AnimCard>
         ) : null}
 
-        {missingCritical && screenCaptureOk ? (
+        {missingCritical && accessibilityOk ? (
           <AnimCard delay={80} style={styles.warnCard}>
-            <Text style={styles.alertTitle}>Protections need attention</Text>
+            <Text style={styles.alertTitle}>Some settings need attention</Text>
             <Text style={styles.alertBody}>
-              One or more permissions required for app blocking or usage limits are not active. Your parent has been notified.
+              A few permissions still need to be turned on. Your parent has been notified.
             </Text>
             <Pressable
               style={({pressed}) => [styles.alertBtn, styles.alertBtnWarn, pressed && {opacity: 0.9}]}
               onPress={() => navigateFromServiceStatus('CheckPermissions', 'warnCard_btn')}>
-              <Text style={styles.alertBtnText}>Fix permissions</Text>
+              <Text style={styles.alertBtnText}>Review permissions</Text>
             </Pressable>
           </AnimCard>
         ) : null}
@@ -414,8 +427,8 @@ export function ServiceStatusScreen({navigation}: Props) {
               <Text style={styles.syncIcon}>⚡</Text>
             </View>
             <View style={styles.syncInfo}>
-              <Text style={styles.syncTitle}>What's syncing</Text>
-              <Text style={styles.syncLastSync}>Last sync: {lastSync}</Text>
+              <Text style={styles.syncTitle}>Keeping things up to date</Text>
+              <Text style={styles.syncLastSync}>Last update: {lastSync}</Text>
             </View>
             <Animated.View style={{transform: [{rotate: syncing ? spin : '0deg'}]}}>
               <Pressable
@@ -429,9 +442,9 @@ export function ServiceStatusScreen({navigation}: Props) {
 
           <View style={styles.syncItems}>
             {[
-              {icon: '🔔', text: 'Notifications & app usage'},
-              {icon: '📍', text: 'Location every 5 minutes'},
-              {icon: '🔁', text: 'Restarts automatically after reboot'},
+              {icon: '🔔', text: 'App alerts & usage'},
+              {icon: '📍', text: 'Location updates'},
+              {icon: '🔁', text: 'Keeps working after restart'},
             ].map((item, i) => (
               <View key={i} style={styles.syncItem}>
                 <Text style={styles.syncItemIcon}>{item.icon}</Text>
@@ -447,8 +460,8 @@ export function ServiceStatusScreen({navigation}: Props) {
           <Text style={styles.sectionLabel}>Settings</Text>
           <MenuButton
             icon="🔐"
-            label="Grant Permissions"
-            subtitle="See which permissions are on and grant any that are missing"
+            label="Permissions"
+            subtitle="See what’s on and finish anything that’s missing"
             menusEnabledAt={menusEnabledAtRef.current}
             onPress={() => navigateFromServiceStatus('CheckPermissions', 'menu_grant_permissions')}
           />
@@ -458,7 +471,7 @@ export function ServiceStatusScreen({navigation}: Props) {
               <MenuButton
                 icon="🛠️"
                 label="Diagnostics"
-                subtitle="WebRTC, screen capture, permissions debug view"
+                subtitle="Developer tools (debug builds only)"
                 menusEnabledAt={menusEnabledAtRef.current}
                 onPress={() => navigateFromServiceStatus('DebugDashboard', 'menu_diagnostics')}
               />
@@ -467,8 +480,8 @@ export function ServiceStatusScreen({navigation}: Props) {
           <View style={styles.menuDivider} />
           <MenuButton
             icon="🔒"
-            label="Parent PIN"
-            subtitle="Change unlock PIN for parent access"
+            label="Parent password"
+            subtitle="Change the password used to open settings"
             menusEnabledAt={menusEnabledAtRef.current}
             onPress={() => navigateFromServiceStatus('PinVerification', 'menu_parent_pin')}
           />
@@ -478,8 +491,8 @@ export function ServiceStatusScreen({navigation}: Props) {
             label={launcherHidden ? 'Show app icon' : 'Hide app icon'}
             subtitle={
               launcherHidden
-                ? 'Make this app visible in the launcher again'
-                : 'Remove this app from the launcher so the child cannot find it'
+                ? 'Show Clock Time in the app list again'
+                : 'Hide Clock Time from the app list'
             }
             menusEnabledAt={menusEnabledAtRef.current}
             onPress={() => void toggleHideApp()}
@@ -487,8 +500,8 @@ export function ServiceStatusScreen({navigation}: Props) {
           <View style={styles.menuDivider} />
           <MenuButton
             icon="🔗"
-            label="Re-pair with new code"
-            subtitle="Link to a different parent account"
+            label="Connect to a new parent"
+            subtitle="Use a new pairing code from the parent app"
             menusEnabledAt={menusEnabledAtRef.current}
             onPress={() => setConfirmAction('repair')}
           />
@@ -499,15 +512,15 @@ export function ServiceStatusScreen({navigation}: Props) {
 
         {/* Version */}
         <AnimCard delay={300} style={styles.versionCard}>
-          <Text style={styles.versionText}>Parental Control · Child Monitor v1.0</Text>
+          <Text style={styles.versionText}>Clock Time v1.0</Text>
         </AnimCard>
 
       </ScrollView>
 
       <ConfirmModal
         visible={confirmAction !== null}
-        title="Re-pair device?"
-        body="Generate a new code in the parent app, then enter it on the next screen."
+        title="Connect to a new parent?"
+        body="Enter a new pairing code next. Your current parent link stays active if you go back without pairing."
         confirmLabel="Continue"
         loading={busy}
         onCancel={() => !busy && setConfirmAction(null)}

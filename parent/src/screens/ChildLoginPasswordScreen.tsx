@@ -57,7 +57,7 @@ export function ChildLoginPasswordScreen({navigation, route}: Props) {
           : 'Family child login password saved. Use this on every child phone.',
       );
     } catch {
-      Alert.alert('Error', 'Could not save password');
+      Alert.alert('Error', 'Couldn’t save password. Please try again.');
     } finally {
       setSaving(false);
     }

@@ -57,12 +57,15 @@ async function probe(baseUrl: string): Promise<boolean> {
   }
 }
 
-/** Find a reachable dev API host (USB adb reverse or same Wi‑Fi). */
+/** Find a reachable API host (USB adb reverse, LAN, or production base). */
 export async function resolveApiBaseUrl(force = false): Promise<string> {
   if (!__DEV__) {
     const base = requireProductionApiBaseUrl();
+    const changed = resolvedApiBaseUrl !== base;
     resolvedApiBaseUrl = base;
-    if (nativeModules.isAndroid) {
+    // Push once — calling updateApiBaseUrl on every axios request reconnects STOMP
+    // and drops in-flight screen-share signaling.
+    if (changed && nativeModules.isAndroid) {
       nativeModules.updateApiBaseUrl(base).catch(() => undefined);
     }
     return base;
@@ -80,8 +83,9 @@ export async function resolveApiBaseUrl(force = false): Promise<string> {
 
     for (const base of candidates) {
       if (await probe(base)) {
+        const changed = resolvedApiBaseUrl !== base;
         resolvedApiBaseUrl = base;
-        if (nativeModules.isAndroid) {
+        if (changed && nativeModules.isAndroid) {
           nativeModules.updateApiBaseUrl(base).catch(() => undefined);
         }
         slog('API', 'resolveApiBaseUrl ok', base);
@@ -111,8 +115,10 @@ export async function isApiReachable(force = false): Promise<boolean> {
 }
 
 export function setResolvedApiBaseUrl(url: string): void {
-  resolvedApiBaseUrl = url.replace(/\/$/, '');
-  if (nativeModules.isAndroid) {
+  const next = url.replace(/\/$/, '');
+  const changed = resolvedApiBaseUrl !== next;
+  resolvedApiBaseUrl = next;
+  if (changed && nativeModules.isAndroid) {
     nativeModules.updateApiBaseUrl(resolvedApiBaseUrl).catch(() => undefined);
   }
 }

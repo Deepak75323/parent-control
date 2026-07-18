@@ -46,6 +46,7 @@ export const ApiPaths = {
   POLICY_GEOFENCE: `${V1}/policies/geofence`,
   POLICY_STREAMING: `${V1}/policies/streaming`,
   policy: (policyId: string) => `${V1}/policies/${policyId}`,
+  policyDeviceBundle: (deviceId: string) => `${V1}/policies/devices/${deviceId}/bundle`,
 
   MONITORING: `${V1}/monitoring`,
   MONITORING_SIGNALING: `${V1}/monitoring/signaling`,
@@ -68,6 +69,8 @@ export const ApiPaths = {
   PARENT_PIN_STATUS: `${V1}/parent/pin/status`,
   PARENT_CHILD_LOGIN_PASSWORD: `${V1}/parent/child-login-password`,
   PARENT_CHILD_LOGIN_PASSWORD_STATUS: `${V1}/parent/child-login-password/status`,
+  PARENT_FAMILY_HANDLE: `${V1}/parent/family-handle`,
+  PARENT_FAMILY_HANDLE_STATUS: `${V1}/parent/family-handle/status`,
 
   STREAMING: `${V1}/streaming`,
   SIGNALING: `${V1}/signaling`,

@@ -5,6 +5,7 @@ import {RootStackParamList} from '../navigation/RootNavigator';
 import {monitoringApi, NotificationItem} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {EmptyState, HeroBlock, ScreenShell} from '../components/AppScreen';
+import {appDisplayName} from '../utils/appDisplayName';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Notifications'>;
 
@@ -12,28 +13,34 @@ export function NotificationsScreen({navigation, route}: Props) {
   const {deviceId} = route.params;
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const liveNotifications = useRealtimeStore(s => s.liveNotifications);
 
   const load = useCallback(async () => {
     try {
-      const {data} = await monitoringApi.notifications(deviceId);
-      setItems(data.data.content);
+      setLoadError(null);
+      const {data} = await monitoringApi.notifications(deviceId, 0, 50);
+      setItems(data.data.content ?? []);
     } catch {
-      Alert.alert('Error', 'Could not load notifications');
+      setLoadError('Couldn’t load notifications');
+      Alert.alert('Error', 'Couldn’t load child notifications. Pull down to try again.');
     }
   }, [deviceId]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const merged = useMemo(() => {
     const map = new Map<string, NotificationItem>();
-    [...liveNotifications, ...items].forEach(n => map.set(n.id, n));
+    items.forEach(n => map.set(n.id, n));
+    liveNotifications
+      .filter(n => !n.deviceId || n.deviceId === deviceId)
+      .forEach(n => map.set(n.id, n));
     return Array.from(map.values()).sort(
       (a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime(),
     );
-  }, [items, liveNotifications]);
+  }, [items, liveNotifications, deviceId]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -45,9 +52,9 @@ export function NotificationsScreen({navigation, route}: Props) {
     <ScreenShell backLabel="← Back to device" onBack={() => navigation.goBack()} scroll={false}>
       <View style={styles.header}>
         <HeroBlock
-          eyebrow="Live updates"
+          eyebrow="Child phone"
           title="Notifications"
-          subtitle="Mirrored from the child device in real time."
+          subtitle="History from the child device, plus live updates while this screen is open."
         />
       </View>
       <FlatList
@@ -56,20 +63,35 @@ export function NotificationsScreen({navigation, route}: Props) {
         data={merged}
         keyExtractor={item => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        renderItem={({item}) => (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>{item.title ?? item.packageName ?? 'Notification'}</Text>
-            {item.body ? <Text style={styles.body}>{item.body}</Text> : null}
-            <Text style={styles.meta}>
-              {item.packageName ?? 'unknown'} · {new Date(item.postedAt).toLocaleString()}
-            </Text>
-          </View>
-        )}
+        renderItem={({item}) => {
+          const appName = appDisplayName({
+            packageName: item.packageName,
+            fallback: 'App',
+          });
+          const headline = appDisplayName({
+            title: item.title,
+            packageName: item.packageName,
+            fallback: 'Notification',
+          });
+          return (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>{headline}</Text>
+              {item.body ? <Text style={styles.body}>{item.body}</Text> : null}
+              <Text style={styles.meta}>
+                {headline !== appName ? `${appName} · ` : ''}
+                {new Date(item.postedAt).toLocaleString()}
+              </Text>
+            </View>
+          );
+        }}
         ListEmptyComponent={
           <EmptyState
             icon="📱"
-            title="No notifications yet"
-            body="Notifications from the child device will appear here."
+            title={loadError ? 'Couldn’t load' : 'No notifications yet'}
+            body={
+              loadError ??
+              'When WhatsApp, SMS, and other apps notify the child phone, they appear here after Clock Time syncs (about every few minutes). Pull down to refresh.'
+            }
           />
         }
       />

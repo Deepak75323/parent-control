@@ -83,19 +83,17 @@ export function isSilentScreenCapable(
 }
 
 export const SCREEN_CAPTURE_UNAVAILABLE_MESSAGE =
-  'Screen capture permission was lost on the child phone (often after a restart). ' +
-  'The child must re-approve screen sharing — open the child app → Permissions → Grant screen capture, then try again.';
+  'Screen sharing needs to be set up again on the child phone (this often happens after a restart). ' +
+  'Tap Start Screen to continue.';
 
 export const SCREEN_CAPTURE_RECONSENT_MESSAGE =
-  'The child must re-approve screen sharing. ' +
-  'Open the child app → Permissions → Grant screen capture, then try again.';
+  'Screen sharing needs to be set up again on the child phone. Tap Start Screen to continue.';
 
 export const SCREEN_CAPTURE_RECOVERING_MESSAGE =
-  'The child app is restoring screen capture permission. Wait a moment or open Permissions on the child phone.';
+  'Screen sharing isn’t ready yet on the child phone. Please wait a moment, then try again.';
 
 export const SCREEN_CAPTURE_RECOVERY_FAILED_MESSAGE =
-  'Screen capture could not be restored automatically on the child phone. ' +
-  'Open the child app → Permissions → Grant screen capture, then try again.';
+  'Couldn’t start screen sharing on the child phone. Tap Start Screen again after permissions look complete in Clock Time.';
 
 /** Parent-facing hint when screen share is blocked — uses consent state when available. */
 export function screenShareBlockedMessage(device: ScreenShareDevice | null | undefined): string {
@@ -112,10 +110,32 @@ export function screenShareBlockedMessage(device: ScreenShareDevice | null | und
       return SCREEN_CAPTURE_RECOVERY_FAILED_MESSAGE;
     case 'NEVER_GRANTED':
       return (
-        'Screen capture was never set up on the child phone. ' +
-        'Open the child app → Permissions → Grant screen capture.'
+        'Screen sharing hasn’t been set up on the child phone yet. ' +
+        'Complete permissions in Clock Time, or tap Start Screen to continue.'
       );
     default:
       return SCREEN_CAPTURE_UNAVAILABLE_MESSAGE;
+  }
+}
+
+/** Short copy for compact Remote View card (1–2 lines). */
+export function screenShareBlockedShortMessage(
+  device: ScreenShareDevice | null | undefined,
+): string {
+  if (isScreenShareCapable(device)) return '';
+  const state = device?.mediaProjectionConsentState;
+  switch (state) {
+    case 'NEVER_GRANTED':
+      return 'Screen sharing isn’t set up on the child phone yet.';
+    case 'LOST_AFTER_PROCESS_DEATH':
+      return 'Screen sharing needs setup again after a restart.';
+    case 'REQUIRES_RECONSENT':
+      return 'Screen sharing needs to be set up again.';
+    case 'RECOVERY_PENDING':
+      return 'Screen sharing isn’t ready yet — wait a moment.';
+    case 'RECOVERY_FAILED':
+      return 'Couldn’t start screen sharing — try Start Screen again.';
+    default:
+      return 'Screen sharing isn’t available right now.';
   }
 }

@@ -7,6 +7,7 @@ import {
   ScrollView,
   View,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Animated,
   StatusBar,
@@ -18,8 +19,14 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
 import {ChildStackParamList, usePairingComplete} from './RootNavigator';
 import {deviceApi} from '../services/api';
-import {saveDeviceCredentials} from '../services/deviceStorage';
+import {
+  getDeviceHmacKey,
+  getParentDisplayName,
+  restoreDeviceCredentials,
+  saveDeviceCredentials,
+} from '../services/deviceStorage';
 import {startMonitoringSync} from '../services/syncService';
+import {resetChildNavigation} from '../navigation/navigationRef';
 import {
   isPermissionStatusComplete,
   loadPermissionStatus,
@@ -60,16 +67,27 @@ function CodeBoxes({code, focused}: {code: string; focused: boolean}) {
   );
 }
 
-export function PairingScreen({navigation}: Props) {
+async function resumePairedMonitoring(): Promise<void> {
+  const token = await restoreDeviceCredentials();
+  if (!token) return;
+  const hmac = await getDeviceHmacKey();
+  const name = await getParentDisplayName();
+  await startMonitoringSync(token, hmac ?? undefined, name ?? undefined);
+}
+
+export function PairingScreen({navigation, route}: Props) {
   const {markPaired} = usePairingComplete();
+  const repairMode = route.params?.mode === 'repair';
   const inputRef = useRef<TextInput>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const codeSectionY = useRef(0);
   const [code, setCode] = useState('');
   const [focused, setFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [serverUrl, setServerUrl] = useState(getApiBaseUrl());
   const [serverOk, setServerOk] = useState<boolean | null>(null);
+  const [keyboardPad, setKeyboardPad] = useState(0);
   const pairingRef = useRef(false);
 
   const heroAnim = useRef(new Animated.Value(0)).current;
@@ -89,11 +107,32 @@ export function PairingScreen({navigation}: Props) {
     ]).start();
   }, []);
 
+  const scrollCodeIntoView = useCallback(() => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({
+        y: Math.max(0, codeSectionY.current - 12),
+        animated: true,
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, e => {
+      setKeyboardPad(e.endCoordinates.height);
+      scrollCodeIntoView();
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardPad(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [scrollCodeIntoView]);
+
   const checkServer = useCallback(async (force = false) => {
     setServerOk(null);
-    const ok = await isApiReachable(force);
-    setServerUrl(getApiBaseUrl());
-    setServerOk(ok);
+    setServerOk(await isApiReachable(force));
   }, []);
 
   useEffect(() => { void checkServer(); }, [checkServer]);
@@ -101,32 +140,35 @@ export function PairingScreen({navigation}: Props) {
   const focusCodeInput = useCallback(() => {
     if (loading || done) return;
     InteractionManager.runAfterInteractions(() => {
-      const input = inputRef.current;
-      if (!input) return;
-      if (input.isFocused()) {
-        input.blur();
-        setTimeout(() => input.focus(), 80);
-      } else {
-        input.focus();
-      }
+      inputRef.current?.focus();
+      scrollCodeIntoView();
     });
-  }, [done, loading]);
+  }, [done, loading, scrollCodeIntoView]);
 
   useFocusEffect(
     useCallback(() => {
-      void loadPermissionStatus().then(status => {
-        if (!isPermissionStatusComplete(status)) {
-          navigation.replace('PermissionWizard');
-        }
-      });
+      // Re-pair must not tear into the wizard (would leave Clock).
+      if (!repairMode) {
+        void loadPermissionStatus().then(status => {
+          if (!isPermissionStatusComplete(status)) {
+            navigation.replace('PermissionWizard');
+          }
+        });
+      }
       void getPendingPairingCode().then(saved => {
         if (saved) {
           setCode(prev => (prev.trim() ? prev : saved));
         }
       });
       const t = setTimeout(() => focusCodeInput(), 350);
-      return () => clearTimeout(t);
-    }, [focusCodeInput, navigation]),
+      return () => {
+        clearTimeout(t);
+        // System / gesture back from re-pair — keep old pairing alive.
+        if (repairMode && !done) {
+          void resumePairedMonitoring();
+        }
+      };
+    }, [done, focusCodeInput, navigation, repairMode]),
   );
 
   const pair = useCallback(async (codeOverride?: string) => {
@@ -146,16 +188,18 @@ export function PairingScreen({navigation}: Props) {
     setError(null);
     try {
       const ok = await isApiReachable(true);
-      setServerUrl(getApiBaseUrl());
       setServerOk(ok);
       if (!ok) {
         setError(
-          'Cannot reach the server on your Mac. Keep the phone plugged in via USB, then on your Mac run: ./scripts/dev/setup-phone.sh — or use the same Wi‑Fi and set DEV_LAN_HOST in child/.env.',
+          'No internet connection. Check Wi‑Fi or mobile data, then try again.',
         );
         return;
       }
       const androidId = (await nativeModules.getAndroidId())?.trim();
-      if (!androidId) { setError('Could not read this phone\'s Android ID. Restart the app and try again.'); return; }
+      if (!androidId) {
+        setError('Couldn’t read this phone’s ID. Restart the app and try again.');
+        return;
+      }
       const deviceInfo = await nativeModules.getDeviceInfo();
       const attestation = await nativeModules.getDeviceAttestation('pair');
       // Fetch FCM token best-effort so the backend can wake this device immediately after pairing
@@ -174,7 +218,10 @@ export function PairingScreen({navigation}: Props) {
         trustSignals: attestation.trustSignals,
         fcmToken: fcmToken ?? undefined,
       });
-      if (!data.success || !data.data?.deviceToken) { setError(data.message ?? 'Could not pair this device.'); return; }
+      if (!data.success || !data.data?.deviceToken) {
+        setError(data.message ?? 'Couldn’t pair this device. Check the code and try again.');
+        return;
+      }
       const displayName = data.data.parentDisplayName?.trim() || 'Parent';
       await saveDeviceCredentials(data.data.deviceToken, data.data.deviceHmacKey, displayName);
       setDone(true);
@@ -191,15 +238,16 @@ export function PairingScreen({navigation}: Props) {
         ? 'This code expired. Generate a new one in the parent app.'
         : axiosMsg === 'PAIRING_CODE_INVALID' || axiosMsg === 'Pairing code already used'
           ? 'Wrong or used code. Generate a fresh code in the parent app.'
-          : axiosMsg ?? (networkMsg?.includes('Network Error') ? 'Cannot reach the server. USB: run ./scripts/dev/setup-phone.sh on your Mac. Wi‑Fi: same network + DEV_LAN_HOST in .env.' : networkMsg) ?? 'Invalid or expired code.';
+          : axiosMsg ?? (networkMsg?.includes('Network Error')
+            ? 'No internet connection. Check Wi‑Fi or mobile data, then try again.'
+            : networkMsg) ?? 'Invalid or expired code.';
       setError(message);
       // Keep "Connected" when the server responded (e.g. invalid code) — only mark offline for network failures.
       setServerOk(
         hasHttpResponse ||
           (!networkMsg?.includes('Network Error') &&
-            !message.includes('Cannot reach the server')),
+            !message.includes('No internet connection')),
       );
-      setServerUrl(getApiBaseUrl());
     } finally {
       pairingRef.current = false;
       setLoading(false);
@@ -230,7 +278,11 @@ export function PairingScreen({navigation}: Props) {
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.primaryContainer} />
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[s.scroll, {paddingBottom: 40 + keyboardPad}]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
 
           {/* Hero */}
           <Animated.View style={[s.hero, {opacity: heroAnim}]}>
@@ -240,12 +292,26 @@ export function PairingScreen({navigation}: Props) {
             <View style={s.heroBubble2} />
             <Pressable
               style={s.backBtn}
+              hitSlop={16}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
               onPress={() => {
+                if (repairMode) {
+                  // Back to Service Status (where “Connect to a new parent” was tapped).
+                  if (navigation.canGoBack()) {
+                    navigation.goBack();
+                  } else {
+                    resetChildNavigation('ServiceStatus');
+                  }
+                  void resumePairedMonitoring();
+                  return;
+                }
                 if (navigation.canGoBack()) {
                   navigation.goBack();
-                } else {
-                  navigation.replace('PermissionWizard');
+                  return;
                 }
+                // First-time setup: avoid PermissionWizard bounce when perms already done.
+                resetChildNavigation('ChildLogin');
               }}>
               <Text style={s.backBtnText}>‹</Text>
             </Pressable>
@@ -272,14 +338,11 @@ export function PairingScreen({navigation}: Props) {
             ))}
           </Animated.View>
 
-          {/* Server status */}
+          {/* Server status — status only, no API URL */}
           <Animated.View style={[s.serverCard, {backgroundColor: connectionBg, opacity: cardOpacity}]}>
             <View style={s.serverLeft}>
               <View style={[s.statusDot, {backgroundColor: connectionColor}]} />
-              <View>
-                <Text style={[s.serverStatus, {color: connectionColor}]}>{connectionLabel}</Text>
-                <Text style={s.serverUrl} numberOfLines={1}>{serverUrl}</Text>
-              </View>
+              <Text style={[s.serverStatus, {color: connectionColor}]}>{connectionLabel}</Text>
             </View>
             {serverOk === false ? (
               <Pressable style={s.retryBtn} onPress={() => void checkServer(true)}>
@@ -290,18 +353,19 @@ export function PairingScreen({navigation}: Props) {
 
           {serverOk === false ? (
             <Animated.View style={[s.helpCard, {opacity: cardOpacity}]}>
-              <Text style={s.helpTitle}>Phone cannot reach your Mac</Text>
+              <Text style={s.helpTitle}>No internet connection</Text>
               <Text style={s.helpText}>
-                1. Keep the phone connected with a USB cable{'\n'}
-                2. On your Mac, open Terminal in the project folder{'\n'}
-                3. Run: ./scripts/dev/setup-phone.sh{'\n'}
-                4. Tap Retry above — you should see ✓ Connected
+                Make sure this phone is connected to Wi‑Fi or mobile data, then tap Retry.
               </Text>
             </Animated.View>
           ) : null}
 
           {/* Code entry */}
-          <Animated.View style={[{opacity: cardOpacity, transform: [{translateY: cardAnim}]}]}>
+          <Animated.View
+            style={[{opacity: cardOpacity, transform: [{translateY: cardAnim}]}]}
+            onLayout={e => {
+              codeSectionY.current = e.nativeEvent.layout.y;
+            }}>
             {done ? (
               <View style={s.successCard}>
                 <View style={s.successCheck}><Text style={{fontSize: 28}}>✓</Text></View>
@@ -311,7 +375,7 @@ export function PairingScreen({navigation}: Props) {
             ) : (
               <View style={s.codeCard}>
                 <Text style={s.codeLabel}>Pairing code</Text>
-                <View style={s.codeTapZone}>
+                <View style={s.codeTapZone} pointerEvents="none">
                   <CodeBoxes code={code} focused={focused} />
                 </View>
                 <Text style={s.codeHint}>
@@ -328,9 +392,11 @@ export function PairingScreen({navigation}: Props) {
                   style={s.codeInputOverlay}
                   value={code}
                   onChangeText={onCodeChange}
-                  onFocus={() => setFocused(true)}
+                  onFocus={() => {
+                    setFocused(true);
+                    scrollCodeIntoView();
+                  }}
                   onBlur={() => setFocused(false)}
-                  onPressIn={focusCodeInput}
                   autoCapitalize="characters"
                   autoCorrect={false}
                   autoComplete="off"
@@ -386,7 +452,19 @@ const s = StyleSheet.create({
   heroGradientOverlay: {position: 'absolute', top: 0, right: 0, bottom: 0, left: '35%', backgroundColor: Colors.accent, opacity: 0.88},
   heroBubble1: {position: 'absolute', width: 200, height: 200, borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.08)', top: -70, right: -50},
   heroBubble2: {position: 'absolute', width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(255,255,255,0.06)', bottom: -40, left: -30},
-  backBtn: {position: 'absolute', top: 14, left: 14, width: 34, height: 34, borderRadius: 11, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center'},
+  backBtn: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+    elevation: 8,
+  },
   backBtnText: {fontSize: 22, color: '#fff', fontWeight: '700', lineHeight: 28},
   heroIconWrap: {width: 70, height: 70, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 14, alignSelf: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)'},
   heroTitle: {fontSize: 24, fontWeight: '900', color: '#fff', textAlign: 'center', marginBottom: 6, letterSpacing: -0.3},
@@ -406,7 +484,6 @@ const s = StyleSheet.create({
   serverLeft: {flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10},
   statusDot: {width: 10, height: 10, borderRadius: 5},
   serverStatus: {fontSize: 13, fontWeight: '700'},
-  serverUrl: {fontSize: 11, color: Colors.textTertiary, marginTop: 2},
   retryBtn: {backgroundColor: Colors.primarySurface, paddingHorizontal: 14, paddingVertical: 8, borderRadius: Radii.md, borderWidth: 1, borderColor: Colors.outlineVariant},
   retryBtnText: {color: Colors.primaryContainer, fontWeight: '700', fontSize: 13},
 

@@ -414,8 +414,8 @@ async function grantScreenCapture(
   const ok = await grantOnePermission(id, callbacks, generation);
   if (!ok) {
     Alert.alert(
-      'Screen capture not saved',
-      'Tap Screen Capture on the dashboard to try again.',
+      'Screen sharing not saved',
+      'Tap Screen sharing on the permissions screen to try again.',
     );
   }
 }

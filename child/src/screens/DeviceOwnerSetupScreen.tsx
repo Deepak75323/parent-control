@@ -45,8 +45,8 @@ export function DeviceOwnerSetupScreen({navigation}: Props) {
     }
     if (!(await nativeModules.isScreenCaptureAutoApproveReady())) {
       Alert.alert(
-        'Enable Accessibility first',
-        'Accessibility auto-taps "Share screen" on the Android dialog. Enable it in Permissions setup, then try again.',
+        'One more step needed',
+        'Finish the required Clock Time permission in Permissions first, then try screen sharing again.',
       );
       return;
     }
@@ -64,8 +64,8 @@ export function DeviceOwnerSetupScreen({navigation}: Props) {
       await refresh();
       if (!granted) {
         Alert.alert(
-          'Screen capture not saved',
-          'Consent was not stored after the dialog. Filter Logcat with PCP_FLOW or MediaProjectionTokenStore.',
+          'Screen sharing not saved',
+          'Please allow screen sharing when asked, then try again.',
         );
       }
     } finally {
@@ -94,7 +94,7 @@ export function DeviceOwnerSetupScreen({navigation}: Props) {
       <HeroBlock
         eyebrow="Optional upgrade"
         title="Full protection"
-        subtitle="Silent screen monitoring and stronger uninstall protection. Requires factory-reset device with no Google account, then ADB or QR provisioning."
+        subtitle="Stronger background protection and uninstall resistance. Requires a factory-reset device with no Google account, then ADB or QR provisioning."
       />
 
       <Card>
@@ -109,17 +109,17 @@ export function DeviceOwnerSetupScreen({navigation}: Props) {
       </Card>
 
       <Card>
-        <Text style={styles.cardTitle}>Screen capture (one-time) {projectionOk ? '✓' : '—'}</Text>
+        <Text style={styles.cardTitle}>Screen sharing (one-time) {projectionOk ? '✓' : '—'}</Text>
         <Text style={styles.cardSub}>
-          Grant once during setup. Parent screen share will not show a dialog on each session.
+          Allow once during setup so your parent can start screen sharing later without another prompt.
         </Text>
         <SecondaryBtn
           title={
             consentBusy
-              ? 'Waiting for screen capture…'
+              ? 'Waiting for screen sharing…'
               : projectionOk
-                ? 'Screen capture granted ✓'
-                : 'Grant screen capture'
+                ? 'Screen sharing allowed ✓'
+                : 'Allow screen sharing'
           }
           onPress={grantScreenCapture}
         />

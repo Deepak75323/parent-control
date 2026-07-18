@@ -21,6 +21,7 @@ object MonitoringBurstEngine {
     fun runCycle(context: Context, startCoordinator: Boolean = true) {
         if (!MonitoringPrefs.isPaired(context)) return
         val app = context.applicationContext
+        PresenceHeartbeatScheduler.schedule(app)
         if (MediaProjectionTokenStore.isProjectionLostAfterProcessRestart(app)) {
             MediaProjectionLossHandler.onProjectionUnavailable(app, "burst_cycle")
         }

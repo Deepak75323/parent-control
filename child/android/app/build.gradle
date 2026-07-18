@@ -14,6 +14,9 @@ if (googleServicesFile.exists()) {
 
 react {
     autolinkLibrariesWithApp()
+    if (System.getenv("EMBEDDED_BUNDLE") == "true") {
+        debuggableVariants = []
+    }
 }
 
 def enableProguardInReleaseBuilds = true
@@ -62,6 +65,7 @@ android {
         buildConfigField "String", "CERT_HOST",          "\"${certHost.replace("\"", "\\\"")}\""
         buildConfigField "String", "CERT_PIN_PRIMARY",   "\"${certPinPrimary.replace("\"", "\\\"")}\""
         buildConfigField "String", "CERT_PIN_BACKUP",    "\"${certPinBackup.replace("\"", "\\\"")}\""
+        buildConfigField "boolean", "EMBEDDED_BUNDLE", (System.getenv("EMBEDDED_BUNDLE") == "true").toString()
     }
     signingConfigs {
         debug {
