@@ -102,7 +102,9 @@ const styles = StyleSheet.create({
   badgeOk: {backgroundColor: '#dcfce7'},
   badgeWarn: {backgroundColor: '#fef3c7'},
   badgeText: {fontSize: 12, fontWeight: '700', color: '#334155'},
-  pinInput: {letterSpacing: 4, fontSize: 20, textAlign: 'center'},
+  // Left-align: textAlign:'center' parks the caret on the far right of the field
+  // while the bullets stay visually centered (RN/Android TextInput quirk).
+  pinInput: {letterSpacing: 2, fontSize: 20, textAlign: 'left'},
   linkBtn: {marginTop: 14, alignItems: 'center', padding: 8},
   linkText: {color: '#4f46e5', fontWeight: '700', fontSize: 14},
 });
