@@ -6,6 +6,7 @@ import {useApiDebugStore} from '../store/apiDebugStore';
 import {logErrorCurl, logRequestCurl, logResponseCurl, toCurl} from '../utils/curlLogger';
 import {redactBody, REDACTED} from '../utils/logRedaction';
 import {ApiPaths} from '../constants/apiPaths';
+import {unwrapResponseData, wrapRequestBody, isApiPayloadEncryptionConfigured} from '../utils/apiPayloadCrypto';
 
 export const api = axios.create({
   baseURL: config.apiBaseUrl,
@@ -23,22 +24,28 @@ async function refreshAccessToken(): Promise<string | null> {
   if (!refreshToken) return null;
 
   if (!refreshInFlight) {
+    const refreshBody = isApiPayloadEncryptionConfigured()
+      ? wrapRequestBody({refreshToken})
+      : {refreshToken};
     refreshInFlight = axios
-      .post<ApiResponse<AuthResponse>>(`${config.apiBaseUrl}${ApiPaths.AUTH_REFRESH}`, {
-        refreshToken,
-      })
+      .post(
+        `${config.apiBaseUrl}${ApiPaths.AUTH_REFRESH}`,
+        refreshBody,
+        {headers: {'Content-Type': 'application/json'}},
+      )
       .then(res => {
-        if (res.data.success) {
-          const profile = res.data.data.profile;
+        const payload = unwrapResponseData(res.data) as ApiResponse<AuthResponse> | undefined;
+        if (payload?.success) {
+          const profile = payload.data.profile;
           useAuthStore
             .getState()
             .setTokens(
-              res.data.data.accessToken,
-              res.data.data.refreshToken,
+              payload.data.accessToken,
+              payload.data.refreshToken,
               profile?.email,
               profile?.emailVerified,
             );
-          return res.data.data.accessToken;
+          return payload.data.accessToken;
         }
         return null;
       })
@@ -95,17 +102,40 @@ api.interceptors.request.use(req => {
   if (token) {
     req.headers.Authorization = `Bearer ${token}`;
   }
+  const method = (req.method ?? 'get').toUpperCase();
+  if (
+    isApiPayloadEncryptionConfigured() &&
+    method !== 'GET' &&
+    method !== 'HEAD' &&
+    req.data !== undefined &&
+    req.data !== null
+  ) {
+    // Avoid double-wrapping already-encrypted envelopes.
+    const data = req.data;
+    const alreadyWrapped =
+      typeof data === 'object' &&
+      data !== null &&
+      Object.keys(data as object).length === 1 &&
+      typeof (data as {data?: unknown}).data === 'string';
+    if (!alreadyWrapped) {
+      req.data = wrapRequestBody(data);
+    }
+  }
   logRequestCurl(req);
   return req;
 });
 
 api.interceptors.response.use(
   response => {
+    response.data = unwrapResponseData(response.data);
     logResponseCurl(response);
     recordDebug(response.config, true, response.status, response.data);
     return response;
   },
   error => {
+    if (error.response?.data != null) {
+      error.response.data = unwrapResponseData(error.response.data);
+    }
     logErrorCurl(error);
     if (error.config) {
       recordDebug(

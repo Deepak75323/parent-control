@@ -19,6 +19,8 @@ child/node_modules/
 parent/.env
 child/.env
 backend/.env
+parent/android/local.properties
+child/android/local.properties
 .expo/
 android/app/build/
 ios/build/

@@ -20,6 +20,7 @@ import {
   policiesApi,
 } from '../services/api';
 import {appDisplayName} from '../utils/appDisplayName';
+import {AppIcon} from '../components/AppIcon';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AppRules'>;
 
@@ -232,15 +233,19 @@ export function AppRulesScreen({navigation, route}: Props) {
       );
     }
     const {app, isBlocked} = item;
+    const label = appDisplayName({appLabel: app.appLabel, packageName: app.packageName});
     return (
       <Pressable style={styles.appRow} onPress={() => toggleBlock(app.packageName)}>
-        <View style={[styles.appCircle, isBlocked && styles.appCircleBlocked]}>
-          {isBlocked && <Text style={styles.appCircleCheck}>✓</Text>}
+        <View style={styles.appIconWrap}>
+          <AppIcon label={label} iconBase64={app.iconBase64} size={36} />
+          {isBlocked ? (
+            <View style={styles.appBlockedBadge}>
+              <Text style={styles.appBlockedBadgeText}>✓</Text>
+            </View>
+          ) : null}
         </View>
         <View style={styles.appInfo}>
-          <Text style={styles.appName}>
-            {appDisplayName({appLabel: app.appLabel, packageName: app.packageName})}
-          </Text>
+          <Text style={styles.appName}>{label}</Text>
         </View>
         {item.isAllowed ? (
           <View style={styles.allowedChip}>
@@ -446,9 +451,24 @@ const styles = StyleSheet.create({
     borderTopWidth: 0.5,
     borderTopColor: '#f1f5f9',
   },
-  appCircle: {width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: '#d1d5db', alignItems: 'center', justifyContent: 'center', marginRight: 12},
-  appCircleBlocked: {borderColor: '#7c3aed', backgroundColor: '#7c3aed'},
-  appCircleCheck: {color: '#fff', fontSize: 14, fontWeight: '800'},
+  appIconWrap: {
+    position: 'relative',
+    marginRight: 4,
+  },
+  appBlockedBadge: {
+    position: 'absolute',
+    right: 8,
+    bottom: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#7c3aed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  appBlockedBadgeText: {color: '#fff', fontSize: 9, fontWeight: '800', lineHeight: 11},
   appInfo: {flex: 1},
   appName: {fontSize: 15, fontWeight: '600', color: '#0f172a'},
   allowedChip: {backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, marginRight: 6},

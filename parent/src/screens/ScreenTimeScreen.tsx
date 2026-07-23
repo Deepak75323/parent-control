@@ -7,7 +7,6 @@ import {
   Pressable,
   RefreshControl,
   ActivityIndicator,
-  Image,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
@@ -21,6 +20,7 @@ import {
 } from '../services/api';
 import {formatUsageMs} from '../utils/formatUsage';
 import {friendlyPackageLabel, appDisplayName} from '../utils/appDisplayName';
+import {AppIcon} from '../components/AppIcon';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScreenTime'>;
 
@@ -32,8 +32,6 @@ type UsageRow = {
   usageMs: number;
   iconBase64?: string | null;
 };
-
-const AVATAR_COLORS = ['#7c3aed', '#9b59b6', '#a78bfa', '#6366f1', '#8b5cf6'];
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -89,33 +87,6 @@ function aggregateUsage(
       iconBase64: iconMap.get(pkg) ?? null,
     }))
     .sort((a, b) => b.usageMs - a.usageMs);
-}
-
-function AppIcon({
-  label,
-  iconBase64,
-  index,
-}: {
-  label: string;
-  iconBase64?: string | null;
-  index: number;
-}) {
-  const letter = (label.trim().charAt(0) || '?').toUpperCase();
-  const bg = AVATAR_COLORS[index % AVATAR_COLORS.length];
-  if (iconBase64) {
-    return (
-      <Image
-        source={{uri: `data:image/png;base64,${iconBase64}`}}
-        style={styles.appIconImg}
-        resizeMode="cover"
-      />
-    );
-  }
-  return (
-    <View style={[styles.appIconFallback, {backgroundColor: bg}]}>
-      <Text style={styles.appIconLetter}>{letter}</Text>
-    </View>
-  );
 }
 
 function BarChart({rows, totalMs}: {rows: UsageRow[]; totalMs: number}) {
@@ -745,22 +716,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderBottomColor: '#f1f5f9',
   },
-  appIconImg: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    marginRight: 12,
-    backgroundColor: '#f1f5f9',
-  },
-  appIconFallback: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  appIconLetter: {fontSize: 15, fontWeight: '800', color: '#fff'},
   appInfo: {flex: 1, marginRight: 8},
   appName: {fontSize: 15, fontWeight: '700', color: '#0f172a'},
   appTime: {fontSize: 14, fontWeight: '700', color: '#7c3aed'},

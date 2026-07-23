@@ -1,5 +1,5 @@
 import React from 'react';
-import {StyleProp, StyleSheet, Text, View, ViewStyle} from 'react-native';
+import {Platform, StyleProp, StyleSheet, Text, View, ViewStyle} from 'react-native';
 import MapView, {MapViewProps, Marker} from 'react-native-maps';
 import {mapsAvailable} from '../nativeModules';
 
@@ -16,6 +16,11 @@ export function SafeMapView({
   region,
   style,
   children,
+  scrollEnabled = true,
+  zoomEnabled = true,
+  rotateEnabled = true,
+  pitchEnabled = true,
+  zoomControlEnabled = Platform.OS === 'android',
   ...mapProps
 }: Props) {
   if (!mapsAvailable || !region) {
@@ -37,15 +42,32 @@ export function SafeMapView({
     );
   }
 
+  // Clip rounded corners on a wrapper — never on MapView itself.
+  // overflow:'hidden' on MapView breaks pan/zoom gestures on Android.
+  // Prefer initialRegion so parent re-renders don't fight the camera.
   return (
-    <MapView style={style} region={region} {...mapProps}>
-      {showMarker && region ? <Marker coordinate={region} /> : null}
-      {children}
-    </MapView>
+    <View style={[styles.clip, style]}>
+      <MapView
+        style={StyleSheet.absoluteFill}
+        initialRegion={region}
+        scrollEnabled={scrollEnabled}
+        zoomEnabled={zoomEnabled}
+        rotateEnabled={rotateEnabled}
+        pitchEnabled={pitchEnabled}
+        zoomControlEnabled={zoomControlEnabled}
+        {...mapProps}>
+        {showMarker ? <Marker coordinate={region} /> : null}
+        {children}
+      </MapView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  clip: {
+    overflow: 'hidden',
+    borderRadius: 16,
+  },
   fallback: {
     alignItems: 'center',
     justifyContent: 'center',

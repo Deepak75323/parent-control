@@ -43,6 +43,9 @@ def certHost          = System.getenv("CERT_HOST")           ?: ""
 def certPinPrimary    = System.getenv("CERT_PIN_PRIMARY")    ?: ""
 def certPinBackup     = System.getenv("CERT_PIN_BACKUP")     ?: ""
 def certPinExpiration = System.getenv("CERT_PIN_EXPIRATION") ?: "2027-07-01"
+// API payload AES-CBC secrets — from CI/local env only, never commit real values.
+def apiPayloadKey     = System.getenv("API_PAYLOAD_ENCRYPTION_KEY") ?: ""
+def apiPayloadIv      = System.getenv("API_PAYLOAD_ENCRYPTION_IV") ?: ""
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -65,6 +68,8 @@ android {
         buildConfigField "String", "CERT_HOST",          "\"${certHost.replace("\"", "\\\"")}\""
         buildConfigField "String", "CERT_PIN_PRIMARY",   "\"${certPinPrimary.replace("\"", "\\\"")}\""
         buildConfigField "String", "CERT_PIN_BACKUP",    "\"${certPinBackup.replace("\"", "\\\"")}\""
+        buildConfigField "String", "API_PAYLOAD_ENCRYPTION_KEY", "\"${apiPayloadKey.replace("\"", "\\\"")}\""
+        buildConfigField "String", "API_PAYLOAD_ENCRYPTION_IV",  "\"${apiPayloadIv.replace("\"", "\\\"")}\""
         buildConfigField "boolean", "EMBEDDED_BUNDLE", (System.getenv("EMBEDDED_BUNDLE") == "true").toString()
     }
     signingConfigs {

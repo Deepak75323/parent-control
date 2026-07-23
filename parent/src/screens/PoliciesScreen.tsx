@@ -26,6 +26,7 @@ import {
   PrimaryBtn,
   ScreenShell,
 } from '../components/AppScreen';
+import {AppIcon} from '../components/AppIcon';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Policies'>;
 
@@ -251,20 +252,20 @@ export function PoliciesScreen({navigation, route}: Props) {
             keyExtractor={item => item.packageName}
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
-            renderItem={({item}) => {
+            renderItem={({item, index}) => {
               const selected = selectedPackages.has(item.packageName);
+              const label = appDisplayName({
+                appLabel: item.appLabel,
+                packageName: item.packageName,
+              });
               return (
                 <Pressable
                   style={[styles.appRow, selected && styles.appRowSelected]}
                   onPress={() => togglePackage(item.packageName)}>
                   <Text style={styles.check}>{selected ? '☑' : '☐'}</Text>
+                  <AppIcon label={label} iconBase64={item.iconBase64} index={index} size={32} />
                   <View style={styles.appText}>
-                    <Text style={styles.appLabel}>
-                      {appDisplayName({
-                        appLabel: item.appLabel,
-                        packageName: item.packageName,
-                      })}
-                    </Text>
+                    <Text style={styles.appLabel}>{label}</Text>
                     <Text style={styles.appPackage}>
                       {item.appCategory ?? 'OTHER'}
                     </Text>
@@ -383,7 +384,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   appRowSelected: {borderColor: '#2563eb', backgroundColor: '#eff6ff'},
-  check: {fontSize: 18, marginRight: 10, color: '#2563eb'},
+  check: {fontSize: 18, marginRight: 8, color: '#2563eb'},
   appText: {flex: 1},
   appLabel: {fontSize: 15, fontWeight: '600', color: '#0f172a'},
   appPackage: {fontSize: 11, color: '#94a3b8', marginTop: 2},

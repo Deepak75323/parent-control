@@ -2,7 +2,9 @@ package com.parentalcontrol.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parentalcontrol.common.api.ApiResponse;
+import com.parentalcontrol.common.api.EncryptedPayload;
 import com.parentalcontrol.common.exception.ErrorCode;
+import com.parentalcontrol.common.security.AirtelAesPayloadCrypto;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -20,6 +22,8 @@ import org.springframework.stereotype.Component;
 public class RestSecurityErrorHandlers implements AuthenticationEntryPoint, AccessDeniedHandler {
 
   private final ObjectMapper objectMapper;
+  private final ApiPayloadEncryptionProperties apiPayloadEncryptionProperties;
+  private final AirtelAesPayloadCrypto airtelAesPayloadCrypto;
 
   @Override
   public void commence(
@@ -43,6 +47,13 @@ public class RestSecurityErrorHandlers implements AuthenticationEntryPoint, Acce
       throws IOException {
     response.setStatus(code.getStatus().value());
     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-    objectMapper.writeValue(response.getOutputStream(), ApiResponse.error(code, message));
+    ApiResponse<Void> body = ApiResponse.error(code, message);
+    if (apiPayloadEncryptionProperties.isEnabled()) {
+      String json = objectMapper.writeValueAsString(body);
+      objectMapper.writeValue(
+          response.getOutputStream(), new EncryptedPayload(airtelAesPayloadCrypto.encrypt(json)));
+    } else {
+      objectMapper.writeValue(response.getOutputStream(), body);
+    }
   }
 }

@@ -70,8 +70,16 @@ export function LocationScreen({navigation, route}: Props) {
             }
           />
         </View>
-        <View style={styles.mapWrap}>
-          <SafeMapView style={styles.map} region={region} showMarker={false} fallbackLabel="Location history">
+        <View style={styles.mapWrap} collapsable={false}>
+          <SafeMapView
+            key={latest?.id ?? 'empty'}
+            style={styles.map}
+            region={region}
+            showMarker={false}
+            zoomEnabled
+            scrollEnabled
+            zoomControlEnabled
+            fallbackLabel="Location history">
             {path.length > 1 ? (
               <Polyline coordinates={path} strokeColor="#2563eb" strokeWidth={3} />
             ) : null}
@@ -99,14 +107,18 @@ const mapWidth = Dimensions.get('window').width - 32;
 const styles = StyleSheet.create({
   wrap: {flex: 1, paddingHorizontal: 16},
   header: {paddingTop: 8},
-  mapWrap: {flex: 1, marginVertical: 12},
+  mapWrap: {
+    flex: 1,
+    marginVertical: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
   map: {
     width: mapWidth,
     flex: 1,
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    minHeight: 280,
   },
   footerCard: {marginBottom: 16},
   footerText: {fontSize: 13, color: '#64748b', textAlign: 'center'},

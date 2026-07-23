@@ -5,6 +5,7 @@ import {getDeviceHmacKey, getDeviceToken} from './deviceStorage';
 import {signDeviceRequest} from '../utils/deviceHmac';
 import {correlationHeaders} from '../utils/correlation';
 import {slog} from './streamDebug';
+import {unwrapResponseData, wrapRequestBody, isApiPayloadEncryptionConfigured} from '../utils/apiPayloadCrypto';
 
 export const api = axios.create({
   timeout: 30000,
@@ -23,15 +24,32 @@ api.interceptors.request.use(async (req: InternalAxiosRequestConfig) => {
   // Pairing and onboarding are unauthenticated — stale tokens must not be sent.
   if (UnauthenticatedPaths.some(path => req.url === path)) {
     delete req.headers.Authorization;
-    return req;
-  }
-
-  const token = await getDeviceToken();
-  if (token) {
-    req.headers.Authorization = `Bearer ${token}`;
+  } else {
+    const token = await getDeviceToken();
+    if (token) {
+      req.headers.Authorization = `Bearer ${token}`;
+    }
   }
 
   const method = (req.method ?? 'get').toUpperCase();
+  if (
+    isApiPayloadEncryptionConfigured() &&
+    method !== 'GET' &&
+    method !== 'HEAD' &&
+    req.data !== undefined &&
+    req.data !== null
+  ) {
+    const data = req.data;
+    const alreadyWrapped =
+      typeof data === 'object' &&
+      data !== null &&
+      Object.keys(data as object).length === 1 &&
+      typeof (data as {data?: unknown}).data === 'string';
+    if (!alreadyWrapped) {
+      req.data = wrapRequestBody(data);
+    }
+  }
+
   const urlPath = req.url?.split('?')[0] ?? '';
   if (
     method === 'POST' &&
@@ -53,6 +71,7 @@ api.interceptors.request.use(async (req: InternalAxiosRequestConfig) => {
 
 api.interceptors.response.use(
   res => {
+    res.data = unwrapResponseData(res.data);
     const url = res.config.url ?? '';
     if (url.includes('streaming') || url.includes('signaling') || url.includes('/device/pair')) {
       slog('API', `${res.status} ${res.config.method?.toUpperCase()} ${url}`, {
@@ -63,6 +82,9 @@ api.interceptors.response.use(
     return res;
   },
   err => {
+    if (err.response?.data != null) {
+      err.response.data = unwrapResponseData(err.response.data);
+    }
     const url = err.config?.url ?? '';
     if (url.includes('streaming') || url.includes('signaling') || url.includes('/device/pair')) {
       slog('API', `FAIL ${err.response?.status ?? '?'} ${err.config?.method?.toUpperCase()} ${url}`, {

@@ -44,9 +44,10 @@ object DeviceHttpClient {
             if (code !in 200..299) {
                 val err = conn.errorStream?.bufferedReader()?.use(BufferedReader::readText)
                 Log.w(TAG, "GET $path failed: $code $err")
-                HttpResult.HttpError(code, err)
+                HttpResult.HttpError(code, unwrapMaybe(err))
             } else {
-                HttpResult.Ok(conn.inputStream.bufferedReader().readText())
+                val body = conn.inputStream.bufferedReader().readText()
+                HttpResult.Ok(ApiPayloadCrypto.unwrapResponseBody(body))
             }
         } catch (e: Exception) {
             Log.e(TAG, "GET $path error", e)
@@ -69,16 +70,18 @@ object DeviceHttpClient {
         val base = NativeApiResolver.resolveWorkingBase(context) ?: return HttpResult.NotReady
         val token = MonitoringPrefs.deviceToken(context) ?: return HttpResult.NotReady
         val urlString = "$base$path"
+        val wireBody = ApiPayloadCrypto.wrapRequestBody(jsonBody)
         return try {
-            val conn = openConnection(urlString, "POST", token, context, jsonBody)
-            conn.outputStream.use { it.write(jsonBody.toByteArray(StandardCharsets.UTF_8)) }
+            val conn = openConnection(urlString, "POST", token, context, wireBody)
+            conn.outputStream.use { it.write(wireBody.toByteArray(StandardCharsets.UTF_8)) }
             val code = conn.responseCode
             if (code !in 200..299) {
                 val err = conn.errorStream?.bufferedReader()?.use(BufferedReader::readText)
                 Log.w(TAG, "POST $path failed: $code $err")
-                HttpResult.HttpError(code, err)
+                HttpResult.HttpError(code, unwrapMaybe(err))
             } else {
-                HttpResult.Ok(conn.inputStream.bufferedReader().readText())
+                val body = conn.inputStream.bufferedReader().readText()
+                HttpResult.Ok(ApiPayloadCrypto.unwrapResponseBody(body))
             }
         } catch (e: Exception) {
             Log.e(TAG, "POST $path error", e)
@@ -91,14 +94,15 @@ object DeviceHttpClient {
         val token = MonitoringPrefs.deviceToken(context) ?: return false
         val path = ApiPaths.commandClaim(commandId)
         val urlString = "$base$path"
+        val wireBody = ApiPayloadCrypto.wrapRequestBody("{}")
         return try {
-            val conn = openConnection(urlString, "POST", token, context, "{}")
-            conn.outputStream.use { it.write("{}".toByteArray(StandardCharsets.UTF_8)) }
+            val conn = openConnection(urlString, "POST", token, context, wireBody)
+            conn.outputStream.use { it.write(wireBody.toByteArray(StandardCharsets.UTF_8)) }
             if (conn.responseCode !in 200..299) {
                 Log.w(TAG, "claim $commandId failed: ${conn.responseCode}")
                 return false
             }
-            val body = conn.inputStream.bufferedReader().readText()
+            val body = ApiPayloadCrypto.unwrapResponseBody(conn.inputStream.bufferedReader().readText())
             val root = org.json.JSONObject(body)
             root.optBoolean("data", false)
         } catch (e: Exception) {
@@ -106,6 +110,9 @@ object DeviceHttpClient {
             false
         }
     }
+
+    private fun unwrapMaybe(err: String?): String? =
+        err?.let { ApiPayloadCrypto.unwrapResponseBody(it) }
 
     /** Returns true when the server recorded the execution fingerprint. */
     fun recordCommandExecution(

@@ -843,20 +843,26 @@ export function DeviceDetailScreen({navigation, route}: Props) {
               <SectionTitle title="Live Location" />
               <SurfaceCard style={sc.locationCard}>
                 {hasLoc ? (
-                  <Pressable onPress={() => navigation.navigate('Location', {deviceId})}>
-                    <View style={sc.mapWrap}>
-                      <SafeMapView
-                        style={{width: MAP_W, height: 180}}
-                        region={{latitude: locLat!, longitude: locLon!, latitudeDelta: 0.01, longitudeDelta: 0.01}}
-                        scrollEnabled={false}
-                        zoomEnabled={false}
-                        pitchEnabled={false}
-                        rotateEnabled={false}
-                        pointerEvents="none"
-                        fallbackLabel="Live location"
-                      />
-                    </View>
-                  </Pressable>
+                  <View style={sc.mapWrap} collapsable={false}>
+                    <SafeMapView
+                      style={{width: MAP_W, height: 180}}
+                      region={{
+                        latitude: locLat!,
+                        longitude: locLon!,
+                        latitudeDelta: 0.01,
+                        longitudeDelta: 0.01,
+                      }}
+                      zoomEnabled
+                      scrollEnabled
+                      zoomControlEnabled
+                      fallbackLabel="Live location"
+                    />
+                    <Pressable
+                      style={sc.mapOpenBtn}
+                      onPress={() => navigation.navigate('Location', {deviceId})}>
+                      <Text style={sc.mapOpenBtnText}>Open location history</Text>
+                    </Pressable>
+                  </View>
                 ) : (
                   <View style={sc.noLocWrap}>
                     <Text style={sc.noLocIcon}>📍</Text>
@@ -1243,6 +1249,17 @@ const sc = StyleSheet.create({
   // Location
   locationCard: {padding: Layout.gutter, overflow: 'hidden'},
   mapWrap: {borderRadius: Radii.lg, overflow: 'hidden'},
+  mapOpenBtn: {
+    marginTop: Spacing.sm,
+    backgroundColor: Colors.primaryContainer,
+    borderRadius: Radii.md,
+    minHeight: Layout.touchTargetMin,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Layout.gutter,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapOpenBtnText: {...Typography.cardTitle, color: '#fff', fontSize: 14},
   noLocWrap: {
     minHeight: 168,
     backgroundColor: Colors.surfaceContainer,
