@@ -310,8 +310,9 @@ public class DeviceCommandService {
               device.setKioskModeActive(false);
               device.setTokenVersion(device.getTokenVersion() + 1);
               deviceRepository.save(device);
+              // Seat is freed for the plan: FeatureGateService counts non-revoked only.
               log.info(
-                  "Device {} deactivated after revoke monitoring (tokenVersion={})",
+                  "Device {} deactivated after revoke monitoring (tokenVersion={}) — plan seat freed",
                   deviceId,
                   device.getTokenVersion());
             });

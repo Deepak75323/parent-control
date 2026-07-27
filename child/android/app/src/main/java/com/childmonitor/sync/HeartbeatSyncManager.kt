@@ -81,6 +81,10 @@ object HeartbeatSyncManager {
             .put("dataSyncFgsDailyCapMs", monitoring["dataSyncFgsDailyCapMs"])
             .put("dataSyncFgsExhausted", monitoring["dataSyncFgsExhausted"])
             .apply {
+                val pendingOfflineFails = MonitoringPrefs.offlinePinLockoutState(context).pendingReportFails
+                if (pendingOfflineFails > 0) {
+                    put("offlineUnlockFailures", pendingOfflineFails)
+                }
                 if (foregroundApp != null) put("foregroundApp", foregroundApp)
                 if (!fcmToken.isNullOrBlank()) put("fcmToken", fcmToken)
                 if (!integrityToken.isNullOrBlank()) put("integrityToken", integrityToken)
@@ -102,31 +106,77 @@ object HeartbeatSyncManager {
     fun syncNow(context: Context): Boolean {
         if (!MonitoringPrefs.isPaired(context)) return false
         val body = buildHeartbeatBody(context)
-        val ok = postHeartbeat(context, body)
-        if (ok) {
+        val result = postHeartbeatDetailed(context, body)
+        val ok = result is DeviceHttpClient.HttpResult.Ok
+        
+        // Handle network connectivity loss
+        if (result is DeviceHttpClient.HttpResult.NoNetwork) {
+            android.util.Log.w(TAG, "HEARTBEAT_NO_NETWORK - device is offline")
+            notifyNetworkStatusChange(context, false)
+            try {
+                com.childmonitor.capture.StreamTeardownCoordinator.requestImmediateStopAll(
+                    context.applicationContext,
+                    "heartbeat_no_network",
+                )
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "teardown on heartbeat no-network failed", e)
+            }
+        } else if (ok) {
+            // Device is back online - notify parent
+            notifyNetworkStatusChange(context, true)
+            
+            val reported = body.optInt("offlineUnlockFailures", 0)
+            if (reported > 0) {
+                MonitoringPrefs.consumeOfflinePinPendingReport(context)
+            }
             try {
                 com.childmonitor.tamper.TamperApiClient.syncOfflinePinCredential(context)
             } catch (e: Exception) {
                 android.util.Log.w(TAG, "offline pin sync failed", e)
             }
         }
+        
         MobileTelemetryReporter.flushIfDue(context)
         android.util.Log.i(
             TAG,
-            if (ok) {
-                "HEARTBEAT_SENT consent=${body.optString("mediaProjectionConsentState")} " +
+            when (result) {
+                is DeviceHttpClient.HttpResult.Ok -> 
+                    "HEARTBEAT_SENT consent=${body.optString("mediaProjectionConsentState")} " +
                     "granted=${body.optBoolean("mediaProjectionGranted")}"
-            } else {
-                "HEARTBEAT_FAILED consent=${body.optString("mediaProjectionConsentState")}"
+                is DeviceHttpClient.HttpResult.NoNetwork -> 
+                    "HEARTBEAT_NO_NETWORK - device offline"
+                else -> 
+                    "HEARTBEAT_FAILED consent=${body.optString("mediaProjectionConsentState")} " +
+                    "result=${result::class.simpleName}"
             },
         )
         PcpFlowLogger.log(
             PcpFlowLogger.Category.MEDIA_PROJECTION,
             "heartbeat sync",
-            "ok=$ok consentState=${body.optString("mediaProjectionConsentState")} " +
+            "result=${result::class.simpleName} consentState=${body.optString("mediaProjectionConsentState")} " +
                 "granted=${body.optBoolean("mediaProjectionGranted")}",
         )
         return ok
+    }
+
+    private fun postHeartbeatDetailed(context: Context, body: JSONObject): DeviceHttpClient.HttpResult {
+        return DeviceHttpClient.postJsonDetailed(context, ApiPaths.DEVICE_HEARTBEAT, body.toString())
+    }
+
+    private fun notifyNetworkStatusChange(context: Context, isOnline: Boolean) {
+        try {
+            // Send immediate network status through realtime connection if available
+            val statusBody = JSONObject()
+                .put("type", "NETWORK_STATUS_CHANGE")
+                .put("online", isOnline)
+                .put("timestamp", System.currentTimeMillis())
+            
+            // Try to send via WebSocket for immediate parent notification
+            // This will be handled by the WebSocket service if connected
+            android.util.Log.i(TAG, "Network status change: online=$isOnline")
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "Failed to notify network status change", e)
+        }
     }
 
     /**

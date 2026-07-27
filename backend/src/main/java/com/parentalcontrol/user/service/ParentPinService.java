@@ -28,15 +28,27 @@ public class ParentPinService {
 
   @Transactional
   public void setPin(String pin) {
-    if (pin == null || pin.length() < 4) {
-      throw new BusinessException(
-          ErrorCode.VALIDATION_ERROR, MessageConstants.PIN_MUST_BE_AT_LEAST_4_CHARACTERS);
-    }
+    validatePinStrength(pin);
     User user = requireParentUser();
     user.setParentPinHash(passwordEncoder.encode(pin));
     applyOfflineVerifier(user, pin);
     userRepository.save(user);
     auditService.log(AuditActionConstants.PARENT_PIN_SET, "user:" + user.getId(), null, Map.of());
+  }
+
+  public static void validatePinStrength(String pin) {
+    if (pin == null || pin.length() < 8) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR,
+          MessageConstants.PIN_MUST_BE_AT_LEAST_8_CHARACTERS_WITH_LETTER_AND_DIGIT);
+    }
+    boolean hasLetter = pin.chars().anyMatch(Character::isLetter);
+    boolean hasDigit = pin.chars().anyMatch(Character::isDigit);
+    if (!hasLetter || !hasDigit) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR,
+          MessageConstants.PIN_MUST_BE_AT_LEAST_8_CHARACTERS_WITH_LETTER_AND_DIGIT);
+    }
   }
 
   /** Ensure offline PBKDF2 material exists (backfill after older PIN sets). */

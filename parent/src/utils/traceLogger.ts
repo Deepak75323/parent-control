@@ -82,8 +82,8 @@ export function traceLog(
 ): void {
   if (!__DEV__) return;
   const line = formatLine(component, fn, message, detail, 'log');
+  // Avoid console.warn — routine stream traces were flooding LogBox on-device.
   console.log(line);
-  console.warn(line);
 }
 
 export function traceWarn(
@@ -130,25 +130,25 @@ export interface FailureReport {
 export function traceFailure(report: FailureReport, err?: unknown): void {
   if (!__DEV__) return;
   const trace = activeTraceId ?? 'none';
-  const divider = '='.repeat(50);
-  console.error(divider);
-  console.error('FAILURE REPORT');
-  console.error(divider);
-  console.error(`TRACE_ID: ${trace}`);
-  console.error(`Component: ${report.component}`);
-  console.error(`Function: ${report.fn}`);
-  console.error(`State: ${currentState}`);
-  if (report.input !== undefined) console.error(`Input: ${JSON.stringify(report.input)}`);
-  if (report.output !== undefined) console.error(`Output: ${JSON.stringify(report.output)}`);
-  if (report.expected) console.error(`Expected: ${report.expected}`);
-  if (report.actual) console.error(`Actual: ${report.actual}`);
-  if (report.reason) console.error(`Reason: ${report.reason}`);
+  const lines = [
+    'FAILURE REPORT',
+    `TRACE_ID: ${trace}`,
+    `Component: ${report.component}`,
+    `Function: ${report.fn}`,
+    `State: ${currentState}`,
+  ];
+  if (report.input !== undefined) lines.push(`Input: ${JSON.stringify(report.input)}`);
+  if (report.output !== undefined) lines.push(`Output: ${JSON.stringify(report.output)}`);
+  if (report.expected) lines.push(`Expected: ${report.expected}`);
+  if (report.actual) lines.push(`Actual: ${report.actual}`);
+  if (report.reason) lines.push(`Reason: ${report.reason}`);
   if (report.nextCauses?.length) {
-    console.error('Next possible causes:');
-    report.nextCauses.forEach(c => console.error(`  - ${c}`));
+    lines.push('Next possible causes:');
+    report.nextCauses.forEach(c => lines.push(`  - ${c}`));
   }
   if (err instanceof Error) {
-    console.error('Stacktrace:', err.stack ?? err.message);
+    lines.push(`Stacktrace: ${err.stack ?? err.message}`);
   }
-  console.error(divider);
+  // Single Metro log — console.error surfaces as on-device LogBox ("FAILURE REPORT...").
+  console.log(lines.join('\n'));
 }

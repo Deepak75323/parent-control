@@ -1,9 +1,10 @@
 import React, {useEffect, useState} from 'react';
-import {View, Text, StyleSheet, Alert} from 'react-native';
+import {View, Text, StyleSheet} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {childLoginPasswordApi} from '../services/api';
 import {Card, FormField, HeroBlock, PrimaryBtn, ScreenShell} from '../components/AppScreen';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChildLoginPassword'>;
 
@@ -32,11 +33,11 @@ export function ChildLoginPasswordScreen({navigation, route}: Props) {
     const trimmed = password.trim();
     const trimmedConfirm = confirm.trim();
     if (trimmed.length < 4) {
-      Alert.alert('Password', 'Enter at least 4 characters');
+      appAlert('Password', 'Enter at least 4 characters');
       return;
     }
     if (trimmed !== trimmedConfirm) {
-      Alert.alert('Password', 'Passwords do not match');
+      appAlert('Password', 'Passwords do not match');
       return;
     }
     setSaving(true);
@@ -50,14 +51,14 @@ export function ChildLoginPasswordScreen({navigation, route}: Props) {
         navigation.replace('DeviceList');
         return;
       }
-      Alert.alert(
+      appAlert(
         'Saved',
         status?.configured
           ? `Password updated on all ${status.linkedDeviceCount} linked device(s).`
           : 'Family child login password saved. Use this on every child phone.',
       );
     } catch {
-      Alert.alert('Error', 'Couldn’t save password. Please try again.');
+      appAlert('Error', 'Couldn’t save password. Please try again.');
     } finally {
       setSaving(false);
     }

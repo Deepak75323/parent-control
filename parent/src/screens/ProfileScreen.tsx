@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {Alert, Animated, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Animated, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useAuthStore} from '../store/authStore';
@@ -8,6 +8,8 @@ import {RootStackParamList} from '../navigation/RootNavigator';
 import {navigateToPairingFlow} from '../navigation/pairingNavigation';
 import {Colors, Spacing, Radii, Elevation, Typography, Layout} from '../theme/design';
 import {useFadeSlideIn, usePressScale} from '../utils/animations';
+import {countActiveDevices} from '../utils/deviceLinkStatus';
+import {appAlert} from '../utils/appAlert';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -48,15 +50,18 @@ export function ProfileScreen({navigation}: {navigation: Nav}) {
   const contentAnim = useFadeSlideIn(120);
 
   useEffect(() => {
-    deviceApi.list().then(r => setDeviceCount(r.data.data.length)).catch(() => {});
+    deviceApi
+      .list()
+      .then(r => setDeviceCount(countActiveDevices(r.data.data ?? [])))
+      .catch(() => {});
   }, []);
 
   const name = email?.split('@')[0] ?? 'Parent';
   const initials = name.slice(0, 2).toUpperCase();
 
-  const confirmLogout = () => Alert.alert('Sign out', 'Are you sure?', [
+  const confirmLogout = () => appAlert('Sign out', 'Are you sure?', [
     {text: 'Cancel', style: 'cancel'},
-    {text: 'Sign out', style: 'destructive', onPress: logout},
+    {text: 'Sign out', style: 'destructive', onPress: () => void logout()},
   ]);
 
   return (
@@ -144,6 +149,10 @@ export function ProfileScreen({navigation}: {navigation: Nav}) {
           {/* App */}
           <Text style={styles.groupLabel}>APP</Text>
           <SectionGroup>
+            <MenuRow icon="💬" label="Support" sub="Help & contact" onPress={() => navigation.navigate('Support')} />
+            <View style={styles.divider} />
+            <MenuRow icon="🗑️" label="Delete account" sub="Permanently remove your data" danger onPress={() => navigation.navigate('DeleteAccount')} />
+            <View style={styles.divider} />
             <MenuRow icon="ℹ️" label="About" sub="Version 1.0.0" />
           </SectionGroup>
 

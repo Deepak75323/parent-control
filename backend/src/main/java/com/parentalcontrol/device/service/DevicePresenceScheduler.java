@@ -4,6 +4,7 @@ import com.parentalcontrol.device.dao.DeviceDao;
 import com.parentalcontrol.device.domain.Device;
 import com.parentalcontrol.device.domain.DeviceStatus;
 import com.parentalcontrol.monitoring.service.RealtimeEventService;
+import com.parentalcontrol.monitoring.service.StreamingSessionCleanupService;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -21,11 +22,13 @@ public class DevicePresenceScheduler {
   /**
    * Must stay comfortably above HeartbeatNudgeScheduler.NUDGE_AFTER_MINUTES (5) plus realistic
    * FCM/Doze/OEM delivery jitter, so a nudge has time to land before a device flips OFFLINE.
+   * Reduced to 8 minutes for faster offline detection with network connectivity monitoring.
    */
-  private static final long OFFLINE_THRESHOLD_MINUTES = 12;
+  private static final long OFFLINE_THRESHOLD_MINUTES = 8;
 
   private final DeviceDao deviceRepository;
   private final RealtimeEventService realtimeEventService;
+  private final StreamingSessionCleanupService streamingSessionCleanupService;
 
   @Scheduled(fixedRate = 60_000)
   @Transactional
@@ -36,8 +39,13 @@ public class DevicePresenceScheduler {
     for (Device device : stale) {
       device.setStatus(DeviceStatus.OFFLINE);
       deviceRepository.save(device);
+      
+      // Clean up any active streaming sessions for this offline device
+      streamingSessionCleanupService.cleanupSessionsForOfflineDevice(device.getId());
+      
       realtimeEventService.publishDeviceStatus(device);
-      log.info("Marked device {} OFFLINE — lastSeenAt={}", device.getId(), device.getLastSeenAt());
+      log.info("Marked device {} OFFLINE — lastSeenAt={}, cleaned up streaming sessions", 
+          device.getId(), device.getLastSeenAt());
     }
   }
 }

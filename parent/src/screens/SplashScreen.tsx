@@ -1,15 +1,14 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {View, Text, StyleSheet, Animated, StatusBar} from 'react-native';
+import {View, Text, StyleSheet, Animated, StatusBar, Image} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
-import axios from 'axios';
 import {RootStackParamList} from '../navigation/RootNavigator';
-import {config} from '../utils/config';
-import {ApiPaths} from '../constants/apiPaths';
 import {useAuthStore} from '../store/authStore';
-import {clearPersistedAuth, loadPersistedAuth, savePersistedAuth} from '../services/authStorage';
+import {clearPersistedAuth, loadPersistedAuth} from '../services/authStorage';
 import {plog} from '../services/pairingLog';
 import {Colors} from '../theme/design';
+
+const APP_LOGO = require('../assets/app-logo.png');
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Splash'>;
 
@@ -59,33 +58,38 @@ export function SplashScreen({navigation}: Props) {
       setStatus('Signing in…');
       plog('splash — refresh token restore');
       try {
-        const {data} = await axios.post<{
-          success: boolean;
-          data?: {
-            accessToken: string;
-            refreshToken: string;
-            profile?: {emailVerified?: boolean};
-          };
-        }>(`${config.apiBaseUrl}${ApiPaths.AUTH_REFRESH}`, {refreshToken: persisted.refreshToken});
-        if (data.success && data.data?.accessToken && data.data.refreshToken) {
-          const emailVerified = data.data.profile?.emailVerified ?? persisted.emailVerified ?? true;
-          await savePersistedAuth({
-            accessToken: data.data.accessToken,
-            refreshToken: data.data.refreshToken,
-            email: persisted.email,
-            emailVerified,
-          });
-          setTokens(
-            data.data.accessToken,
-            data.data.refreshToken,
-            persisted.email ?? undefined,
-            emailVerified,
-          );
+        // Restore via shared refresh helper (handles encryption + error classification).
+        setTokens(
+          persisted.accessToken,
+          persisted.refreshToken,
+          persisted.email ?? undefined,
+          persisted.emailVerified ?? true,
+        );
+        const {refreshAccessToken} = await import('../services/api');
+        const result = await refreshAccessToken();
+        if (result.status === 'ok') {
           plog('splash — session restored');
           return;
         }
+        if (result.status === 'transient') {
+          // Keep signed in with stored tokens; SessionKeepAlive will retry.
+          plog('splash — refresh transient, keeping stored session');
+          return;
+        }
+        // Refresh rejected — keep a still-valid access token so Metro reloads
+        // don't bounce the parent to Login while REST/streaming still work.
+        if (persisted.accessToken) {
+          plog('splash — refresh rejected, keeping access token');
+          return;
+        }
+        plog('splash — refresh rejected');
+        await clearPersistedAuth();
       } catch (err) {
         plog('splash — refresh failed', String(err));
+        // Do not wipe session on unexpected errors if we still have tokens.
+        if (persisted.accessToken && persisted.refreshToken) {
+          return;
+        }
         await clearPersistedAuth();
       }
       if (!cancelled) navigation.replace('Login');
@@ -104,7 +108,7 @@ export function SplashScreen({navigation}: Props) {
 
       {/* Logo */}
       <Animated.View style={[s.logoWrap, {transform: [{scale}], opacity}]}>
-        <Text style={s.logoEmoji}>🛡️</Text>
+        <Image source={APP_LOGO} style={s.logoImage} resizeMode="cover" />
       </Animated.View>
 
       {/* Text */}
@@ -163,8 +167,9 @@ const s = StyleSheet.create({
     marginBottom: 28,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.25)',
+    overflow: 'hidden',
   },
-  logoEmoji: {fontSize: 52},
+  logoImage: {width: 108, height: 108},
   textWrap: {alignItems: 'center'},
   appName: {fontSize: 30, fontWeight: '900', color: Colors.textOnDark, letterSpacing: -0.5},
   tagline: {fontSize: 15, color: Colors.textOnDarkSoft, marginTop: 6, fontWeight: '500'},

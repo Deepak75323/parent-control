@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {Alert, AlertButton, StatusBar, StyleSheet, View} from 'react-native';
+import {AlertButton, StatusBar, StyleSheet, View} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {MediaStream} from 'react-native-webrtc';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -14,6 +14,8 @@ import {
   registerStreamListeners,
   setRemoteAudioEnabled,
 } from '../services/webrtcService';
+import {stopBackendStreamSession} from '../services/streamAuthTeardown';
+import {getSessionIdForBackendStop} from '../services/streamSessionOwner';
 import {slog, slogReset} from '../services/streamDebug';
 import {
   generateTraceId,
@@ -32,6 +34,8 @@ import {PreSessionLauncher} from '../components/liveMonitoring/PreSessionLaunche
 import {STREAM_COLORS} from '../components/liveMonitoring/layout';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {streamFailureMessage} from '../utils/streamFailureMessages';
+import {isDevicePresentOnline} from '../utils/devicePresence';
+import {liveSessionUiState, sessionStatusLabel} from '../utils/liveSessionStatus';
 import {
   isStreamRecordingSupported,
   showRecordingSavedAlert,
@@ -44,32 +48,12 @@ import {
   mergeScreenShareCapability,
   screenShareBlockedMessage,
 } from '../utils/screenShareCapability';
+import {track} from '../services/telemetry';
+import {TelemetryEvents} from '../services/telemetryEvents';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'LiveMonitoring'>;
 type StreamType = 'SCREEN' | 'CAMERA' | 'AUDIO';
-
-function sessionStatusLabel(
-  streamType: StreamType,
-  connecting: boolean,
-  iceState: string | null,
-  hasStream: boolean,
-  session: ScreenShareSession | null,
-): string {
-  if (hasStream) return 'Live';
-  if (connecting) {
-    if (streamType === 'AUDIO') return 'Connecting mic…';
-    if (streamType === 'CAMERA') return 'Connecting camera…';
-    if (streamType === 'SCREEN' && session?.captureMode === 'RN_DISPLAY_MEDIA') {
-      return 'Starting screen sharing…';
-    }
-    return 'Connecting…';
-  }
-  if (iceState === 'failed' || iceState === 'disconnected') return 'Connection failed';
-  if (streamType === 'AUDIO') return 'Waiting for audio…';
-  if (streamType === 'CAMERA') return 'Waiting for camera…';
-  if (streamType === 'SCREEN') return 'Waiting for screen…';
-  return 'Waiting…';
-}
 
 export function LiveMonitoringScreen({navigation, route}: Props) {
   const {deviceId, initialStream} = route.params;
@@ -129,8 +113,16 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
 
     return () => {
       unregister();
-      slog('UI', 'LiveMonitoringScreen unmount — disconnect viewer');
-      disconnectViewer();
+      slog('UI', 'LiveMonitoringScreen unmount — stop backend session + disconnect');
+      // Must stopScreenShare before disconnectViewer clears local ids — otherwise the
+      // child keeps camera/mic (green privacy indicators) while parent is on login.
+      const sessionId = getSessionIdForBackendStop();
+      void (async () => {
+        if (sessionId) {
+          await stopBackendStreamSession(sessionId);
+        }
+        await disconnectViewer().catch(() => undefined);
+      })();
     };
   }, [deviceId, initialStream]);
 
@@ -167,7 +159,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     if (streamingState.status !== 'FAILED') return;
     setConnecting(false);
     setRemoteStream(null);
-    Alert.alert('Live view could not start', streamFailureMessage(streamingState.failureReason));
+    appAlert('Live view could not start', streamFailureMessage(streamingState.failureReason));
   }, [streamingState, deviceId]);
 
   const needsPinForScreen = silentScreenCapable && !pinUnlocked;
@@ -203,7 +195,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       });
       if (type === 'SCREEN' && needsPinForScreen && !pinInput) {
         traceLog('Parent', 'start', 'Parent PIN required for silent screen');
-        Alert.alert('Password required', 'Enter your parent password to start screen sharing.');
+        appAlert('Password required', 'Enter your parent password to start screen sharing.');
         return;
       }
       setLoading(true);
@@ -223,14 +215,10 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setMediaProjectionConsentState(device.mediaProjectionConsentState);
         setSilentScreenCapable(isSilentScreenCapable(device));
         setAccessibilityEnabled(device.accessibilityEnabled !== false);
-        // Do not gate SCREEN start on consent — child prompts Cast (auto-approve when Accessibility on).
-        // Align with backend offline cutoff (~12 min). A 3-minute client gate falsely marked
-        // children offline during Android 15 WorkManager gaps before alarm heartbeats.
-        const PRESENCE_STALE_MS = 10 * 60 * 1000;
+        // Align with shared presence helper (trust fresh lastSeen even if status lags).
         const lastSeenAt = device.lastSeenAt;
-        const staleMs = lastSeenAt ? Date.now() - Date.parse(lastSeenAt) : Number.POSITIVE_INFINITY;
-        const serverOffline = String(device.status || '').toUpperCase() === 'OFFLINE';
-        if (serverOffline || staleMs > PRESENCE_STALE_MS) {
+        if (!isDevicePresentOnline(device.status, lastSeenAt)) {
+          const staleMs = lastSeenAt ? Date.now() - Date.parse(lastSeenAt) : Number.POSITIVE_INFINITY;
           traceFailure({
             component: 'Parent',
             fn: 'start',
@@ -238,7 +226,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
             actual: `staleMs=${staleMs} status=${device.status}`,
             nextCauses: ['Child app not running', 'Network disconnected', 'Wrong device selected'],
           });
-          Alert.alert(
+          appAlert(
             'Child device offline',
             'This phone has not checked in recently. Open Clock Time on the child phone, keep it on the same Wi‑Fi as your Mac (or plug in USB), then try again.\n\nIf you re-paired recently, use the newer device in the list — not an old duplicate.',
           );
@@ -276,6 +264,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setIceState(null);
         setRemoteStream(null);
         setConnecting(true);
+        track(TelemetryEvents.STREAM_START, {stream_type: type});
         // Camera starts unmuted so parents hear the child mic immediately; Mute still works.
         setAudioMuted(false);
         setRemoteAudioEnabled(true);
@@ -308,7 +297,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setConnecting(false);
         setRemoteStream(null);
         setSession(null);
-        Alert.alert('Error', msg);
+        appAlert('Error', msg);
       } finally {
         setLoading(false);
       }
@@ -327,8 +316,9 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   const teardownSession = useCallback(async () => {
     if (!session) return;
     const sessionId = session.sessionId;
+    track(TelemetryEvents.STREAM_STOP, {stream_type: streamType});
     try {
-      await monitoringApi.stopScreenShare(sessionId);
+      await stopBackendStreamSession(sessionId);
     } catch {
       // Still clear local viewer state so Listening / LIVE UI cannot stick.
     } finally {
@@ -339,7 +329,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       setIceState(null);
       resetStreamState();
     }
-  }, [session]);
+  }, [session, streamType]);
 
   const stop = useCallback(async () => {
     if (!session) return;
@@ -357,7 +347,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       await teardownSession();
       streamStateTransition('STOPPED', 'stop');
     } catch {
-      Alert.alert('Error', 'Couldn’t stop live view. Please try again.');
+      appAlert('Error', 'Couldn’t stop live view. Please try again.');
     } finally {
       setStopping(false);
     }
@@ -374,7 +364,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     } catch (e: unknown) {
       const msg =
         e instanceof Error ? e.message : 'Check your connection and try again.';
-      Alert.alert('Couldn’t reconnect', msg);
+      appAlert('Couldn’t reconnect', msg);
       setConnecting(false);
     }
   }, [session]);
@@ -384,7 +374,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     try {
       await monitoringApi.switchCamera(session.sessionId);
     } catch {
-      Alert.alert('Error', 'Couldn’t switch camera. Please try again.');
+      appAlert('Error', 'Couldn’t switch camera. Please try again.');
     }
   }, [session]);
 
@@ -398,13 +388,13 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
 
   const toggleRecording = useCallback(async () => {
     if (!recordingSupported) {
-      Alert.alert('Recording unavailable', 'Recording requires Android 10 or newer.');
+      appAlert('Recording unavailable', 'Recording requires Android 10 or newer.');
       return;
     }
     const liveNow =
       !!remoteStream && (iceState === 'connected' || iceState === 'completed');
     if (!liveNow) {
-      Alert.alert('Not live yet', 'Wait until the stream is live before recording.');
+      appAlert('Not live yet', 'Wait until the stream is live before recording.');
       return;
     }
     if (recording) {
@@ -418,7 +408,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       } catch (e: unknown) {
         const msg =
           e instanceof Error ? e.message : 'Couldn’t save the recording. Please try again.';
-        Alert.alert('Recording', msg);
+        appAlert('Recording', msg);
       }
       return;
     }
@@ -426,7 +416,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       const videoTrack =
         streamType === 'AUDIO' ? null : getVideoTrackRecordingInfo();
       if (streamType !== 'AUDIO' && !videoTrack) {
-        Alert.alert('Recording', 'Wait for live video before recording.');
+        appAlert('Recording', 'Wait for live video before recording.');
         return;
       }
       const includeRemoteAudio =
@@ -437,7 +427,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     } catch (e: unknown) {
       const msg =
         e instanceof Error ? e.message : 'Couldn’t start recording. Please try again.';
-      Alert.alert('Recording', msg);
+      appAlert('Recording', msg);
     }
   }, [recordingSupported, remoteStream, iceState, recording, recordingIncludedAudio, streamType]);
 
@@ -447,7 +437,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       payload?: Record<string, unknown>,
     ) => {
       if (!accessibilityEnabled) {
-        Alert.alert(
+        appAlert(
           'Remote control unavailable',
           'Required permissions aren’t finished on the child phone yet. ' +
             'Open Clock Time → Permissions and complete the remaining steps, then try again.',
@@ -469,14 +459,14 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
               onPress: () => navigation.navigate('ParentPin'),
             },
           ];
-          Alert.alert(
+          appAlert(
             'Password required',
             'Enter your parent password to use remote control.',
             buttons,
           );
           return;
         }
-        Alert.alert('Remote control failed', msg);
+        appAlert('Remote control failed', msg);
       }
     },
     [deviceId, accessibilityEnabled, navigation],
@@ -484,7 +474,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
 
   const toggleRemoteControl = useCallback(() => {
     if (!remoteControlEnabled && !accessibilityEnabled) {
-      Alert.alert(
+      appAlert(
         'Remote control unavailable',
         'Required permissions aren’t finished on the child phone yet. ' +
           'Open Clock Time → Permissions and complete the remaining steps, then try again.',
@@ -496,7 +486,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
 
   const handleBack = useCallback(() => {
     if (session) {
-      Alert.alert('Leave live view?', 'Stop live view and go back?', [
+      appAlert('Leave live view?', 'Stop live view and go back?', [
         {text: 'Cancel', style: 'cancel'},
         {
           text: 'Stop & leave',
@@ -511,17 +501,37 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     navigation.goBack();
   }, [navigation, session, stop]);
 
-  const isLive =
+  const videoTrackEnded =
     !!remoteStream &&
-    (iceState === 'connected' || iceState === 'completed');
-  const isFailed =
-    iceState === 'failed' ||
-    iceState === 'disconnected' ||
-    (remoteStream &&
-      streamType !== 'AUDIO' &&
-      remoteStream.getVideoTracks()[0]?.readyState === 'ended');
-  const isPending = !isLive && !isFailed && (connecting || !!session);
-  const statusLabel = sessionStatusLabel(streamType, connecting, iceState, isLive, session);
+    streamType !== 'AUDIO' &&
+    remoteStream.getVideoTracks()[0]?.readyState === 'ended';
+  const {isLive, isFailed, isPending} = liveSessionUiState({
+    iceState,
+    hasRemoteStream: !!remoteStream,
+    videoTrackEnded,
+    connecting,
+    hasSession: !!session,
+  });
+  const statusLabel = sessionStatusLabel(
+    streamType,
+    connecting,
+    iceState,
+    isLive,
+    session?.captureMode,
+  );
+  const effectiveAudioMuted = !isLive || audioMuted;
+
+  useEffect(() => {
+    if (!isLive && !audioMuted) {
+      setAudioMuted(true);
+      setRemoteAudioEnabled(false);
+    }
+  }, [isLive, audioMuted]);
+
+  const guardedToggleAudioMute = useCallback(() => {
+    if (!isLive) return;
+    toggleAudioMute();
+  }, [isLive, toggleAudioMute]);
 
   // PiP camera during screen share needs a second concurrent session (not yet supported server-side).
   const pipStream: MediaStream | null = null;
@@ -543,8 +553,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           onBack={handleBack}
           onStop={stop}
           onSwitchCamera={streamType === 'CAMERA' ? switchCamera : undefined}
-          audioMuted={audioMuted}
-          onToggleAudioMute={streamType === 'CAMERA' ? toggleAudioMute : undefined}
+          audioMuted={effectiveAudioMuted}
+          onToggleAudioMute={streamType === 'CAMERA' ? guardedToggleAudioMute : undefined}
           onTogglePip={() => setPipVisible(v => !v)}
           remoteControlEnabled={remoteControlEnabled}
           onToggleRemoteControl={toggleRemoteControl}

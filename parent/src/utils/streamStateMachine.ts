@@ -54,7 +54,6 @@ export function streamStateTransition(
   const line = `${trace} [STREAM_STATE] ${from} → ${next} [${fn}]${extra}`;
   if (__DEV__) {
     console.log(line);
-    console.warn(line);
   }
   traceLog('Parent', fn, `STREAM_STATE ${from} → ${next}`, detail);
 }

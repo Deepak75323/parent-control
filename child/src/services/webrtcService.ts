@@ -68,6 +68,8 @@ async function loadIceConfig(
 }
 
 let pc: RTCPeerConnection | null = null;
+let connectionAttempts = 0;
+const MAX_CONNECTION_ATTEMPTS = 3;
 let activeMediaStream: MediaStream | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let activeRoomId: string | null = null;
@@ -92,6 +94,7 @@ let screenDeviceAudioTrack: MediaStreamTrack | null = null;
 /** Tracks the current camera facing so switchCamera toggles correctly (CameraX does not expose facingMode via getSettings). */
 let currentCameraFacing: 'user' | 'environment' = 'user';
 let detachIceRecovery: (() => void) | null = null;
+let detachNetworkQualityMonitor: (() => void) | null = null;
 const seenIds = new Set<string>();
 const pendingIceCandidates: RTCIceCandidateInit[] = [];
 
@@ -195,11 +198,17 @@ async function flushPendingIceCandidates(): Promise<void> {
 
 async function applyRemoteAnswer(payload: string, messageId: string): Promise<boolean> {
   if (!pc || seenIds.has(messageId)) return false;
-  if (pc.remoteDescription?.type === 'answer') {
+
+  const signaling = pc.signalingState ?? 'unknown';
+  // After iceRestart createOffer we are have-local-offer, but remoteDescription may
+  // still be the *previous* answer. The old early-return blocked every new answer and
+  // left the child stuck in have-local-offer across wifi↔cellular handoffs.
+  if (signaling === 'stable' && pc.remoteDescription?.type === 'answer') {
+    slog('SDP', 'answer skipped — already stable', messageId);
     return true;
   }
-  if (pc.localDescription?.type !== 'offer') {
-    slog('SDP', 'answer skipped — no local offer yet', messageId);
+  if (signaling !== 'have-local-offer' && pc.localDescription?.type !== 'offer') {
+    slog('SDP', 'answer skipped — no local offer yet', {messageId, signaling});
     return false;
   }
   signalingBusy = true;
@@ -304,19 +313,67 @@ async function pollSignaling(roomId: string): Promise<boolean> {
 
 async function waitForRemoteAnswer(roomId: string, timeoutMs = 90000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
+  const startTime = Date.now();
+  slog('SDP', 'Waiting for remote answer', {roomId, timeoutMs, deadline});
+  
+  let pollAttempts = 0;
+  const maxPollAttempts = Math.floor(timeoutMs / 250);
+  
   while (Date.now() < deadline && pc && !pc.remoteDescription) {
-    const applied = await pollSignaling(roomId);
-    if (applied || pc?.remoteDescription) {
-      slog('SDP', 'answer received during wait');
-      flowLog('SCREEN_SHARE_FLOW', 'answer received', {roomId});
-      return true;
+    pollAttempts++;
+    
+    // Check if peer connection is still viable
+    if (!pc || pc.signalingState === 'closed') {
+      slog('SDP', 'PeerConnection lost during answer wait', {roomId, pollAttempts});
+      return false;
     }
+    
+    try {
+      const applied = await Promise.race([
+        pollSignaling(roomId),
+        new Promise<boolean>((_, reject) => 
+          setTimeout(() => reject(new Error('Polling timeout')), 5000)
+        )
+      ]);
+      
+      if (applied || pc?.remoteDescription) {
+        const elapsedMs = Date.now() - startTime;
+        slog('SDP', 'answer received during wait', {roomId, elapsedMs, pollAttempts});
+        flowLog('SCREEN_SHARE_FLOW', 'answer received', {roomId, elapsedMs});
+        return true;
+      }
+    } catch (pollError) {
+      slog('SDP', 'Polling error during answer wait', {
+        error: String(pollError), 
+        roomId, 
+        pollAttempts,
+        remaining: Math.max(0, deadline - Date.now())
+      });
+      
+      // If we're getting consistent polling errors, bail out early
+      if (pollAttempts > 10 && String(pollError).includes('timeout')) {
+        slog('SDP', 'Too many polling timeouts, aborting answer wait', {roomId, pollAttempts});
+        return false;
+      }
+    }
+    
     await new Promise<void>(resolve => setTimeout(resolve, 250));
   }
+  
   const ok = pc?.remoteDescription?.type === 'answer';
+  const elapsedMs = Date.now() - startTime;
+  
   if (!ok) {
-    slog('SDP', 'answer wait timed out', {roomId, ice: pc?.iceConnectionState});
+    slog('SDP', 'answer wait timed out', {
+      roomId, 
+      ice: pc?.iceConnectionState,
+      signalingState: pc?.signalingState,
+      elapsedMs,
+      pollAttempts,
+      maxAttempts: maxPollAttempts
+    });
   }
+  
   return ok;
 }
 
@@ -332,27 +389,70 @@ async function renegotiateChildOffer(): Promise<void> {
 
 function attachConnectionHandlers(peer: RTCPeerConnection): void {
   detachIceRecovery?.();
+  detachNetworkQualityMonitor?.();
   detachIceRecovery = attachIceRecovery(peer, {
+    // Network handoffs need an SDP iceRestart offer — restartIce() alone keeps
+    // stale host candidates on the old Wi‑Fi/cellular interface.
     onRestartIce: async () => {
       void nativeModules.logStreamLifecycle('ICE_RESTART', activeSessionId ?? 'no-session');
       StreamSessionRegistryMarkReconnecting();
+      slog('ICE', 'ICE restart initiated', {
+        roomId: activeRoomId,
+        sessionId: activeSessionId,
+        currentState: peer.iceConnectionState,
+        connectionState: peer.connectionState,
+        signalingState: peer.signalingState,
+      });
+      await renegotiateChildOffer();
     },
     onRenegotiate: renegotiateChildOffer,
     onFatal: reason => {
-      slog('PC', 'ICE recovery exhausted', {reason, roomId: activeRoomId});
+      slog('PC', 'ICE recovery exhausted - connection failure', {
+        reason,
+        roomId: activeRoomId,
+        sessionId: activeSessionId,
+        finalIceState: peer.iceConnectionState,
+        finalConnectionState: peer.connectionState,
+      });
+
       if (activeSessionId) {
         deviceApi.reportStreamFailure(activeSessionId, reason).catch(() => undefined);
       }
+
+      try {
+        streamStateTransition('FAILED', 'ICE_RECOVERY_EXHAUSTED', {
+          reason,
+          iceState: peer.iceConnectionState,
+          connectionState: peer.connectionState,
+        });
+      } catch (cleanupError) {
+        slog('PC', 'Cleanup after ICE failure error', String(cleanupError));
+      }
+
+      // Must release camera/mic — otherwise Android green privacy indicators stick
+      // after the parent already shows Connection failed / child network loss.
+      disconnectStream().catch(err =>
+        slog('PC', 'disconnectStream after ICE fatal failed', String(err)),
+      );
     },
     reportEvent: (event, attrs) => {
-      slog('ICE', event, attrs ?? {});
-      void nativeModules.logStreamLifecycle(`ICE_${event.toUpperCase()}`, JSON.stringify(attrs ?? {}));
+      const enhancedAttrs = {
+        ...attrs,
+        roomId: activeRoomId,
+        sessionId: activeSessionId,
+        streamType: activeStreamType,
+        timestamp: Date.now()
+      };
+      
+      slog('ICE', event, enhancedAttrs);
+      void nativeModules.logStreamLifecycle(`ICE_${event.toUpperCase()}`, JSON.stringify(enhancedAttrs));
+      
       streamingApi
         .reportIceConnectivity({
           streamType: activeStreamType,
           sessionId: activeSessionId ?? undefined,
           iceConnectionState: peer.iceConnectionState ?? 'unknown',
-          failureReason: event === 'ice_recovery_failed' ? 'recovery_exhausted' : undefined,
+          failureReason: event.includes('failed') ? event : undefined,
         })
         .catch(() => undefined);
     },
@@ -360,15 +460,31 @@ function attachConnectionHandlers(peer: RTCPeerConnection): void {
 
     peer.oniceconnectionstatechange = () => {
       const state = peer.iceConnectionState ?? 'unknown';
-      slog('PC', 'iceConnectionState', state);
+      const connectionState = peer.connectionState ?? 'unknown';
+      const timestamp = Date.now();
+      
+      slog('PC', 'iceConnectionState changed', {
+        state,
+        connectionState,
+        roomId: activeRoomId,
+        sessionId: activeSessionId,
+        streamType: activeStreamType
+      });
       logIce('child', 'iceConnectionState', state);
+      
       if (state === 'connected' || state === 'completed') {
         streamStateTransition('CONNECTED', 'oniceconnectionstatechange', {state, roomId: activeRoomId});
         markJsActive();
-        flowLog('WEBRTC_FLOW', 'ICE_CONNECTED', {state, roomId: activeRoomId});
+        flowLog('WEBRTC_FLOW', 'ICE_CONNECTED', {state, roomId: activeRoomId, connectionState});
+        
         if (activeStreamType === 'CAMERA') {
           flowLog('CAMERA_FLOW', 'ICE_CONNECTED', {state, roomId: activeRoomId, sessionId: activeSessionId});
+        } else if (activeStreamType === 'AUDIO') {
+          flowLog('AUDIO_FLOW', 'ICE_CONNECTED', {state, roomId: activeRoomId, sessionId: activeSessionId});
+        } else if (activeStreamType === 'SCREEN') {
+          flowLog('SCREEN_SHARE_FLOW', 'ICE_CONNECTED', {state, roomId: activeRoomId, sessionId: activeSessionId});
         }
+        
         streamingApi
           .reportIceConnectivity({
             streamType: activeStreamType,
@@ -376,16 +492,102 @@ function attachConnectionHandlers(peer: RTCPeerConnection): void {
             iceConnectionState: state,
           })
           .catch(() => undefined);
-      } else if (state === 'failed' || state === 'disconnected') {
+          
+      } else if (state === 'failed') {
+        slog('PC', 'ICE connection FAILED - triggering recovery', {
+          state,
+          connectionState,
+          roomId: activeRoomId,
+          sessionId: activeSessionId,
+          streamType: activeStreamType
+        });
+        
+        streamStateTransition('ICE_FAILED', 'oniceconnectionstatechange', {state, roomId: activeRoomId});
+        
         if (activeStreamType === 'CAMERA') {
-          flowLog('CAMERA_FLOW', 'ICE_STATE_CHANGED', {state, roomId: activeRoomId, sessionId: activeSessionId});
+          flowLog('CAMERA_FLOW', 'ICE_FAILED', {state, roomId: activeRoomId, sessionId: activeSessionId});
+        } else if (activeStreamType === 'AUDIO') {
+          flowLog('AUDIO_FLOW', 'ICE_FAILED', {state, roomId: activeRoomId, sessionId: activeSessionId});
+        } else if (activeStreamType === 'SCREEN') {
+          flowLog('SCREEN_SHARE_FLOW', 'ICE_FAILED', {state, roomId: activeRoomId, sessionId: activeSessionId});
         }
+        
+      } else if (state === 'disconnected') {
+        slog('PC', 'ICE connection DISCONNECTED - will attempt recovery if not resolved quickly', {
+          state,
+          connectionState,
+          roomId: activeRoomId,
+          sessionId: activeSessionId,
+          streamType: activeStreamType
+        });
+        
+        streamStateTransition('ICE_DISCONNECTED', 'oniceconnectionstatechange', {state, roomId: activeRoomId});
+        
+        if (activeStreamType === 'CAMERA') {
+          flowLog('CAMERA_FLOW', 'ICE_DISCONNECTED', {state, roomId: activeRoomId, sessionId: activeSessionId});
+        } else if (activeStreamType === 'AUDIO') {
+          flowLog('AUDIO_FLOW', 'ICE_DISCONNECTED', {state, roomId: activeRoomId, sessionId: activeSessionId});
+        } else if (activeStreamType === 'SCREEN') {
+          flowLog('SCREEN_SHARE_FLOW', 'ICE_DISCONNECTED', {state, roomId: activeRoomId, sessionId: activeSessionId});
+        }
+        
+      } else if (state === 'checking') {
+        slog('PC', 'ICE checking - attempting connection', {
+          state,
+          connectionState,
+          roomId: activeRoomId,
+          sessionId: activeSessionId
+        });
+        
+      } else if (state === 'closed') {
+        slog('PC', 'ICE connection CLOSED', {
+          state,
+          connectionState,
+          roomId: activeRoomId,
+          sessionId: activeSessionId
+        });
+        
+        streamStateTransition('ICE_CLOSED', 'oniceconnectionstatechange', {state, roomId: activeRoomId});
       }
     };
-  peer.onconnectionstatechange = () => {
-    slog('PC', 'connectionState', peer.connectionState ?? 'unknown');
-    logIce('child', 'connectionState', peer.connectionState ?? 'unknown');
-  };
+
+    // Also monitor the general connection state for additional diagnostics
+    peer.onconnectionstatechange = () => {
+      const connectionState = peer.connectionState ?? 'unknown';
+      const iceState = peer.iceConnectionState ?? 'unknown';
+
+      slog('PC', 'connectionState changed', {
+        connectionState,
+        iceState,
+        roomId: activeRoomId,
+        sessionId: activeSessionId,
+        streamType: activeStreamType,
+      });
+      logIce('child', 'connectionState', connectionState);
+
+      if (connectionState === 'failed') {
+        slog('PC', 'PeerConnection FAILED - connection state failure', {
+          connectionState,
+          iceState,
+          roomId: activeRoomId,
+          sessionId: activeSessionId,
+        });
+      } else if (connectionState === 'disconnected') {
+        slog('PC', 'PeerConnection DISCONNECTED', {
+          connectionState,
+          iceState,
+          roomId: activeRoomId,
+          sessionId: activeSessionId,
+        });
+      } else if (connectionState === 'connected') {
+        slog('PC', 'PeerConnection CONNECTED', {
+          connectionState,
+          iceState,
+          roomId: activeRoomId,
+          sessionId: activeSessionId,
+        });
+      }
+    };
   peer.onicegatheringstatechange = () => {
     const state = peer.iceGatheringState ?? 'unknown';
     if (state === 'gathering') {
@@ -393,6 +595,9 @@ function attachConnectionHandlers(peer: RTCPeerConnection): void {
     }
     slog('PC', 'iceGatheringState', state);
   };
+
+  detachNetworkQualityMonitor = startNetworkQualityMonitoring(peer);
+  slog('PC', 'Network quality monitoring started', {roomId: activeRoomId, sessionId: activeSessionId});
 }
 
 /** Bridge to native registry without importing Kotlin from TS. */
@@ -401,6 +606,72 @@ function StreamSessionRegistryMarkReconnecting(): void {
 }
 
 export async function connectChildStream(
+  roomId: string,
+  streamType: string,
+  sessionId: string,
+  cameraFacing?: string,
+): Promise<void> {
+  const startTime = Date.now();
+  let lastError: Error | null = null;
+  
+  while (connectionAttempts < MAX_CONNECTION_ATTEMPTS) {
+    try {
+      await connectChildStreamImpl(roomId, streamType, sessionId, cameraFacing);
+      // Success - exit retry loop
+      const elapsedMs = Date.now() - startTime;
+      slog('FLOW', 'connectChildStream SUCCESS', {
+        roomId, 
+        streamType, 
+        sessionId, 
+        totalAttempts: connectionAttempts + 1,
+        elapsedMs
+      });
+      return;
+    } catch (error) {
+      lastError = error as Error;
+      const currentAttempt = connectionAttempts + 1;
+      slog('FLOW', 'connectChildStream attempt failed', {
+        error: String(error),
+        attempt: currentAttempt,
+        maxAttempts: MAX_CONNECTION_ATTEMPTS,
+        roomId,
+        streamType,
+        sessionId
+      });
+      
+      // If this was the last attempt, don't wait - just throw
+      if (currentAttempt >= MAX_CONNECTION_ATTEMPTS) {
+        slog('FLOW', 'connectChildStream exhausted all attempts', {
+          totalAttempts: currentAttempt,
+          finalError: String(error)
+        });
+        break;
+      }
+      
+      // Exponential backoff: 1s, 2s, 4s
+      const delayMs = Math.min(1000 * Math.pow(2, currentAttempt - 1), 4000);
+      slog('FLOW', 'connectChildStream retrying after delay', {
+        delayMs,
+        nextAttempt: currentAttempt + 1,
+        roomId
+      });
+      
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  
+  // If we get here, all attempts have failed
+  const totalElapsedMs = Date.now() - startTime;
+  slog('FLOW', 'connectChildStream FINAL_FAILURE', {
+    totalAttempts: connectionAttempts,
+    totalElapsedMs,
+    lastError: String(lastError)
+  });
+  
+  throw lastError || new Error('Connection failed after maximum attempts');
+}
+
+async function connectChildStreamImpl(
   roomId: string,
   streamType: string,
   sessionId: string,
@@ -416,9 +687,11 @@ export async function connectChildStream(
   }
 
   connecting = true;
-  streamStateTransition('WEBRTC_CONNECTING', 'connectChildStream', {roomId, streamType, sessionId});
-  slog('FLOW', 'connectChildStream START', {roomId, streamType, sessionId});
-  try {
+    connectionAttempts++;
+    streamStateTransition('WEBRTC_CONNECTING', 'connectChildStreamImpl', {roomId, streamType, sessionId});
+    slog('FLOW', 'connectChildStreamImpl START', {roomId, streamType, sessionId, attempt: connectionAttempts});
+    
+    try {
     await disconnectStream(false);
     seenIds.clear();
     pendingIceCandidates.length = 0;
@@ -444,29 +717,38 @@ export async function connectChildStream(
     });
 
     await ensurePermissionsForStream(streamType);
-    streamStateTransition('PERMISSION_VERIFIED', 'connectChildStream', {streamType});
+    streamStateTransition('PERMISSION_VERIFIED', 'connectChildStreamImpl', {streamType});
 
     let stream: MediaStream;
     if (streamType === 'AUDIO') {
-      // Device / system audio (YouTube, Spotify, games) via MediaProjection AudioPlaybackCapture.
-      // Do NOT set MODE_IN_COMMUNICATION or exclusive audio focus — that freezes other apps' A/V.
-      flowLog('PERMISSION_FLOW', 'device playback capture — AudioPlaybackCapture', {sessionId});
-      const playbackOk = await nativeModules.startDevicePlaybackCapture().catch((e: unknown) => {
-        slog('AUDIO', 'PLAYBACK_CAPTURE_FAILED', String(e));
-        return false;
-      });
-      if (!playbackOk) {
-        throw new Error(
-          'Listening couldn’t start. Open Clock Time on the child phone, allow screen sharing if asked, then try again.',
-        );
-      }
-      const data = await nativeModules.getHiddenPlaybackAudioMediaStream();
+      // One-way listening = ambient room mic (surrounding sound), NOT system playback.
+      // System/YouTube audio belongs on SCREEN share only.
+      flowLog('PERMISSION_FLOW', 'ambient mic capture for one-way listening', {sessionId});
+      await nativeModules.setMonitoringAudioMode(false).catch(() => undefined);
+      const data = await nativeModules.getHiddenAmbientAudioMediaStream();
       stream = new MediaStream({
         streamId: data.streamId,
         streamReactTag: data.streamId,
         tracks: [data.track],
       } as {streamId: string; streamReactTag: string; tracks: object[]});
-      flowLog('AUDIO_FLOW', 'PLAYBACK_CAPTURE_STARTED', {sessionId, streamId: data.streamId});
+      const audioTrack = stream.getAudioTracks()[0];
+      if (!audioTrack) {
+        throw new Error(
+          'Listening couldn’t start. Grant microphone permission on the child phone, then try again.',
+        );
+      }
+      audioTrack.enabled = true;
+      slog('AUDIO', 'Ambient mic track ready for one-way listening', {
+        sessionId,
+        trackId: audioTrack.id,
+        enabled: audioTrack.enabled,
+        readyState: audioTrack.readyState,
+      });
+      flowLog('AUDIO_FLOW', 'AMBIENT_MIC_STARTED', {
+        sessionId,
+        streamId: data.streamId,
+        trackId: audioTrack.id,
+      });
     } else if (streamType === 'CAMERA') {
       flowLog('CAMERA_FLOW', 'CAMERA_COMMAND_RECEIVED', {sessionId, facing: cameraFacing});
       const facing = cameraFacing === 'environment' ? 'environment' : 'user';
@@ -584,7 +866,12 @@ export async function connectChildStream(
             tracks: [audioData.track],
           } as {streamId: string; streamReactTag: string; tracks: object[]}).getAudioTracks()[0];
           if (audioTrack) {
+            audioTrack.enabled = true;
             screenDeviceAudioTrack = audioTrack;
+            slog('SCREEN', 'system playback audio attached for screen share', {
+              sessionId,
+              trackId: audioTrack.id,
+            });
             flowLog('AUDIO_FLOW', 'PLAYBACK_CAPTURE_STARTED', {sessionId, trackId: audioTrack.id});
           }
         }
@@ -593,17 +880,30 @@ export async function connectChildStream(
       }
     }
 
-    streamStateTransition('CAPTURE_RUNNING', 'connectChildStream', {
+    streamStateTransition('CAPTURE_RUNNING', 'connectChildStreamImpl', {
       streamType,
       tracks: stream.getTracks().map(t => ({kind: t.kind, id: t.id, readyState: t.readyState})),
     });
 
     activeMediaStream = stream;
-    pc = new RTCPeerConnection({
-      iceServers: ice.iceServers,
-      iceTransportPolicy: ice.iceTransportPolicy,
-      bundlePolicy: 'max-bundle',
-    });
+    
+    // Create peer connection with improved error handling
+    try {
+      pc = new RTCPeerConnection({
+        iceServers: ice.iceServers,
+        iceTransportPolicy: ice.iceTransportPolicy,
+        bundlePolicy: 'max-bundle',
+        iceGatheringPolicy: 'gather_continually',
+        rtcpMuxPolicy: 'require',
+      });
+      slog('PC', 'PeerConnection created successfully', {
+        iceServers: ice.iceServers.length,
+        policy: ice.iceTransportPolicy
+      });
+    } catch (pcError) {
+      slog('PC', 'PeerConnection creation failed', String(pcError));
+      throw new Error(`Failed to create PeerConnection: ${String(pcError)}`);
+    }
     attachConnectionHandlers(pc);
 
     pc.onicecandidate = ev => {
@@ -628,6 +928,21 @@ export async function connectChildStream(
           enabled: track.enabled,
           readyState: track.readyState,
         });
+      } else if (track.kind === 'audio') {
+        slog('PC', 'AUDIO TRACK added to PeerConnection', {
+          trackId: track.id,
+          enabled: track.enabled,
+          readyState: track.readyState,
+          muted: track.muted,
+          streamType: streamType
+        });
+        flowLog('AUDIO_FLOW', 'AUDIO_TRACK_ADDED_TO_PC', {
+          sessionId,
+          trackId: track.id,
+          enabled: track.enabled,
+          readyState: track.readyState,
+          streamType: streamType
+        });
       }
     });
 
@@ -647,7 +962,21 @@ export async function connectChildStream(
 
     const offerLabel = streamType === 'CAMERA' ? 'CAMERA_FLOW' : 'SCREEN_SHARE_FLOW';
     flowLog(offerLabel, 'OFFER_CREATING', {roomId, sessionId, streamType});
-    const offer = await pc.createOffer({offerToReceiveAudio: false, offerToReceiveVideo: false});
+    
+    let offer: RTCSessionDescriptionInit;
+    try {
+      offer = await Promise.race([
+        pc.createOffer({offerToReceiveAudio: false, offerToReceiveVideo: false}),
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Offer creation timeout')), 10000)
+        )
+      ]);
+      slog('SDP', 'Offer created successfully', {roomId, sessionId});
+    } catch (offerError) {
+      slog('SDP', 'Offer creation failed', {error: String(offerError), roomId, sessionId});
+      throw new Error(`Failed to create offer: ${String(offerError)}`);
+    }
+    
     const offerHasVideo = sdpHasVideoMline(offer.sdp);
     flowLog(offerLabel, 'OFFER_CREATED', {roomId, sessionId, streamType, hasVideo: offerHasVideo});
     flowLog('WEBRTC_FLOW', offerHasVideo ? 'OFFER_CONTAINS_VIDEO' : 'OFFER_MISSING_VIDEO', {
@@ -657,10 +986,27 @@ export async function connectChildStream(
     if (streamType === 'CAMERA' && !offerHasVideo) {
       slog('SDP', 'WARN camera offer has no video m-line — frames may not be flowing yet', {roomId, sessionId});
     }
-    await pc.setLocalDescription(offer);
-    streamStateTransition('LOCAL_DESCRIPTION_SET', 'connectChildStream', {roomId, sessionId});
-    await signalingApi.post(roomId, 'offer', JSON.stringify(offer), sessionId);
-    slog('SDP', 'offer sent', roomId);
+    try {
+      await pc.setLocalDescription(offer);
+      slog('SDP', 'Local description set successfully', {roomId, sessionId});
+      streamStateTransition('LOCAL_DESCRIPTION_SET', 'connectChildStreamImpl', {roomId, sessionId});
+    } catch (localDescError) {
+      slog('SDP', 'Failed to set local description', {error: String(localDescError), roomId, sessionId});
+      throw new Error(`Failed to set local description: ${String(localDescError)}`);
+    }
+    
+    try {
+      await Promise.race([
+        signalingApi.post(roomId, 'offer', JSON.stringify(offer), sessionId),
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Signaling API timeout')), 15000)
+        )
+      ]);
+      slog('SDP', 'offer sent', roomId);
+    } catch (signalingError) {
+      slog('SDP', 'Failed to send offer via signaling', {error: String(signalingError), roomId, sessionId});
+      throw new Error(`Failed to send offer: ${String(signalingError)}`);
+    }
     if (streamType === 'CAMERA') {
       flowLog('CAMERA_FLOW', 'OFFER_SENT', {roomId, sessionId, hasVideo: offerHasVideo});
     } else {
@@ -688,20 +1034,24 @@ export async function connectChildStream(
       throw new Error('Couldn’t connect to the parent phone. Ask them to stay on live view and try again.');
     }
     startIceMonitor('child post-negotiation');
-    streamStateTransition('STREAMING', 'connectChildStream', {roomId, sessionId});
+    streamStateTransition('STREAMING', 'connectChildStreamImpl', {roomId, sessionId});
     markJsActive();
     void nativeModules.markJsStreamSessionActive(sessionId).catch(() => undefined);
+    
+    // Reset connection attempts on successful connection
+    connectionAttempts = 0;
+    
     slog('PC', 'negotiation complete', {
       ice: pc?.iceConnectionState,
       connection: pc?.connectionState,
     });
   } catch (err) {
-    streamStateTransition('FAILED', 'connectChildStream', {error: String(err)});
-    slog('FLOW', 'connectChildStream FAILED', String(err));
+    streamStateTransition('FAILED', 'connectChildStreamImpl', {error: String(err)});
+    slog('FLOW', 'connectChildStreamImpl FAILED', String(err));
     throw err;
   } finally {
     connecting = false;
-    slog('FLOW', 'connectChildStream END', {roomId, ice: pc?.iceConnectionState});
+    slog('FLOW', 'connectChildStreamImpl END', {roomId, ice: pc?.iceConnectionState});
   }
 }
 
@@ -714,6 +1064,66 @@ function stopTrackSafely(track: MediaStreamTrack, label: string): void {
   }
 }
 
+// Network quality monitoring for proactive connection management
+function startNetworkQualityMonitoring(peer: RTCPeerConnection): () => void {
+  let qualityInterval: ReturnType<typeof setInterval> | null = null;
+  let lastStats: RTCStatsReport | null = null;
+  
+  const checkNetworkQuality = async () => {
+    if (!peer || peer.connectionState === 'closed') return;
+    
+    try {
+      const stats = await peer.getStats();
+      
+      if (lastStats) {
+        // Analyze connection quality trends
+        let totalPacketsLost = 0;
+        let totalPacketsSent = 0;
+        let roundTripTime = 0;
+        let jitter = 0;
+        
+        stats.forEach(report => {
+          if (report.type === 'outbound-rtp') {
+            totalPacketsLost += report.packetsLost || 0;
+            totalPacketsSent += report.packetsSent || 0;
+          } else if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            roundTripTime = report.currentRoundTripTime || 0;
+          } else if (report.type === 'inbound-rtp') {
+            jitter = report.jitter || 0;
+          }
+        });
+        
+        const lossRate = totalPacketsSent > 0 ? totalPacketsLost / totalPacketsSent : 0;
+        const qualityIssues = lossRate > 0.05 || roundTripTime > 0.5 || jitter > 0.1;
+        
+        if (qualityIssues) {
+          slog('PC', 'Network quality degradation detected', {
+            lossRate: Math.round(lossRate * 100) / 100,
+            roundTripTime: Math.round(roundTripTime * 1000),
+            jitter: Math.round(jitter * 1000),
+            roomId: activeRoomId,
+            sessionId: activeSessionId
+          });
+        }
+      }
+      
+      lastStats = stats;
+    } catch (error) {
+      // Ignore stats errors - they're not critical
+    }
+  };
+  
+  // Check quality every 10 seconds
+  qualityInterval = setInterval(checkNetworkQuality, 10000);
+
+  return () => {
+    if (qualityInterval) {
+      clearInterval(qualityInterval);
+      qualityInterval = null;
+    }
+  };
+}
+
 export async function disconnectStream(clearConnecting = true): Promise<void> {
   if (activeStreamType === 'CAMERA') {
     flowLog('CAMERA_FLOW', 'STREAM_STOPPED', {room: activeRoomId, sessionId: activeSessionId});
@@ -721,6 +1131,8 @@ export async function disconnectStream(clearConnecting = true): Promise<void> {
   slog('FLOW', 'disconnectStream', {room: activeRoomId, clearConnecting});
   detachIceRecovery?.();
   detachIceRecovery = null;
+  detachNetworkQualityMonitor?.();
+  detachNetworkQualityMonitor = null;
   void nativeModules.logStreamLifecycle('PEER_CONNECTION_CLOSED', activeRoomId ?? 'no-room');
   stopIceMonitor();
   const room = activeRoomId;
@@ -805,90 +1217,56 @@ export async function switchCamera(): Promise<void> {
       cameraSwitchInFlight = false;
     }
   }, 8_000);
+
   try {
-    // Track facing ourselves — CameraX/hidden tracks do not always expose facingMode.
-    const nextFacing = currentCameraFacing === 'environment' ? 'user' : 'environment';
-    slog('CAMERA', 'switching', {from: currentCameraFacing, to: nextFacing});
-
-    // Prefer native absolute facing switch on the live HiddenCameraBridge capturer.
-    // applyConstraints rebind-after-switch left Flip one-shot on Xiaomi.
+    // Always sync JS facing from the live CameraX capturer before flipping.
+    // Stale JS state caused no-op switches after the first flip.
     if (Platform.OS === 'android') {
       try {
-        const result = await nativeModules.switchHiddenCameraFacing(nextFacing);
-        currentCameraFacing =
-          result?.facingMode === 'environment' ? 'environment' : nextFacing;
-        slog('CAMERA', 'switched via native HiddenCameraBridge', {
-          facing: currentCameraFacing,
-        });
-        return;
-      } catch (err) {
-        slog('CAMERA', 'native switchFacing failed — trying applyConstraints', String(err));
-      }
-    }
-
-    const trackWithConstraints = videoTrack as MediaStreamTrack & {
-      applyConstraints?: (c: {
-        width?: number;
-        height?: number;
-        frameRate?: number;
-        facingMode?: string;
-      }) => Promise<void>;
-      getSettings?: () => {
-        width?: number;
-        height?: number;
-        frameRate?: number;
-        facingMode?: string;
-      };
-    };
-    if (typeof trackWithConstraints.applyConstraints === 'function') {
-      const settings =
-        typeof trackWithConstraints.getSettings === 'function'
-          ? trackWithConstraints.getSettings()
-          : {};
-      try {
-        await trackWithConstraints.applyConstraints({
-          width: settings.width || 1280,
-          height: settings.height || 720,
-          frameRate: settings.frameRate || 30,
-          facingMode: nextFacing,
-        });
-        currentCameraFacing = nextFacing;
-        slog('CAMERA', 'switched via applyConstraints', {facing: nextFacing});
-        return;
-      } catch (err) {
-        slog('CAMERA', 'applyConstraints failed — trying replaceTrack', String(err));
-      }
-    }
-
-    // Fallback: replaceTrack via hidden camera path (backgrounded Android 14+).
-    if (Platform.OS === 'android') {
-      const newStream = await nativeModules.getHiddenCameraMediaStream(nextFacing);
-      const newTrack = new MediaStream({
-        streamId: newStream.streamId,
-        streamReactTag: newStream.streamId,
-        tracks: [newStream.track],
-      } as {streamId: string; streamReactTag: string; tracks: object[]}).getVideoTracks()[0];
-      if (!newTrack) {
-        throw new Error('Couldn’t switch cameras. Please try again.');
-      }
-      const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-      if (sender) {
-        await sender.replaceTrack(newTrack);
-      } else {
-        pc.addTrack(newTrack, activeMediaStream);
-      }
-      try {
-        videoTrack.stop();
+        const nativeFacing = await nativeModules.getCurrentCameraFacing();
+        if (nativeFacing === 'user' || nativeFacing === 'environment') {
+          currentCameraFacing = nativeFacing;
+        }
       } catch {
-        // Old track may already be released by HiddenCameraBridge.stopActiveCapture.
+        // Keep last known facing if native query fails.
       }
-      activeMediaStream.removeTrack(videoTrack);
-      activeMediaStream.addTrack(newTrack);
-      currentCameraFacing = nextFacing;
-      slog('CAMERA', 'switched via hidden capture replaceTrack', {facing: nextFacing});
+    }
+
+    const fromFacing = currentCameraFacing;
+    const nextFacing = fromFacing === 'environment' ? 'user' : 'environment';
+    slog('CAMERA', 'switching camera', {from: fromFacing, to: nextFacing, trackId: videoTrack.id});
+
+    if (Platform.OS === 'android') {
+      const result = await nativeModules.switchHiddenCameraFacing(nextFacing);
+      const actualFacing =
+        result?.facingMode === 'environment'
+          ? 'environment'
+          : result?.facingMode === 'user'
+            ? 'user'
+            : nextFacing;
+      currentCameraFacing = actualFacing;
+
+      // If native reported a no-op (already on requested facing), force the other side once.
+      if (result?.noop === true || result?.switchSuccessful === false || actualFacing === fromFacing) {
+        const forced = actualFacing === 'environment' ? 'user' : 'environment';
+        slog('CAMERA', 'native switch no-op — forcing opposite', {from: actualFacing, to: forced});
+        const forcedResult = await nativeModules.switchHiddenCameraFacing(forced);
+        if (forcedResult?.facingMode === 'environment' || forcedResult?.facingMode === 'user') {
+          currentCameraFacing = forcedResult.facingMode;
+        } else {
+          currentCameraFacing = forced;
+        }
+      }
+
+      slog('CAMERA', 'native switch done', {
+        from: fromFacing,
+        to: currentCameraFacing,
+        switchSuccessful: result?.switchSuccessful,
+      });
       return;
     }
 
+    // Non-Android fallback: recreate via getUserMedia + replaceTrack.
     const newStream = await mediaDevices.getUserMedia({
       audio: false,
       video: {facingMode: nextFacing},
@@ -909,8 +1287,51 @@ export async function switchCamera(): Promise<void> {
     activeMediaStream.addTrack(newTrack);
     currentCameraFacing = nextFacing;
     slog('CAMERA', 'switched via replaceTrack', {facing: nextFacing});
+  } catch (err) {
+    slog('CAMERA', 'switch failed', String(err));
   } finally {
     clearTimeout(switchWatchdog);
     cameraSwitchInFlight = false;
   }
+}
+
+/**
+ * Get current camera facing mode for debugging.
+ * Helps diagnose state sync issues between JS and native layers.
+ */
+export function getCurrentCameraFacing(): 'user' | 'environment' {
+  return currentCameraFacing;
+}
+
+/**
+ * Force reset camera facing state.
+ * Recovery mechanism for stuck camera states - use sparingly.
+ */
+export function resetCameraFacing(facing: 'user' | 'environment'): void {
+  slog('CAMERA', 'force reset facing', {from: currentCameraFacing, to: facing});
+  currentCameraFacing = facing;
+}
+
+/**
+ * Enhanced camera switch with improved state management and error recovery.
+ * Attempts multiple methods to ensure bidirectional switching works reliably.
+ */
+export async function switchCameraWithRetry(maxRetries: number = 2): Promise<boolean> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      slog('CAMERA', 'switch attempt', {attempt, maxRetries, currentFacing: currentCameraFacing});
+      await switchCamera();
+      slog('CAMERA', 'switch attempt successful', {attempt, newFacing: currentCameraFacing});
+      return true;
+    } catch (error) {
+      slog('CAMERA', 'switch attempt failed', {attempt, error: String(error)});
+      if (attempt === maxRetries) {
+        slog('CAMERA', 'all switch attempts exhausted', {maxRetries});
+        return false;
+      }
+      // Wait before retry to allow any ongoing operations to complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  return false;
 }

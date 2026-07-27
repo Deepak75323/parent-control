@@ -18,6 +18,8 @@ class ChildDeviceAdminReceiver : DeviceAdminReceiver() {
     override fun onEnabled(context: Context, intent: Intent) {
         MonitoringPrefs.setTamperProtectionEnabled(context, true)
         MonitoringPrefs.clearTamperUnlock(context)
+        // Refresh grace so post-activate Settings "Deactivate" page does not open TamperGate.
+        MonitoringPrefs.beginDeviceAdminSetupGrace(context)
         if (DeviceOwnerManager.isDeviceOwner(context)) {
             DeviceOwnerManager.onDeviceOwnerEstablished(context)
         }

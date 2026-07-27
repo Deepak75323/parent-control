@@ -76,6 +76,9 @@ object StreamTeardownCoordinator {
         abortPendingJsTeardown("immediate:$reason")
         StreamLifecycleLogger.warn("TEARDOWN_IMMEDIATE", reason)
         Log.i(TAG, "requestImmediateStopAll reason=$reason")
+        // Tell JS to close the PeerConnection / WebRTC tracks first. Native-only
+        // release leaves the RN ADM AudioRecord running → green mic privacy indicator.
+        emitJsStop()
         finishNativeTeardown(appContext, reason, releaseCaptures = true, label = "immediate")
         state.set(State.IDLE)
         pendingReason.set(null)
@@ -262,6 +265,7 @@ object StreamTeardownCoordinator {
         val reactContext = ChildMonitorNativeModule.getSharedReactApplicationContext()
         if (releaseCaptures) {
             releaseHiddenCaptures(reactContext)
+            forceStopWebRtcMicrophone(reactContext)
         }
 
         if (isScreenPipelineActive()) {
@@ -349,6 +353,38 @@ object StreamTeardownCoordinator {
         } catch (e: Exception) {
             Log.w(TAG, "Hidden capture bridge stop failed", e)
             StreamLifecycleLogger.warn("STREAM_BRIDGE_STOP_FAILED", e.message)
+        }
+    }
+
+    /**
+     * JS PeerConnection / ADM AudioRecord can outlive HiddenAudioBridge.activeStreamId.
+     * Mute + best-effort stopRecording so the green mic privacy indicator clears on network loss.
+     */
+    private fun forceStopWebRtcMicrophone(reactContext: ReactApplicationContext?) {
+        try {
+            val options = com.oney.WebRTCModule.WebRTCModuleOptions.getInstance()
+            val adm = options.audioDeviceModule
+            adm?.setMicrophoneMute(true)
+            if (adm != null) {
+                try {
+                    val stop = adm.javaClass.methods.firstOrNull {
+                        it.name == "stopRecording" && it.parameterCount == 0
+                    }
+                    stop?.invoke(adm)
+                    StreamLifecycleLogger.log("ADM_STOP_RECORDING", "invoked=${stop != null}")
+                } catch (e: Exception) {
+                    Log.w(TAG, "ADM stopRecording invoke failed", e)
+                }
+            }
+            if (reactContext != null) {
+                // HiddenAudioBridge no-ops when activeStreamId is already null — call anyway.
+                HiddenAudioCapture.stopCaptureOnly(reactContext)
+            }
+            PlaybackCaptureInjector.setActive(false)
+            DevicePlaybackCaptureSession.stop()
+        } catch (e: Exception) {
+            Log.w(TAG, "forceStopWebRtcMicrophone failed", e)
+            StreamLifecycleLogger.warn("ADM_FORCE_STOP_FAILED", e.message)
         }
     }
 

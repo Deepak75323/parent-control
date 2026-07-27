@@ -7,7 +7,6 @@ import {
   TextInput,
   Switch,
   FlatList,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -21,6 +20,7 @@ import {
 } from '../services/api';
 import {appDisplayName} from '../utils/appDisplayName';
 import {AppIcon} from '../components/AppIcon';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AppRules'>;
 
@@ -119,7 +119,7 @@ export function AppRulesScreen({navigation, route}: Props) {
         }
       }
     } catch {
-      Alert.alert('Error', 'Couldn’t load apps. Check your connection and try again.');
+      appAlert('Error', 'Couldn’t load apps. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -153,7 +153,7 @@ export function AppRulesScreen({navigation, route}: Props) {
 
   const toggleBlock = (pkg: string) => {
     if (blockedFromPolicies.has(pkg) && !pendingBlocks.has(pkg)) {
-      Alert.alert(
+      appAlert(
         'Already blocked',
         'This app is already blocked on the child phone. Open Policies to remove the rule if you want to allow it again.',
       );
@@ -169,7 +169,7 @@ export function AppRulesScreen({navigation, route}: Props) {
 
   const applyBlocks = async () => {
     if (pendingBlocks.size === 0 && !blockNewApps) {
-      Alert.alert('No changes', 'Select apps to block or enable Block New Apps.');
+      appAlert('No changes', 'Select apps to block or enable Block New Apps.');
       return;
     }
     setSaving(true);
@@ -186,14 +186,14 @@ export function AppRulesScreen({navigation, route}: Props) {
         });
       }
       await load();
-      Alert.alert('Saved', `Rules applied to child device.`);
+      appAlert('Saved', `Rules applied to child device.`);
       setPendingBlocks(new Set());
     } catch (e) {
       const msg =
         e && typeof e === 'object' && 'response' in e
           ? (e as {response?: {data?: {message?: string}}}).response?.data?.message?.trim()
           : undefined;
-      Alert.alert(
+      appAlert(
         'Error',
         msg || 'Couldn’t apply rules. Check the child is paired and try again.',
       );

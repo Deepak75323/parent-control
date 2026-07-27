@@ -3,6 +3,9 @@ package com.childmonitor.sync
 import android.content.Context
 import android.util.Log
 import com.childmonitor.MonitoringPrefs
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -25,6 +28,27 @@ object DeviceHttpClient {
         data object NotReady : HttpResult()
         data class HttpError(val code: Int, val errorBody: String?) : HttpResult()
         data class NetworkFailure(val cause: Exception) : HttpResult()
+        /** Device has no active network connection. */
+        data object NoNetwork : HttpResult()
+    }
+
+    /**
+     * Check if device has active network connectivity.
+     * Returns true if there's an available network connection.
+     */
+    private fun hasActiveNetwork(context: Context): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val network = connectivityManager.activeNetwork ?: return false
+            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        } else {
+            @Suppress("DEPRECATION")
+            val activeNetwork = connectivityManager.activeNetworkInfo
+            activeNetwork?.isConnected == true
+        }
     }
 
     fun get(context: Context, path: String): String? {
@@ -35,6 +59,12 @@ object DeviceHttpClient {
     }
 
     fun getDetailed(context: Context, path: String): HttpResult {
+        // Check network connectivity before attempting request
+        if (!hasActiveNetwork(context)) {
+            Log.w(TAG, "GET $path skipped - no network connectivity")
+            return HttpResult.NoNetwork
+        }
+
         val base = NativeApiResolver.resolveWorkingBase(context) ?: return HttpResult.NotReady
         val token = MonitoringPrefs.deviceToken(context) ?: return HttpResult.NotReady
         val urlString = "$base$path"
@@ -67,6 +97,12 @@ object DeviceHttpClient {
     }
 
     fun postJsonDetailed(context: Context, path: String, jsonBody: String): HttpResult {
+        // Check network connectivity before attempting request
+        if (!hasActiveNetwork(context)) {
+            Log.w(TAG, "POST $path skipped - no network connectivity")
+            return HttpResult.NoNetwork
+        }
+
         val base = NativeApiResolver.resolveWorkingBase(context) ?: return HttpResult.NotReady
         val token = MonitoringPrefs.deviceToken(context) ?: return HttpResult.NotReady
         val urlString = "$base$path"

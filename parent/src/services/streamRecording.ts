@@ -1,5 +1,6 @@
-import {Alert, Platform} from 'react-native';
+import {Platform} from 'react-native';
 import {getParentNative} from '../nativeModules';
+import {appAlert} from '../utils/appAlert';
 
 export type RecordableStreamType = 'SCREEN' | 'CAMERA' | 'AUDIO';
 
@@ -46,7 +47,7 @@ export function showRecordingSavedAlert(
   } else {
     format = 'MP4 video';
   }
-  Alert.alert(
+  appAlert(
     'Recording saved',
     `Saved as ${format} in Downloads/ParentalControl on this phone.`,
     [{text: 'OK'}],

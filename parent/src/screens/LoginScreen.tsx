@@ -11,6 +11,7 @@ import {
   Animated,
   ActivityIndicator,
   StatusBar,
+  Image,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
@@ -20,7 +21,10 @@ import {useAuthStore} from '../store/authStore';
 import {getApiErrorMessage} from '../utils/apiError';
 import {showSuccessAlert} from '../utils/notify';
 import {Colors, Typography, Spacing, Radii, Elevation, Layout} from '../theme/design';
+import {captureException, track} from '../services/telemetry';
+import {TelemetryEvents} from '../services/telemetryEvents';
 
+const APP_LOGO = require('../assets/app-logo.png');
 const DEV_AUTO_LOGIN = process.env.DEV_AUTO_LOGIN === 'true';
 const DEV_AUTO_EMAIL = process.env.DEV_AUTO_EMAIL ?? '';
 const DEV_AUTO_PASSWORD = process.env.DEV_AUTO_PASSWORD ?? '';
@@ -136,21 +140,36 @@ export function LoginScreen({navigation}: Props) {
     try {
       const {data} = await authApi.login(email.trim(), password);
       if (data.success) {
+        track(TelemetryEvents.LOGIN_SUCCESS);
         const verified = data.data.profile?.emailVerified ?? true;
         const welcomeMessage = verified
           ? 'Tap Continue to open your dashboard.'
           : 'Verify your email from the welcome message to start your trial.';
         if (silent || DEV_AUTO_LOGIN) {
-          setTokens(data.data.accessToken, data.data.refreshToken, email.trim(), verified);
+          setTokens(
+            data.data.accessToken,
+            data.data.refreshToken,
+            email.trim(),
+            verified,
+            data.data.expiresInSeconds,
+          );
           return;
         }
         showSuccessAlert('Welcome back!', welcomeMessage, () =>
-          setTokens(data.data.accessToken, data.data.refreshToken, email.trim(), verified),
+          setTokens(
+            data.data.accessToken,
+            data.data.refreshToken,
+            email.trim(),
+            verified,
+            data.data.expiresInSeconds,
+          ),
         );
         return;
       }
       if (!silent) setError(data.message ?? 'Check your credentials and try again.');
     } catch (err) {
+      track(TelemetryEvents.LOGIN_FAILURE);
+      captureException(err, {flow: 'login'});
       const message = getApiErrorMessage(err, 'Check your credentials and try again.');
       if (!silent || __DEV__) setError(message);
     } finally {
@@ -180,7 +199,7 @@ export function LoginScreen({navigation}: Props) {
             <View style={s.heroBubble1} />
             <View style={s.heroBubble2} />
             <View style={s.heroIconWrap}>
-              <Text style={s.heroIcon}>🛡</Text>
+              <Image source={APP_LOGO} style={s.heroIconImage} resizeMode="cover" />
             </View>
             <Text style={s.heroTitle}>Parent Control</Text>
             <Text style={s.heroSub}>Monitor with care and consent</Text>
@@ -317,8 +336,9 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.25)',
     zIndex: 1,
+    overflow: 'hidden',
   },
-  heroIcon: {fontSize: 34},
+  heroIconImage: {width: 72, height: 72},
   heroTitle: {...Typography.largeTitle, color: Colors.textOnDark, zIndex: 1},
   heroSub: {...Typography.body, color: Colors.textOnDarkSoft, textAlign: 'center', zIndex: 1},
 

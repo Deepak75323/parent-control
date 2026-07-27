@@ -16,5 +16,9 @@ public enum DeviceCommandType {
   /** Forces the child device to immediately re-upload today's app usage totals. */
   SYNC_USAGE_STATS,
   /** Forces the child to pull the latest policy bundle (add/remove limits, blocks). */
-  SYNC_POLICIES
+  SYNC_POLICIES,
+  /** Plays a loud find-my-phone alarm on the child device for a short period. */
+  RING,
+  /** Stops a find-my-phone alarm started by {@link #RING}. */
+  STOP_RING
 }

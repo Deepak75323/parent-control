@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   Animated,
   FlatList,
@@ -21,13 +21,14 @@ import {ProfileScreen} from './ProfileScreen';
 import {EmailVerificationBanner} from '../components/EmailVerificationBanner';
 import {Colors, Spacing, Radii, Elevation, Typography, Layout} from '../theme/design';
 import {useFadeSlideIn, usePressScale, useOpacityPulse} from '../utils/animations';
+import {
+  partitionDevicesByLinkStatus,
+} from '../utils/deviceLinkStatus';
+import {isDevicePresentOnline} from '../utils/devicePresence';
+import {usePresenceClock} from '../hooks/usePresenceClock';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MainTabs'>;
 type Tab = 'device' | 'notice' | 'me';
-
-function isOnline(status?: string): boolean {
-  return (status ?? '').toUpperCase() === 'ONLINE';
-}
 
 function PairDeviceButton({
   label,
@@ -83,16 +84,23 @@ function PairMoreFooter({onPair}: {onPair: () => void}) {
   );
 }
 
-function DeviceCard({device, liveStatus, liveBattery, foregroundApp, onPress, index}: {
+function DeviceCard({device, liveStatus, liveBattery, liveLastSeenAt, presenceNowMs, foregroundApp, onPress, index}: {
   device: DeviceSummary;
   liveStatus?: string;
   liveBattery?: number;
+  liveLastSeenAt?: string;
+  presenceNowMs: number;
   foregroundApp?: string;
   onPress: () => void;
   index: number;
 }) {
   const status = liveStatus ?? device.status;
-  const online = isOnline(status);
+  const online = isDevicePresentOnline(
+    status,
+    liveLastSeenAt ?? device.lastSeenAt,
+    presenceNowMs,
+  );
+  const revoked = (status ?? '').toUpperCase() === 'REVOKED';
   const battery = liveBattery ?? device.batteryLevel;
   const press = usePressScale(0.97);
   const anim = useFadeSlideIn(index * 70);
@@ -107,19 +115,19 @@ function DeviceCard({device, liveStatus, liveBattery, foregroundApp, onPress, in
           {/* Avatar */}
           <View style={[styles.deviceAvatar, {backgroundColor: online ? Colors.primarySurface : '#F1F5F9'}]}>
             <Text style={[styles.deviceAvatarText, {color: online ? Colors.primary : Colors.textTertiary}]}>{initials}</Text>
-            <Animated.View style={[styles.deviceAvatarDot, {backgroundColor: online ? Colors.online : Colors.offline, opacity: online ? blink : 1}]} />
+            <Animated.View style={[styles.deviceAvatarDot, {backgroundColor: revoked ? Colors.danger : online ? Colors.online : Colors.offline, opacity: online ? blink : 1}]} />
           </View>
 
           {/* Info */}
           <View style={styles.deviceInfo}>
             <Text style={styles.deviceName}>{name}</Text>
             <View style={styles.deviceRow}>
-              <View style={[styles.statusPill, {backgroundColor: online ? Colors.successLight : '#F1F5F9'}]}>
-                <Text style={[styles.statusPillText, {color: online ? Colors.success : Colors.textTertiary}]}>
-                  {online ? '● Online' : '○ Offline'}
+              <View style={[styles.statusPill, {backgroundColor: revoked ? Colors.dangerLight : online ? Colors.successLight : '#F1F5F9'}]}>
+                <Text style={[styles.statusPillText, {color: revoked ? Colors.danger : online ? Colors.success : Colors.textTertiary}]}>
+                  {revoked ? '○ Revoked' : online ? '● Online' : '○ Offline'}
                 </Text>
               </View>
-              {battery != null ? <Text style={styles.batteryText}>🔋 {battery}%</Text> : null}
+              {battery != null && !revoked ? <Text style={styles.batteryText}>🔋 {battery}%</Text> : null}
             </View>
             {foregroundApp ? (
               <View style={styles.liveAppBadge}>
@@ -148,6 +156,7 @@ function DeviceListTab({navigation}: Props) {
   const deviceStatuses = useRealtimeStore(s => s.deviceStatuses);
   const deviceListVersion = useRealtimeStore(s => s.deviceListVersion);
   const wsConnected = useRealtimeStore(s => s.wsConnected);
+  const presenceNowMs = usePresenceClock(15_000);
 
   const heroAnim = useFadeSlideIn(0);
   const wsBlink = useOpacityPulse(0.4, 1, 600);
@@ -158,6 +167,18 @@ function DeviceListTab({navigation}: Props) {
       const list = r.data.data ?? [];
       setDevices(list);
       useRealtimeStore.getState().mergeDevices(list);
+      if (__DEV__) {
+        for (const d of list) {
+          // Helps diagnose false Offline on dashboard vs successful streams.
+          console.info('[presence]', {
+            id: d.id,
+            name: d.deviceName,
+            status: d.status,
+            lastSeenAt: d.lastSeenAt,
+            online: isDevicePresentOnline(d.status, d.lastSeenAt),
+          });
+        }
+      }
     } catch {} finally { setLoading(false); }
   }, []);
 
@@ -165,7 +186,18 @@ function DeviceListTab({navigation}: Props) {
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
-  const onlineCount = devices.filter(d => isOnline(deviceStatuses[d.id]?.status ?? d.status)).length;
+  const {active: activeDevices, previouslyLinked} = useMemo(
+    () => partitionDevicesByLinkStatus(devices, deviceStatuses),
+    [devices, deviceStatuses],
+  );
+  const onlineCount = activeDevices.filter(d => {
+    const live = deviceStatuses[d.id];
+    return isDevicePresentOnline(
+      live?.status ?? d.status,
+      live?.lastSeenAt ?? d.lastSeenAt,
+      presenceNowMs,
+    );
+  }).length;
   const goToPairing = () => {
     void navigateToPairingFlow(navigation);
   };
@@ -174,7 +206,7 @@ function DeviceListTab({navigation}: Props) {
     <FlatList
       style={{flex: 1}}
       contentContainerStyle={styles.listContent}
-      data={devices}
+      data={activeDevices}
       keyExtractor={d => d.id}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />}
       ListHeaderComponent={
@@ -193,14 +225,14 @@ function DeviceListTab({navigation}: Props) {
                 </View>
                 <Animated.View style={[styles.wsIndicator, {opacity: wsConnected ? wsBlink : 0.5}]}>
                   <View style={[styles.wsDot, {backgroundColor: wsConnected ? '#4ADE80' : '#FCD34D'}]} />
-                  <Text style={styles.wsText}>{wsConnected ? 'Live' : 'Offline'}</Text>
+                  <Text style={styles.wsText}>{wsConnected ? 'Live sync' : 'Syncing…'}</Text>
                 </Animated.View>
               </View>
 
-              {/* Stats row */}
+              {/* Stats row — active (non-revoked) seats only */}
               <View style={styles.statsRow}>
                 <View style={styles.statCard}>
-                  <Text style={styles.statNum}>{devices.length}</Text>
+                  <Text style={styles.statNum}>{activeDevices.length}</Text>
                   <Text style={styles.statLabel}>Devices</Text>
                 </View>
                 <View style={[styles.statCard, styles.statCardOnline]}>
@@ -208,7 +240,7 @@ function DeviceListTab({navigation}: Props) {
                   <Text style={[styles.statLabel, {color: 'rgba(255,255,255,0.75)'}]}>Online</Text>
                 </View>
                 <View style={styles.statCard}>
-                  <Text style={styles.statNum}>{devices.length - onlineCount}</Text>
+                  <Text style={styles.statNum}>{activeDevices.length - onlineCount}</Text>
                   <Text style={styles.statLabel}>Offline</Text>
                 </View>
               </View>
@@ -229,6 +261,8 @@ function DeviceListTab({navigation}: Props) {
               device={item}
               liveStatus={live?.status}
               liveBattery={live?.batteryLevel}
+              liveLastSeenAt={live?.lastSeenAt}
+              presenceNowMs={presenceNowMs}
               foregroundApp={live?.foregroundApp}
               index={index}
               onPress={() => navigation.navigate('DeviceDetail', {deviceId: item.id})}
@@ -242,7 +276,32 @@ function DeviceListTab({navigation}: Props) {
           : <EmptyDevices onPair={goToPairing} />
       }
       ListFooterComponent={
-        !loading && devices.length > 0 ? <PairMoreFooter onPair={goToPairing} /> : null
+        !loading ? (
+          <View>
+            {previouslyLinked.length > 0 ? (
+              <View style={{paddingHorizontal: Layout.screenPadding, marginTop: Spacing.md}}>
+                <Text style={styles.listHeaderText}>PREVIOUSLY LINKED</Text>
+                {previouslyLinked.map((item, index) => {
+                  const live = deviceStatuses[item.id];
+                  return (
+                    <DeviceCard
+                      key={item.id}
+                      device={item}
+                      liveStatus={live?.status ?? 'REVOKED'}
+                      liveBattery={live?.batteryLevel}
+                      liveLastSeenAt={live?.lastSeenAt}
+                      presenceNowMs={presenceNowMs}
+                      foregroundApp={live?.foregroundApp}
+                      index={index}
+                      onPress={() => navigation.navigate('DeviceDetail', {deviceId: item.id})}
+                    />
+                  );
+                })}
+              </View>
+            ) : null}
+            {activeDevices.length > 0 ? <PairMoreFooter onPair={goToPairing} /> : null}
+          </View>
+        ) : null
       }
     />
   );

@@ -7,6 +7,7 @@ import {logErrorCurl, logRequestCurl, logResponseCurl, toCurl} from '../utils/cu
 import {redactBody, REDACTED} from '../utils/logRedaction';
 import {ApiPaths} from '../constants/apiPaths';
 import {unwrapResponseData, wrapRequestBody, isApiPayloadEncryptionConfigured} from '../utils/apiPayloadCrypto';
+import {classifyRefreshFailure} from './refreshResult';
 
 export const api = axios.create({
   baseURL: config.apiBaseUrl,
@@ -17,11 +18,17 @@ export const api = axios.create({
 
 type RetriableConfig = InternalAxiosRequestConfig & {_retry?: boolean};
 
-let refreshInFlight: Promise<string | null> | null = null;
+export type RefreshResult =
+  | {status: 'ok'; accessToken: string}
+  | {status: 'invalid'}
+  | {status: 'transient'};
 
-async function refreshAccessToken(): Promise<string | null> {
+let refreshInFlight: Promise<RefreshResult> | null = null;
+
+/** Refresh access token. Only `invalid` should force a logout. */
+export async function refreshAccessToken(): Promise<RefreshResult> {
   const refreshToken = useAuthStore.getState().refreshToken;
-  if (!refreshToken) return null;
+  if (!refreshToken) return {status: 'invalid'};
 
   if (!refreshInFlight) {
     const refreshBody = isApiPayloadEncryptionConfigured()
@@ -35,7 +42,7 @@ async function refreshAccessToken(): Promise<string | null> {
       )
       .then(res => {
         const payload = unwrapResponseData(res.data) as ApiResponse<AuthResponse> | undefined;
-        if (payload?.success) {
+        if (payload?.success && payload.data?.accessToken && payload.data.refreshToken) {
           const profile = payload.data.profile;
           useAuthStore
             .getState()
@@ -44,12 +51,16 @@ async function refreshAccessToken(): Promise<string | null> {
               payload.data.refreshToken,
               profile?.email,
               profile?.emailVerified,
+              payload.data.expiresInSeconds,
             );
-          return payload.data.accessToken;
+          return {status: 'ok' as const, accessToken: payload.data.accessToken};
         }
-        return null;
+        return {status: 'invalid' as const};
       })
-      .catch(() => null)
+      .catch((error: unknown) => {
+        const kind = classifyRefreshFailure(error);
+        return {status: kind} as RefreshResult;
+      })
       .finally(() => {
         refreshInFlight = null;
       });
@@ -153,7 +164,7 @@ api.interceptors.response.use(
 
     if (
       failedConfig &&
-      (status === 401 || status === 403) &&
+      status === 401 &&
       !failedConfig._retry &&
       !failedConfig.url?.includes(ApiPaths.AUTH_PREFIX)
     ) {
@@ -164,13 +175,16 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
       failedConfig._retry = true;
-      return refreshAccessToken().then(newToken => {
-        if (newToken) {
+      return refreshAccessToken().then(async result => {
+        if (result.status === 'ok') {
           failedConfig.headers = failedConfig.headers ?? {};
-          failedConfig.headers.Authorization = `Bearer ${newToken}`;
+          failedConfig.headers.Authorization = `Bearer ${result.accessToken}`;
           return api.request(failedConfig);
         }
-        useAuthStore.getState().logout();
+        // Only force sign-out when the refresh token is rejected — not on network blips.
+        if (result.status === 'invalid') {
+          await useAuthStore.getState().logout();
+        }
         return Promise.reject(error);
       });
     }
@@ -288,7 +302,9 @@ export type DeviceCommandType =
   | 'LAUNCH_APP'
   | 'SYNC_INSTALLED_APPS'
   | 'SYNC_USAGE_STATS'
-  | 'SYNC_POLICIES';
+  | 'SYNC_POLICIES'
+  | 'RING'
+  | 'STOP_RING';
 
 export interface AuditLogItem {
   id: string;

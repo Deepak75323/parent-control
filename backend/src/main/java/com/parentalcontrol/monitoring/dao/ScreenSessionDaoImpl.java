@@ -3,6 +3,8 @@ package com.parentalcontrol.monitoring.dao;
 import com.parentalcontrol.monitoring.domain.ScreenSession;
 import com.parentalcontrol.monitoring.domain.ScreenSessionStatus;
 import com.parentalcontrol.monitoring.repository.ScreenSessionRepository;
+import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -97,5 +99,19 @@ public class ScreenSessionDaoImpl implements ScreenSessionDao {
   @Override
   public long countByStatus(ScreenSessionStatus status) {
     return repository.countByStatus(status);
+  }
+
+  @Override
+  public List<ScreenSession> findActiveSessionsByDeviceId(UUID deviceId) {
+    // Find sessions that are PENDING or ACTIVE for the given device
+    return repository.findByDeviceIdAndStatusIn(
+        deviceId, 
+        Arrays.asList(ScreenSessionStatus.PENDING, ScreenSessionStatus.ACTIVE)
+    );
+  }
+
+  @Override
+  public List<ScreenSession> findByStatusAndStartedAtBefore(ScreenSessionStatus status, Instant cutoff) {
+    return repository.findByStatusAndStartedAtBefore(status, cutoff);
   }
 }

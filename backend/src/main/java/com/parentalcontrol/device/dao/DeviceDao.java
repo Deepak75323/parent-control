@@ -45,5 +45,7 @@ public interface DeviceDao {
 
   long countByParentProfileId(UUID parentProfileId);
 
+  long countNonRevokedByParentProfileId(UUID parentProfileId);
+
   List<Device> findByStatusAndLastSeenAtBefore(DeviceStatus status, Instant cutoff);
 }

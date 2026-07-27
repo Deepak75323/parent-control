@@ -9,6 +9,7 @@ import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.exception.ErrorCode;
 import com.parentalcontrol.common.security.SecurityUtils;
 import com.parentalcontrol.device.domain.Device;
+import com.parentalcontrol.device.domain.DeviceStatus;
 import com.parentalcontrol.monitoring.dao.ScreenCaptureAuditLogDao;
 import com.parentalcontrol.monitoring.dao.ScreenSessionDao;
 import com.parentalcontrol.monitoring.domain.ScreenCaptureAuditLog;
@@ -101,6 +102,10 @@ public class StreamingService {
 
     Device device = deviceAccessService.requireOwnedDevice(deviceId);
     deviceAccessService.requireMonitoringActive(device);
+    
+    // Check if device is online before starting stream session
+    assertDeviceOnline(device, streamType);
+    
     StreamTraceLogger.info(
         "Backend",
         "LOOKUP",
@@ -110,7 +115,8 @@ public class StreamingService {
             "deviceId",
             device.getId(),
             "fcmTokenPresent",
-            device.getFcmToken() != null && !device.getFcmToken().isBlank()));
+            device.getFcmToken() != null && !device.getFcmToken().isBlank(),
+            "deviceStatus", device.getStatus().name()));
     featureGateService.requireLiveStreaming(device.getParentProfileId());
     assertStreamingAllowed(device.getId(), streamType);
     assertScreenCaptureAvailable(device, streamType);
@@ -500,5 +506,24 @@ public class StreamingService {
   private void assertScreenCaptureAvailable(Device device, String streamType) {
     // Intentionally no-op for SCREEN: create the session and notify the child so it can
     // obtain / restore MediaProjection consent during stream bootstrap.
+  }
+
+  /**
+   * Validates that the child device is online before starting a streaming session.
+   * Prevents creating sessions that will fail due to device being offline.
+   */
+  private void assertDeviceOnline(Device device, String streamType) {
+    if (device.getStatus() == DeviceStatus.OFFLINE) {
+      String streamName = switch (streamType) {
+        case AppConstants.STREAM_TYPE_SCREEN -> "screen sharing";
+        case AppConstants.STREAM_TYPE_CAMERA -> "camera view";  
+        case AppConstants.STREAM_TYPE_AUDIO -> "listening";
+        default -> "streaming";
+      };
+      throw new BusinessException(
+          ErrorCode.DEVICE_OFFLINE, 
+          "Child device is offline. Please switch on the child device network connection and try " + streamName + " again."
+      );
+    }
   }
 }

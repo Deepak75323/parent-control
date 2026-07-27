@@ -156,6 +156,26 @@ public class AlertService {
    * / standby) to WorkManager + FCM.
    */
   @Transactional
+  public void checkOfflineUnlockFailures(Device device, int failureCount) {
+    if (device == null || failureCount < 1) {
+      return;
+    }
+    createAndPublish(
+        device,
+        AlertType.OFFLINE_UNLOCK_FAILURES.code(),
+        AlertSeverity.WARNING,
+        "Unlock attempts on child phone",
+        device.getDeviceName()
+            + " had "
+            + failureCount
+            + " failed parent-password unlock attempt(s) while offline. "
+            + "If this wasn’t you, change the parent password in Settings.",
+        Map.of(
+            "deviceId", device.getId().toString(),
+            "failureCount", failureCount));
+  }
+
+  @Transactional
   public void checkMonitoringDegraded(
       Device device, String mode, String reason, String standbyBucket) {
     if (device == null) {

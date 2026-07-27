@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {View, Text, StyleSheet, Alert, Dimensions} from 'react-native';
+import {View, Text, StyleSheet, Dimensions} from 'react-native';
 import {Marker, Polyline} from 'react-native-maps';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
@@ -7,6 +7,7 @@ import {SafeMapView} from '../components/SafeMapView';
 import {LocationPoint, monitoringApi} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {Card, HeroBlock, ScreenShell} from '../components/AppScreen';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Location'>;
 
@@ -27,7 +28,7 @@ export function LocationScreen({navigation, route}: Props) {
       const {data} = await monitoringApi.locationHistory(deviceId);
       setPoints(data.data.content);
     } catch {
-      Alert.alert('Error', 'Couldn’t load location history. Check your connection and try again.');
+      appAlert('Error', 'Couldn’t load location history. Check your connection and try again.');
     }
   }, [deviceId]);
 

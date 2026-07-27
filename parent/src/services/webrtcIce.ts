@@ -251,7 +251,7 @@ function usesLocalDevTurn(servers: RTCIceServer[]): boolean {
 export function logIce(label: string, state: string, detail?: string): void {
   if (!__DEV__) return;
   const suffix = detail ? ` (${detail})` : '';
-  console.warn(`[webrtc:${label}] ${state}${suffix}`);
+  console.log(`[webrtc:${label}] ${state}${suffix}`);
 }
 
 /** Backend already returns chronological order — do not reverse again. */

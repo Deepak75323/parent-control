@@ -9,6 +9,7 @@ import com.childmonitor.capture.PlaybackCaptureInjector
 import com.childmonitor.monitoring.BootWakeChain
 import com.childmonitor.monitoring.MonitoringServiceLauncher
 import com.childmonitor.monitoring.PresenceHeartbeatScheduler
+import com.childmonitor.network.NetworkConnectivityMonitor
 import com.childmonitor.native.ChildMonitorNativePackage
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
@@ -87,6 +88,8 @@ class MainApplication : Application(), ReactApplication {
         else -> { }
     }
     PresenceHeartbeatScheduler.schedule(applicationContext)
+    // Start network connectivity monitoring for immediate offline detection
+    NetworkConnectivityMonitor.startMonitoring(applicationContext)
     MonitoringServiceLauncher.requestMonitoring(
         applicationContext,
         MonitoringServiceLauncher.Reason.APP_START,
@@ -97,11 +100,14 @@ class MainApplication : Application(), ReactApplication {
     try {
       val adm = JavaAudioDeviceModule.builder(this)
           .setEnableVolumeLogger(false)
-          .setAudioRecordDataCallback { audioFormat, channelCount, sampleRate, audioBuffer ->
+          .setUseHardwareAcousticEchoCanceler(false)  // Disable AEC for system audio
+          .setUseHardwareNoiseSuppressor(false)       // Disable NS for system audio
+          .setAudioRecordDataCallback { _audioFormat, channelCount, sampleRate, audioBuffer ->
             PlaybackCaptureInjector.fillWebRtcBuffer(channelCount, sampleRate, audioBuffer)
           }
           .createAudioDeviceModule()
       WebRTCModuleOptions.getInstance().audioDeviceModule = adm
+      android.util.Log.i("MainApplication", "Playback-capture ADM installed successfully")
     } catch (e: Exception) {
       android.util.Log.e("MainApplication", "playback-capture ADM install failed", e)
     }

@@ -15,40 +15,50 @@ import {navigateToPairingFlow} from '../navigation/pairingNavigation';
 import {deviceApi, DeviceSummary} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {useAuthStore} from '../store/authStore';
+import {partitionDevicesByLinkStatus} from '../utils/deviceLinkStatus';
+import {isDevicePresentOnline} from '../utils/devicePresence';
+import {usePresenceClock} from '../hooks/usePresenceClock';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Dashboard'>;
-
-function isOnline(status?: string): boolean {
-  return (status ?? '').toUpperCase() === 'ONLINE';
-}
 
 function DeviceCard({
   device,
   liveStatus,
   liveBattery,
+  liveLastSeenAt,
+  presenceNowMs,
   onPress,
 }: {
   device: DeviceSummary;
   liveStatus?: string;
   liveBattery?: number;
+  liveLastSeenAt?: string;
+  presenceNowMs: number;
   onPress: () => void;
 }) {
   const status = liveStatus ?? device.status;
-  const online = isOnline(status);
+  const lastSeenAt = liveLastSeenAt ?? device.lastSeenAt;
+  const online = isDevicePresentOnline(status, lastSeenAt, presenceNowMs);
+  const revoked = (status ?? '').toUpperCase() === 'REVOKED';
   const battery = liveBattery ?? device.batteryLevel;
 
   return (
     <Pressable
       style={({pressed}) => [styles.deviceCard, pressed && styles.deviceCardPressed]}
       onPress={onPress}>
-      <View style={[styles.statusDot, online ? styles.statusOnline : styles.statusOffline]} />
+      <View
+        style={[
+          styles.statusDot,
+          revoked ? styles.statusRevoked : online ? styles.statusOnline : styles.statusOffline,
+        ]}
+      />
       <View style={styles.deviceInfo}>
         <Text style={styles.deviceName} numberOfLines={1}>
           {device.deviceName}
         </Text>
         <Text style={styles.deviceMeta}>
-          {online ? 'Online' : status ?? 'Offline'}
-          {battery != null ? ` · ${battery}% battery` : ''}
+          {revoked ? 'Revoked' : online ? 'Online' : 'Offline'}
+          {battery != null && !revoked ? ` · ${battery}% battery` : ''}
         </Text>
       </View>
       <Text style={styles.chevron}>›</Text>
@@ -91,6 +101,7 @@ export function DashboardScreen({navigation}: Props) {
   const liveAlerts = useRealtimeStore(s => s.liveAlerts);
   const mergeDevices = useRealtimeStore(s => s.mergeDevices);
   const deviceListVersion = useRealtimeStore(s => s.deviceListVersion);
+  const presenceNowMs = usePresenceClock(15_000);
 
   const load = useCallback(async () => {
     const {data} = await deviceApi.list();
@@ -111,13 +122,22 @@ export function DashboardScreen({navigation}: Props) {
     setRefreshing(false);
   };
 
+  const {active: activeDevices, previouslyLinked} = useMemo(
+    () => partitionDevicesByLinkStatus(devices, deviceStatuses),
+    [devices, deviceStatuses],
+  );
+
   const onlineCount = useMemo(
     () =>
-      devices.filter(d => {
+      activeDevices.filter(d => {
         const live = deviceStatuses[d.id];
-        return isOnline(live?.status ?? d.status);
+        return isDevicePresentOnline(
+          live?.status ?? d.status,
+          live?.lastSeenAt ?? d.lastSeenAt,
+          presenceNowMs,
+        );
       }).length,
-    [devices, deviceStatuses],
+    [activeDevices, deviceStatuses, presenceNowMs],
   );
 
   const greeting = email ? email.split('@')[0] : 'Parent';
@@ -125,7 +145,7 @@ export function DashboardScreen({navigation}: Props) {
   return (
     <SafeAreaView style={styles.root} edges={['bottom']}>
       <FlatList
-        data={devices}
+        data={activeDevices}
         keyExtractor={d => d.id}
         contentContainerStyle={styles.listContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -150,7 +170,7 @@ export function DashboardScreen({navigation}: Props) {
 
             <View style={styles.statsRow}>
               <View style={styles.statCard}>
-                <Text style={styles.statValue}>{devices.length}</Text>
+                <Text style={styles.statValue}>{activeDevices.length}</Text>
                 <Text style={styles.statLabel}>Devices</Text>
               </View>
               <View style={styles.statCard}>
@@ -195,6 +215,8 @@ export function DashboardScreen({navigation}: Props) {
               device={item}
               liveStatus={live?.status}
               liveBattery={live?.batteryLevel}
+              liveLastSeenAt={live?.lastSeenAt}
+              presenceNowMs={presenceNowMs}
               onPress={() => navigation.navigate('DeviceDetail', {deviceId: item.id})}
             />
           );
@@ -218,39 +240,62 @@ export function DashboardScreen({navigation}: Props) {
           )
         }
         ListFooterComponent={
-          <View style={styles.quickGrid}>
-            <Text style={styles.quickHeading}>Quick actions</Text>
-            <View style={styles.quickRow}>
-              <QuickAction
-                icon="📋"
-                label="All devices"
-                onPress={() => void navigateToPairingFlow(navigation)}
-              />
-              <QuickAction
-                icon="🔗"
-                label="Pair device"
-                accent
-                onPress={() => void navigateToPairingFlow(navigation)}
-              />
-            </View>
-            <View style={styles.quickRow}>
-              <QuickAction
-                icon="🔔"
-                label="Alerts"
-                onPress={() => navigation.navigate('Alerts')}
-              />
-              <QuickAction
-                icon="📨"
-                label="Requests"
-                onPress={() => navigation.navigate('Requests')}
-              />
-            </View>
-            <View style={styles.quickRow}>
-              <QuickAction
-                icon="⚙️"
-                label="Settings"
-                onPress={() => navigation.navigate('Settings')}
-              />
+          <View>
+            {previouslyLinked.length > 0 ? (
+              <View style={{marginTop: 8}}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Previously linked</Text>
+                </View>
+                {previouslyLinked.map(item => {
+                  const live = deviceStatuses[item.id];
+                  return (
+                    <DeviceCard
+                      key={item.id}
+                      device={item}
+                      liveStatus={live?.status ?? 'REVOKED'}
+                      liveBattery={live?.batteryLevel}
+                      liveLastSeenAt={live?.lastSeenAt}
+                      presenceNowMs={presenceNowMs}
+                      onPress={() => navigation.navigate('DeviceDetail', {deviceId: item.id})}
+                    />
+                  );
+                })}
+              </View>
+            ) : null}
+            <View style={styles.quickGrid}>
+              <Text style={styles.quickHeading}>Quick actions</Text>
+              <View style={styles.quickRow}>
+                <QuickAction
+                  icon="📋"
+                  label="All devices"
+                  onPress={() => void navigateToPairingFlow(navigation)}
+                />
+                <QuickAction
+                  icon="🔗"
+                  label="Pair device"
+                  accent
+                  onPress={() => void navigateToPairingFlow(navigation)}
+                />
+              </View>
+              <View style={styles.quickRow}>
+                <QuickAction
+                  icon="🔔"
+                  label="Alerts"
+                  onPress={() => navigation.navigate('Alerts')}
+                />
+                <QuickAction
+                  icon="📨"
+                  label="Requests"
+                  onPress={() => navigation.navigate('Requests')}
+                />
+              </View>
+              <View style={styles.quickRow}>
+                <QuickAction
+                  icon="⚙️"
+                  label="Settings"
+                  onPress={() => navigation.navigate('Settings')}
+                />
+              </View>
             </View>
           </View>
         }
@@ -338,6 +383,7 @@ const styles = StyleSheet.create({
   deviceCardPressed: {backgroundColor: '#f8fafc'},
   statusDot: {width: 10, height: 10, borderRadius: 5, marginRight: 12},
   statusOnline: {backgroundColor: '#22c55e'},
+  statusRevoked: {backgroundColor: '#dc2626'},
   statusOffline: {backgroundColor: '#cbd5e1'},
   deviceInfo: {flex: 1},
   deviceName: {fontSize: 15, fontWeight: '600', color: '#0f172a'},

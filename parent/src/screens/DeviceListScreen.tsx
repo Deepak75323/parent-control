@@ -1,10 +1,9 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   View,
   Text,
-  FlatList,
+  SectionList,
   StyleSheet,
-  Alert,
   RefreshControl,
   Pressable,
   ActivityIndicator,
@@ -18,31 +17,40 @@ import {useRealtimeStore} from '../store/realtimeStore';
 import {useAuthStore} from '../store/authStore';
 import {plog} from '../services/pairingLog';
 import {getApiErrorMessage} from '../utils/apiError';
+import {
+  isRevokedStatus,
+  partitionDevicesByLinkStatus,
+} from '../utils/deviceLinkStatus';
+import {isDevicePresentOnline} from '../utils/devicePresence';
+import {usePresenceClock} from '../hooks/usePresenceClock';
+import {captureException, track} from '../services/telemetry';
+import {TelemetryEvents} from '../services/telemetryEvents';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DeviceList'>;
-
-function isOnline(status?: string): boolean {
-  return (status ?? '').toUpperCase() === 'ONLINE';
-}
-
-function isRevoked(status?: string): boolean {
-  return (status ?? '').toUpperCase() === 'REVOKED';
-}
 
 function DeviceRow({
   device,
   liveStatus,
   liveBattery,
+  liveLastSeenAt,
+  presenceNowMs,
   onPress,
 }: {
   device: DeviceSummary;
   liveStatus?: string;
   liveBattery?: number;
+  liveLastSeenAt?: string;
+  presenceNowMs: number;
   onPress: () => void;
 }) {
   const status = liveStatus ?? device.status;
-  const online = isOnline(status);
-  const revoked = isRevoked(status);
+  const online = isDevicePresentOnline(
+    status,
+    liveLastSeenAt ?? device.lastSeenAt,
+    presenceNowMs,
+  );
+  const revoked = isRevokedStatus(status);
   const battery = liveBattery ?? device.batteryLevel;
 
   return (
@@ -60,7 +68,7 @@ function DeviceRow({
           {device.deviceName}
         </Text>
         <Text style={styles.deviceMeta}>
-          {revoked ? 'Revoked' : online ? 'Online' : status ?? 'Offline'}
+          {revoked ? 'Revoked' : online ? 'Online' : 'Offline'}
           {battery != null ? ` · ${battery}%` : ''}
         </Text>
       </View>
@@ -95,6 +103,7 @@ export function DeviceListScreen({navigation}: Props) {
   const wsConnected = useRealtimeStore(s => s.wsConnected);
   const setPendingPairingCode = useRealtimeStore(s => s.setPendingPairingCode);
   const clearPendingPairingCode = useRealtimeStore(s => s.clearPendingPairingCode);
+  const presenceNowMs = usePresenceClock(15_000);
 
   const load = useCallback(async () => {
     try {
@@ -103,7 +112,7 @@ export function DeviceListScreen({navigation}: Props) {
       setDevices(list);
       useRealtimeStore.getState().mergeDevices(list);
     } catch {
-      Alert.alert('Error', 'Couldn’t load your devices. Check your connection and try again.');
+      appAlert('Error', 'Couldn’t load your devices. Check your connection and try again.');
     }
   }, []);
 
@@ -166,6 +175,7 @@ export function DeviceListScreen({navigation}: Props) {
         throw new Error('Server returned an empty pairing code');
       }
       setPendingPairingCode(code, baseline, data.data.expiresAt ?? null);
+      track(TelemetryEvents.PAIRING_CODE_CREATED);
       plog('pairing code created', {
         code,
         expiresAt: data.data.expiresAt,
@@ -173,12 +183,14 @@ export function DeviceListScreen({navigation}: Props) {
       });
       await load();
     } catch (err) {
+      track(TelemetryEvents.PAIRING_CODE_FAILED);
+      captureException(err, {flow: 'pairing_code'});
       plog('pairing code failed', String(err));
       const message = getApiErrorMessage(
         err,
         'Couldn’t create a pairing code. Check your connection and try again.',
       );
-      Alert.alert('Error', message);
+      appAlert('Error', message);
     } finally {
       setGenerating(false);
     }
@@ -190,6 +202,28 @@ export function DeviceListScreen({navigation}: Props) {
     setRefreshing(false);
   };
 
+  const {active: activeDevices, previouslyLinked} = useMemo(
+    () => partitionDevicesByLinkStatus(devices, deviceStatuses),
+    [devices, deviceStatuses],
+  );
+
+  const sections = useMemo(() => {
+    if (activeDevices.length === 0 && previouslyLinked.length === 0) {
+      return [] as {title: string; data: DeviceSummary[]; count: number}[];
+    }
+    const result: {title: string; data: DeviceSummary[]; count: number}[] = [
+      {title: 'Paired devices', data: activeDevices, count: activeDevices.length},
+    ];
+    if (previouslyLinked.length > 0) {
+      result.push({
+        title: 'Previously linked',
+        data: previouslyLinked,
+        count: previouslyLinked.length,
+      });
+    }
+    return result;
+  }, [activeDevices, previouslyLinked]);
+
   const connectionColor = wsConnected ? '#22c55e' : '#f59e0b';
   const connectionLabel = wsConnected
     ? 'Live sync connected'
@@ -199,12 +233,13 @@ export function DeviceListScreen({navigation}: Props) {
 
   return (
     <SafeAreaView style={styles.root} edges={['bottom']}>
-      <FlatList
-        data={devices}
+      <SectionList
+        sections={sections}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
+        stickySectionHeadersEnabled={false}
         ListHeaderComponent={
           <>
             <Pressable style={styles.backRow} onPress={() => navigation.goBack()}>
@@ -272,13 +307,14 @@ export function DeviceListScreen({navigation}: Props) {
                 )}
               </Pressable>
             )}
-
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Paired devices</Text>
-              <Text style={styles.sectionCount}>{devices.length}</Text>
-            </View>
           </>
         }
+        renderSectionHeader={({section}) => (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{section.title}</Text>
+            <Text style={styles.sectionCount}>{section.count}</Text>
+          </View>
+        )}
         renderItem={({item}) => {
           const live = deviceStatuses[item.id];
           return (
@@ -286,6 +322,8 @@ export function DeviceListScreen({navigation}: Props) {
               device={item}
               liveStatus={live?.status}
               liveBattery={live?.batteryLevel}
+              liveLastSeenAt={live?.lastSeenAt}
+              presenceNowMs={presenceNowMs}
               onPress={() => navigation.navigate('DeviceDetail', {deviceId: item.id})}
             />
           );

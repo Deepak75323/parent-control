@@ -88,6 +88,19 @@ object TamperApiClient {
                     AttemptOutcome.Failure(R.string.tamper_gate_no_internet)
                 }
             }
+            DeviceHttpClient.HttpResult.NoNetwork -> {
+                Log.w(TAG, "tamper attempt no network")
+                if (hasCachedOfflinePin(context)) {
+                    AttemptOutcome.Success(
+                        AttemptResult(
+                            parentPinConfigured = true,
+                            message = "offline",
+                        ),
+                    )
+                } else {
+                    AttemptOutcome.Failure(R.string.tamper_gate_no_internet)
+                }
+            }
             DeviceHttpClient.HttpResult.NotReady -> {
                 Log.w(TAG, "tamper attempt not ready (missing api base or device token)")
                 AttemptOutcome.Failure(R.string.tamper_gate_not_ready)
@@ -144,10 +157,18 @@ object TamperApiClient {
             }
             is DeviceHttpClient.HttpResult.HttpError -> {
                 Log.w(TAG, "tamper verify HTTP ${http.code} err=${http.errorBody?.take(300)}")
+                // Backend unavailable (5xx) — allow offline fallback when cached verifier exists.
+                if (http.code in 500..599 && !pin.isNullOrBlank()) {
+                    return verifyOfflinePin(context, pin, code)
+                }
                 verifyFailureFromHttp(http.code, http.errorBody)
             }
             is DeviceHttpClient.HttpResult.NetworkFailure -> {
                 Log.w(TAG, "tamper verify network failure — trying offline pin", http.cause)
+                verifyOfflinePin(context, pin, code)
+            }
+            DeviceHttpClient.HttpResult.NoNetwork -> {
+                Log.w(TAG, "tamper verify no network — trying offline pin")
                 verifyOfflinePin(context, pin, code)
             }
             DeviceHttpClient.HttpResult.NotReady -> {
@@ -180,14 +201,40 @@ object TamperApiClient {
         if (pin.isNullOrBlank()) {
             return VerifyOutcome.Failure(R.string.tamper_gate_no_internet)
         }
-        if (MonitoringPrefs.isOfflinePinRateLimited(context)) {
-            return VerifyOutcome.Failure(R.string.tamper_gate_rate_limited)
+        val now = System.currentTimeMillis()
+        val lockState = MonitoringPrefs.offlinePinLockoutState(context)
+        if (OfflinePinLockoutPolicy.isLocked(lockState, now)) {
+            val mins = ((OfflinePinLockoutPolicy.remainingLockMs(lockState, now) + 59_999) / 60_000)
+                .coerceAtLeast(1)
+            return VerifyOutcome.Failure(
+                R.string.tamper_gate_rate_limited,
+                "Too many wrong attempts. Try again in $mins minute(s).",
+            )
+        }
+        val syncedAt = SecureCredentialStore.offlineParentPinSyncedAtMs(context)
+        if (!OfflinePinLockoutPolicy.isVerifierFresh(syncedAt.takeIf { it > 0L }, now)) {
+            return VerifyOutcome.Failure(R.string.tamper_gate_offline_pin_not_synced)
         }
         val material = loadCachedMaterial(context)
             ?: return VerifyOutcome.Failure(R.string.tamper_gate_offline_pin_not_synced)
         if (!OfflineParentPinVerifier.matches(pin, material)) {
-            MonitoringPrefs.recordOfflinePinFailure(context)
-            return VerifyOutcome.Failure(R.string.tamper_gate_wrong_secret)
+            val failure = MonitoringPrefs.recordOfflinePinFailure(context)
+            return when (failure.action) {
+                OfflinePinLockoutPolicy.FailureAction.BUDGET_EXCEEDED ->
+                    VerifyOutcome.Failure(
+                        R.string.tamper_gate_offline_pin_not_synced,
+                        "Too many offline attempts. Connect to the internet and try again.",
+                    )
+                OfflinePinLockoutPolicy.FailureAction.LOCKED -> {
+                    val mins = ((failure.lockDurationMs + 59_999) / 60_000).coerceAtLeast(1)
+                    VerifyOutcome.Failure(
+                        R.string.tamper_gate_rate_limited,
+                        "Too many wrong attempts. Locked for $mins minute(s).",
+                    )
+                }
+                OfflinePinLockoutPolicy.FailureAction.NONE ->
+                    VerifyOutcome.Failure(R.string.tamper_gate_wrong_secret)
+            }
         }
         MonitoringPrefs.clearOfflinePinFailures(context)
         val expires = Instant.ofEpochMilli(System.currentTimeMillis() + OFFLINE_UNLOCK_TTL_MS)

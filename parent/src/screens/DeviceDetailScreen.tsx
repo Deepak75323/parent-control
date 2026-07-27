@@ -9,7 +9,6 @@ import {
   Switch,
   Text,
   View,
-  Alert,
   Modal,
   ActivityIndicator,
 } from 'react-native';
@@ -41,6 +40,11 @@ import {
   screenShareBlockedShortMessage,
 } from '../utils/screenShareCapability';
 import {getApiErrorMessage} from '../utils/apiError';
+import {isDevicePresentOnline} from '../utils/devicePresence';
+import {usePresenceClock} from '../hooks/usePresenceClock';
+import {track} from '../services/telemetry';
+import {TelemetryEvents} from '../services/telemetryEvents';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DeviceDetail'>;
 
@@ -48,9 +52,6 @@ const {width: SW} = Dimensions.get('window');
 const MAP_W = SW - Layout.screenPadding * 2 - Layout.gutter * 2;
 const CONTENT_W = Math.min(SW, Layout.maxContentWidth);
 
-function isOnline(s?: string) {
-  return (s ?? '').toUpperCase() === 'ONLINE';
-}
 function isRevoked(s?: string) {
   return (s ?? '').toUpperCase() === 'REVOKED';
 }
@@ -223,12 +224,15 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const [activePairingCode, setActivePairingCode] = useState<string | null>(null);
   const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
   const [pendingRequests, setPendingRequests] = useState<TimeExtensionRequestItem[]>([]);
+  const [ringing, setRinging] = useState(false);
+  const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const live = useRealtimeStore(s => s.deviceStatuses[deviceId]);
   const liveLocation = useRealtimeStore(s => s.liveLocations[deviceId]);
   const liveAlerts = useRealtimeStore(s => s.liveAlerts);
   const deviceListVersion = useRealtimeStore(s => s.deviceListVersion);
   const setPendingPairingCode = useRealtimeStore(s => s.setPendingPairingCode);
+  const presenceNowMs = usePresenceClock(15_000);
 
   const heroAnim = useFadeSlideIn(0);
   const dotBlink = useOpacityPulse(0.5, 1, 700);
@@ -249,7 +253,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       setBlockAll(Boolean(blockAllRule) || r.data.data.kioskModeActive === true);
       setBlockAllPolicyId(blockAllRule?.policyId ?? null);
     } catch {
-      Alert.alert('Error', 'Couldn’t load this device. Check your connection and try again.');
+      appAlert('Error', 'Couldn’t load this device. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -276,17 +280,25 @@ export function DeviceDetailScreen({navigation, route}: Props) {
     }, [loadDevice, loadRequests]),
   );
 
-  const sendCommand = async (cmd: 'ENABLE_KIOSK' | 'DISABLE_KIOSK' | 'REVOKE_MONITORING', label: string) => {
+  const sendCommand = async (
+    cmd: 'ENABLE_KIOSK' | 'DISABLE_KIOSK' | 'REVOKE_MONITORING' | 'RING' | 'STOP_RING',
+    label: string,
+  ): Promise<boolean> => {
     setCommandLoading(true);
     try {
       await deviceApi.sendCommand(deviceId, cmd);
-      Alert.alert('Sent', `${label} command sent`);
+      if (cmd === 'REVOKE_MONITORING') {
+        track(TelemetryEvents.DEVICE_REVOKE);
+      }
+      appAlert('Sent', `${label} command sent`);
       await loadDevice();
+      return true;
     } catch (err) {
-      Alert.alert(
+      appAlert(
         'Error',
         getApiErrorMessage(err, 'Couldn’t send that command. Please try again.'),
       );
+      return false;
     } finally {
       setCommandLoading(false);
     }
@@ -307,7 +319,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
         if (existing?.policyId) {
           setBlockAllPolicyId(existing.policyId);
           setBlockAll(true);
-          Alert.alert(
+          appAlert(
             'Block All Apps on',
             'Apps on the child phone are already blocked via Accessibility.',
           );
@@ -326,7 +338,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
         });
         setBlockAllPolicyId(created.data.data.id);
         setBlockAll(true);
-        Alert.alert(
+        appAlert(
           'Block All Apps on',
           'Apps on the child phone are blocked via Accessibility (Phone, Messages, and the home screen stay available). Open Clock Time and keep Accessibility on.',
         );
@@ -372,7 +384,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
         if (device?.kioskModeActive && device.deviceOwnerActive) {
           await deviceApi.sendCommand(deviceId, 'DISABLE_KIOSK');
         }
-        Alert.alert(
+        appAlert(
           'Block All Apps off',
           deleted
             ? 'Rule removed. If apps stay blocked for a few seconds, open Clock Time on the child so policies sync.'
@@ -390,13 +402,13 @@ export function DeviceDetailScreen({navigation, route}: Props) {
         /already exists|conflict/i.test(msg)
       ) {
         setBlockAll(true);
-        Alert.alert(
+        appAlert(
           'Block All Apps on',
           'Block All Apps is already active on this device.',
         );
         return;
       }
-      Alert.alert('Error', msg);
+      appAlert('Error', msg);
     } finally {
       setCommandLoading(false);
     }
@@ -408,7 +420,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       const statusResp = await childLoginPasswordApi.status();
       if (!statusResp.data.data?.configured) {
         setSetupAgainVisible(false);
-        Alert.alert(
+        appAlert(
           'Set family password first',
           'Go to Settings → Child login password, then generate a pairing code.',
           [
@@ -427,9 +439,9 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       setPairingExpiresAt(data.data.expiresAt ?? null);
       setPendingPairingCode(code, baseline, data.data.expiresAt ?? null);
       setSetupAgainVisible(false);
-      Alert.alert('Pairing code ready', 'Share your family child login password and this pairing code with your child.');
+      appAlert('Pairing code ready', 'Share your family child login password and this pairing code with your child.');
     } catch {
-      Alert.alert(
+      appAlert(
         'Error',
         'Couldn’t create a pairing code. Check your connection and try again.',
       );
@@ -438,13 +450,28 @@ export function DeviceDetailScreen({navigation, route}: Props) {
     }
   };
 
+  const clearRingTimer = useCallback(() => {
+    if (ringTimeoutRef.current) {
+      clearTimeout(ringTimeoutRef.current);
+      ringTimeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => clearRingTimer(), [clearRingTimer]);
+
+  const markRinging = useCallback(() => {
+    setRinging(true);
+    clearRingTimer();
+    ringTimeoutRef.current = setTimeout(() => setRinging(false), 30_000);
+  }, [clearRingTimer]);
+
   if (loading) return <LoadingCenter />;
 
   const status = live?.status ?? device?.status;
   const battery = live?.batteryLevel ?? device?.batteryLevel;
   const network = live?.networkType ?? device?.networkType;
   const lastSeen = live?.lastSeenAt ?? device?.lastSeenAt;
-  const online = isOnline(status);
+  const online = isDevicePresentOnline(status, lastSeen, presenceNowMs);
   const revoked = isRevoked(status);
   const locLat = liveLocation?.latitude ?? live?.latitude;
   const locLon = liveLocation?.longitude ?? live?.longitude;
@@ -515,22 +542,47 @@ export function DeviceDetailScreen({navigation, route}: Props) {
     });
   };
 
+  const handleStopRing = () => {
+    void (async () => {
+      const ok = await sendCommand('STOP_RING', 'Stop ring');
+      if (ok) {
+        clearRingTimer();
+        setRinging(false);
+      }
+    })();
+  };
+
   const handleRing = () => {
-    Alert.alert(
+    if (ringing) {
+      appAlert('Stop ring?', 'Silence the alarm on the child phone now?', [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'Stop', style: 'destructive', onPress: handleStopRing},
+      ]);
+      return;
+    }
+    appAlert(
       'Ring device',
-      'This will play an alert sound on your child\'s device when the feature is available on their app version.',
+      'Play a loud alarm on this phone for about 30 seconds so you can find it?',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'Stop ring', onPress: handleStopRing},
+        {
+          text: 'Ring',
+          onPress: () => {
+            void (async () => {
+              const ok = await sendCommand('RING', 'Ring');
+              if (ok) {
+                markRinging();
+              }
+            })();
+          },
+        },
+      ],
     );
   };
 
-  const handleLock = () => {
-    if (device?.kioskModeActive) {
-      sendCommand('DISABLE_KIOSK', 'Disable kiosk');
-      return;
-    }
-    Alert.alert('Lock device', 'Enable kiosk mode to lock all apps?', [
-      {text: 'Cancel', style: 'cancel'},
-      {text: 'Lock', onPress: () => sendCommand('ENABLE_KIOSK', 'Enable kiosk')},
-    ]);
+  const handleCamera = () => {
+    openRemoteView('CAMERA');
   };
 
   return (
@@ -630,13 +682,16 @@ export function DeviceDetailScreen({navigation, route}: Props) {
               </View>
 
               <View style={sc.heroActions}>
-                <Pressable style={sc.heroActionBtn} onPress={handleRing}>
-                  <Text style={sc.heroActionIcon}>🔔</Text>
-                  <Text style={sc.heroActionLabel}>Ring</Text>
+                <Pressable
+                  style={sc.heroActionBtn}
+                  onPress={handleRing}
+                  disabled={commandLoading}>
+                  <Text style={sc.heroActionIcon}>{ringing ? '⏹' : '🔔'}</Text>
+                  <Text style={sc.heroActionLabel}>{ringing ? 'Stop' : 'Ring'}</Text>
                 </Pressable>
-                <Pressable style={sc.heroActionBtn} onPress={handleLock} disabled={commandLoading}>
-                  <Text style={sc.heroActionIcon}>🔒</Text>
-                  <Text style={sc.heroActionLabel}>Lock</Text>
+                <Pressable style={sc.heroActionBtn} onPress={handleCamera}>
+                  <Text style={sc.heroActionIcon}>📷</Text>
+                  <Text style={sc.heroActionLabel}>Camera</Text>
                 </Pressable>
               </View>
             </Animated.View>
@@ -646,7 +701,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                 title="Screen sharing isn’t set up yet"
                 subtitle="You can still tap Screen — the child phone may ask to allow screen sharing so live view can start."
                 onFix={() =>
-                  Alert.alert(
+                  appAlert(
                     'Screen sharing',
                     'Tap Screen under Live View to start. On the child phone, allow screen sharing if asked.',
                   )
@@ -659,7 +714,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                 title={`Permissions needed: ${missingEnforcementLabel}`}
                 subtitle="App blocking and usage limits won’t work until these are turned on in Clock Time on the child phone."
                 onFix={() =>
-                  Alert.alert(
+                  appAlert(
                     'Missing permissions',
                     `Ask your child to open Clock Time and finish: ${missingEnforcementLabel}.`,
                   )
@@ -751,14 +806,14 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                   value={blockAll}
                   onValueChange={val => {
                     if (val && device?.accessibilityEnabled === false) {
-                      Alert.alert(
+                      appAlert(
                         'Accessibility required',
                         'Open Clock Time on the child phone → Permissions → turn on Accessibility, then try again.',
                       );
                       return;
                     }
                     if (val) {
-                      Alert.alert(
+                      appAlert(
                         'Block All Apps',
                         'Block every app on the child phone except Phone, Messages, and the home screen?',
                         [
@@ -773,7 +828,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                         ],
                       );
                     } else {
-                      Alert.alert(
+                      appAlert(
                         'Allow apps again?',
                         'Turn off Block All Apps so the child can open apps again (per-app rules still apply).',
                         [
@@ -918,7 +973,8 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                 <Text style={sc.revokeText}>Revoke Monitoring</Text>
               </Pressable>
               <Text style={sc.revokeHint}>
-                Revoking monitoring will immediately stop all data tracking and release device controls.
+                Stops monitoring on this phone and frees its plan seat so you can pair another child
+                device. Re-pair this same phone later with a new pairing code if needed.
               </Text>
             </View>
           </>
@@ -957,7 +1013,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       <ConfirmModal
         visible={revokeVisible}
         title="Revoke monitoring"
-        body="This stops all monitoring and clears consent on the child device."
+        body="This stops all monitoring, clears consent on the child device, and frees this plan seat for another child phone."
         confirmLabel="Revoke"
         danger
         loading={commandLoading}

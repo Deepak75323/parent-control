@@ -23,11 +23,18 @@ object MonitoringPrefs {
     private const val KEY_INTEGRITY_TOKEN = "integrity_token_cached"
     private const val KEY_INTEGRITY_TOKEN_MS = "integrity_token_ms"
     private const val KEY_TAMPER_UNLOCK_UNTIL = "tamper_unlock_until_ms"
+    private const val KEY_OFFLINE_PIN_FAILS_SINCE_LOCK = "offline_pin_fails_since_lock"
+    private const val KEY_OFFLINE_PIN_LOCK_UNTIL = "offline_pin_lock_until_ms"
+    private const val KEY_OFFLINE_PIN_LOCKOUT_LEVEL = "offline_pin_lockout_level"
+    private const val KEY_OFFLINE_PIN_LIFETIME_FAILS = "offline_pin_lifetime_fails"
+    private const val KEY_OFFLINE_PIN_PENDING_REPORT = "offline_pin_pending_report"
+    // Legacy keys — cleared on migrate
     private const val KEY_OFFLINE_PIN_FAIL_COUNT = "offline_pin_fail_count"
     private const val KEY_OFFLINE_PIN_WINDOW_MS = "offline_pin_window_start_ms"
     private const val KEY_WIZARD_PERSISTENCE_JSON = "wizard_persistence_json_v2"
     private const val KEY_PERMISSION_SETUP_IN_PROGRESS = "permission_setup_in_progress"
     private const val KEY_SKIP_AUTO_RELOCK_UNTIL = "skip_auto_relock_until_ms"
+    private const val KEY_DEVICE_ADMIN_SETUP_GRACE_UNTIL = "device_admin_setup_grace_until_ms"
 
     /** Arm Accessibility auto-tap for MediaProjection dialog (sideload child APK). */
     fun armScreenCaptureAutoApprove(context: Context, windowMs: Long = 45_000L) {
@@ -122,6 +129,27 @@ object MonitoringPrefs {
     }
 
     /**
+     * Suppresses device-admin / accessibility tamper gating after the user starts enabling
+     * Device Admin (and again on [android.app.admin.DeviceAdminReceiver.onEnabled]).
+     * Post-activate Settings UI still looks like "Deactivate" and would false-trigger TamperGate.
+     */
+    fun beginDeviceAdminSetupGrace(context: Context, durationMs: Long = 90_000L) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putLong(KEY_DEVICE_ADMIN_SETUP_GRACE_UNTIL, System.currentTimeMillis() + durationMs)
+            .commit()
+    }
+
+    fun isDeviceAdminSetupGraceActive(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getLong(KEY_DEVICE_ADMIN_SETUP_GRACE_UNTIL, 0L) > System.currentTimeMillis()
+
+    fun clearDeviceAdminSetupGrace(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_DEVICE_ADMIN_SETUP_GRACE_UNTIL)
+            .commit()
+    }
+
+    /**
      * Suppresses JS foreground re-lock (ClockLock / password) while a system permission dialog
      * is open or just closed. Persisted so a React remount after MediaProjection
      * consent does not bounce the user back to the lock screen.
@@ -204,34 +232,82 @@ object MonitoringPrefs {
     fun isTamperUnlocked(context: Context): Boolean =
         tamperUnlockUntilMs(context) > System.currentTimeMillis()
 
-    /** Local offline PIN attempts — max 5 failures per 5 minutes. */
-    fun isOfflinePinRateLimited(context: Context): Boolean {
+    /** Offline PIN lockout — see [com.childmonitor.tamper.OfflinePinLockoutPolicy]. */
+    fun offlinePinLockoutState(context: Context): com.childmonitor.tamper.OfflinePinLockoutPolicy.State {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val windowStart = prefs.getLong(KEY_OFFLINE_PIN_WINDOW_MS, 0L)
-        val now = System.currentTimeMillis()
-        if (now - windowStart > 5 * 60_000L) return false
-        return prefs.getInt(KEY_OFFLINE_PIN_FAIL_COUNT, 0) >= 5
+        return com.childmonitor.tamper.OfflinePinLockoutPolicy.State(
+            failsSinceLock = prefs.getInt(KEY_OFFLINE_PIN_FAILS_SINCE_LOCK, 0),
+            lockUntilMs = prefs.getLong(KEY_OFFLINE_PIN_LOCK_UNTIL, 0L),
+            lockoutLevel = prefs.getInt(KEY_OFFLINE_PIN_LOCKOUT_LEVEL, 0),
+            lifetimeFails = prefs.getInt(KEY_OFFLINE_PIN_LIFETIME_FAILS, 0),
+            pendingReportFails = prefs.getInt(KEY_OFFLINE_PIN_PENDING_REPORT, 0),
+        )
     }
 
-    fun recordOfflinePinFailure(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        val windowStart = prefs.getLong(KEY_OFFLINE_PIN_WINDOW_MS, 0L)
-        val editor = prefs.edit()
-        if (now - windowStart > 5 * 60_000L) {
-            editor.putLong(KEY_OFFLINE_PIN_WINDOW_MS, now)
-            editor.putInt(KEY_OFFLINE_PIN_FAIL_COUNT, 1)
-        } else {
-            editor.putInt(KEY_OFFLINE_PIN_FAIL_COUNT, prefs.getInt(KEY_OFFLINE_PIN_FAIL_COUNT, 0) + 1)
-        }
-        editor.apply()
-    }
-
-    fun clearOfflinePinFailures(context: Context) {
+    fun saveOfflinePinLockoutState(
+        context: Context,
+        state: com.childmonitor.tamper.OfflinePinLockoutPolicy.State,
+    ) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_OFFLINE_PIN_FAILS_SINCE_LOCK, state.failsSinceLock)
+            .putLong(KEY_OFFLINE_PIN_LOCK_UNTIL, state.lockUntilMs)
+            .putInt(KEY_OFFLINE_PIN_LOCKOUT_LEVEL, state.lockoutLevel)
+            .putInt(KEY_OFFLINE_PIN_LIFETIME_FAILS, state.lifetimeFails)
+            .putInt(KEY_OFFLINE_PIN_PENDING_REPORT, state.pendingReportFails)
             .remove(KEY_OFFLINE_PIN_FAIL_COUNT)
             .remove(KEY_OFFLINE_PIN_WINDOW_MS)
             .apply()
+    }
+
+    fun isOfflinePinRateLimited(context: Context): Boolean {
+        val state = offlinePinLockoutState(context)
+        return com.childmonitor.tamper.OfflinePinLockoutPolicy.isLocked(
+            state,
+            System.currentTimeMillis(),
+        )
+    }
+
+    fun offlinePinLockRemainingMs(context: Context): Long {
+        val state = offlinePinLockoutState(context)
+        return com.childmonitor.tamper.OfflinePinLockoutPolicy.remainingLockMs(
+            state,
+            System.currentTimeMillis(),
+        )
+    }
+
+    fun recordOfflinePinFailure(context: Context): com.childmonitor.tamper.OfflinePinLockoutPolicy.FailureResult {
+        val now = System.currentTimeMillis()
+        val result = com.childmonitor.tamper.OfflinePinLockoutPolicy.recordFailure(
+            offlinePinLockoutState(context),
+            now,
+        )
+        saveOfflinePinLockoutState(context, result.state)
+        if (result.action ==
+            com.childmonitor.tamper.OfflinePinLockoutPolicy.FailureAction.BUDGET_EXCEEDED
+        ) {
+            SecureCredentialStore.clearOfflineParentPin(context)
+        }
+        return result
+    }
+
+    fun clearOfflinePinFailures(context: Context) {
+        val pending = offlinePinLockoutState(context).pendingReportFails
+        saveOfflinePinLockoutState(
+            context,
+            com.childmonitor.tamper.OfflinePinLockoutPolicy.State(pendingReportFails = pending),
+        )
+    }
+
+    fun consumeOfflinePinPendingReport(context: Context): Int {
+        val state = offlinePinLockoutState(context)
+        val pending = state.pendingReportFails
+        if (pending > 0) {
+            saveOfflinePinLockoutState(
+                context,
+                com.childmonitor.tamper.OfflinePinLockoutPolicy.consumePendingReport(state),
+            )
+        }
+        return pending
     }
 
     fun setHideLauncherEnabled(context: Context, enabled: Boolean) {

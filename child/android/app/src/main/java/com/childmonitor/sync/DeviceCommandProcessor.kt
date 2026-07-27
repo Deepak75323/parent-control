@@ -5,6 +5,7 @@ import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
 import com.childmonitor.deviceowner.DeviceOwnerManager
+import com.childmonitor.ring.DeviceRingController
 import com.childmonitor.remote.PendingClaimStore
 import com.childmonitor.remote.RemoteControlCommandBuffer
 import com.childmonitor.remote.RemoteControlCommandQueue
@@ -334,6 +335,11 @@ object DeviceCommandProcessor {
                             .enforceCurrentForegroundIfBlocked()
                     }
                     ok
+                }
+                "RING" -> DeviceRingController.start(context)
+                "STOP_RING" -> {
+                    DeviceRingController.stop(context)
+                    true
                 }
                 else -> {
                     error = "Unknown command: $type"

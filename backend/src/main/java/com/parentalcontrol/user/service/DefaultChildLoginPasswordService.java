@@ -32,8 +32,7 @@ public class DefaultChildLoginPasswordService {
   @Transactional(readOnly = true)
   public DefaultChildLoginPasswordStatusResponse getStatus() {
     ParentProfile parent = requireParentProfile();
-    int deviceCount =
-        deviceRepository.findByParentProfileIdOrderByCreatedAtDesc(parent.getId()).size();
+    int deviceCount = (int) deviceRepository.countNonRevokedByParentProfileId(parent.getId());
     return DefaultChildLoginPasswordStatusResponse.builder()
         .configured(isConfigured(parent))
         .linkedDeviceCount(deviceCount)

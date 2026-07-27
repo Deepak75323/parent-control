@@ -49,13 +49,23 @@ export function SettingsScreen({navigation}: Props) {
           onPress={() => navigation.navigate('AuditLog')}
         />
         <MenuRow
+          icon="💬"
+          title="Support"
+          subtitle="Help, correlation ID, contact email"
+          onPress={() => navigation.navigate('Support')}
+        />
+        <MenuRow
           icon="🗑️"
           title="Delete account"
           subtitle="Permanently remove your data"
           onPress={() => navigation.navigate('DeleteAccount')}
         />
       </Card>
-      <Pressable style={({pressed}) => [styles.signOut, pressed && styles.signOutPressed]} onPress={logout}>
+      <Pressable
+        style={({pressed}) => [styles.signOut, pressed && styles.signOutPressed]}
+        onPress={() => {
+          void logout();
+        }}>
         <Text style={styles.signOutText}>Sign out</Text>
       </Pressable>
     </ScreenShell>

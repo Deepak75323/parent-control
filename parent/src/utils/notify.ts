@@ -1,8 +1,12 @@
-import {Alert, ToastAndroid} from 'react-native';
+import {appAlert} from './appAlert';
+import {useAppDialogStore} from '../store/appDialogStore';
 
 export function showError(title: string, message: string): void {
-  ToastAndroid.show(`${title}: ${message}`, ToastAndroid.LONG);
-  Alert.alert(title, message);
+  useAppDialogStore.getState().showToast({
+    title,
+    message,
+    tone: 'error',
+  });
 }
 
 /** Shows a visible success dialog before optional follow-up (e.g. navigate after register). */
@@ -11,8 +15,15 @@ export function showSuccessAlert(
   message: string,
   onContinue?: () => void,
 ): void {
-  ToastAndroid.show(`${title}: ${message}`, ToastAndroid.LONG);
-  Alert.alert(title, message, [{text: 'Continue', onPress: onContinue}]);
+  if (onContinue) {
+    appAlert(title, message, [{text: 'Continue', onPress: onContinue}]);
+    return;
+  }
+  useAppDialogStore.getState().showToast({
+    title,
+    message,
+    tone: 'success',
+  });
 }
 
 export function showSuccess(message: string): void {

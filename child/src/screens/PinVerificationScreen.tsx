@@ -17,8 +17,6 @@ import {nativeModules} from '../nativeModules';
 type Props = NativeStackScreenProps<ChildStackParamList, 'PinVerification'>;
 type Mode = 'pin' | 'code';
 
-const UNLOCK_MS = 10 * 60_000;
-
 function userFacingRequestError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err)) {
     if (!err.response) {
@@ -43,13 +41,6 @@ export function PinVerificationScreen({navigation}: Props) {
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-
-  const applyUnlock = async (unlockExpiresAt?: string) => {
-    const untilMs = unlockExpiresAt
-      ? new Date(unlockExpiresAt).getTime()
-      : Date.now() + UNLOCK_MS;
-    await nativeModules.setTamperUnlockUntil(untilMs);
-  };
 
   const requestCode = async () => {
     setBusy(true);
@@ -82,20 +73,23 @@ export function PinVerificationScreen({navigation}: Props) {
     setBusy(true);
     setStatus(null);
     try {
-      const {data} =
+      // Native path: online-first, offline cached verifier + local lockout when API is down.
+      const result =
         mode === 'pin'
-          ? await tamperApi.verifyPin(trimmed)
-          : await tamperApi.verifyCode(trimmed);
-      if (data.data.verified) {
-        await applyUnlock(data.data.unlockExpiresAt);
+          ? await nativeModules.verifyTamperSecret(trimmed, null, null)
+          : await nativeModules.verifyTamperSecret(null, trimmed, null);
+      if (result.verified) {
+        const offlineNote = result.usedOffline
+          ? ' (verified offline — connect soon so the parent password stays in sync)'
+          : '';
         Alert.alert(
           'Verified',
-          'You may change protection settings in Settings (within 10 minutes).',
+          `You may change protection settings in Settings (within 10 minutes).${offlineNote}`,
           [{text: 'OK', onPress: () => navigation.goBack()}],
         );
         return;
       }
-      setStatus('Incorrect password or verification code.');
+      setStatus(result.error?.trim() || 'Incorrect password or verification code.');
     } catch (err) {
       Alert.alert(
         'Error',
@@ -143,7 +137,7 @@ export function PinVerificationScreen({navigation}: Props) {
         />
         <Text style={styles.hint}>
           {mode === 'pin'
-            ? 'Use the parent password from the parent app Settings, or switch to a verification code.'
+            ? 'Uses the parent password from Settings. Works offline with lockout after wrong tries when the server was recently reachable.'
             : 'Open the parent app → Notice or Alerts and enter the 6-digit code below.'}
         </Text>
         {status ? <Text style={styles.status}>{status}</Text> : null}

@@ -1,11 +1,12 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {View, Text, FlatList, StyleSheet, RefreshControl, Alert} from 'react-native';
+import {View, Text, FlatList, StyleSheet, RefreshControl} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {monitoringApi, NotificationItem} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {EmptyState, HeroBlock, ScreenShell} from '../components/AppScreen';
 import {appDisplayName} from '../utils/appDisplayName';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Notifications'>;
 
@@ -23,7 +24,7 @@ export function NotificationsScreen({navigation, route}: Props) {
       setItems(data.data.content ?? []);
     } catch {
       setLoadError('Couldn’t load notifications');
-      Alert.alert('Error', 'Couldn’t load child notifications. Pull down to try again.');
+      appAlert('Error', 'Couldn’t load child notifications. Pull down to try again.');
     }
   }, [deviceId]);
 

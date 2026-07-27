@@ -181,6 +181,8 @@ public final class MessageConstants {
 
   public static final String PIN_MUST_BE_AT_LEAST_4_CHARACTERS =
       "PIN must be at least 4 characters";
+  public static final String PIN_MUST_BE_AT_LEAST_8_CHARACTERS_WITH_LETTER_AND_DIGIT =
+      "Parent password must be at least 8 characters and include a letter and a number";
 
   public static final String PIN_OR_VERIFICATION_CODE_IS_REQUIRED =
       "PIN or verification code is required";

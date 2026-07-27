@@ -1,10 +1,11 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {View, Text, FlatList, StyleSheet, RefreshControl, Alert} from 'react-native';
+import {View, Text, FlatList, StyleSheet, RefreshControl} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {alertsApi, AlertItem} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {EmptyState, HeroBlock, ScreenShell} from '../components/AppScreen';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Alerts'>;
 
@@ -25,7 +26,7 @@ export function AlertsScreen({navigation}: Props) {
       const {data} = await alertsApi.list();
       setAlerts(data.data.content);
     } catch {
-      Alert.alert('Error', 'Couldn’t load alerts. Check your connection and try again.');
+      appAlert('Error', 'Couldn’t load alerts. Check your connection and try again.');
     }
   }, []);
 

@@ -183,6 +183,10 @@ export function PermissionWizardScreen({navigation}: Props) {
         if (stepIdRef.current === 'screenCapture' && grantingRef.current) {
           return;
         }
+        // Device-admin system UI — keep grant in-flight; native setup grace blocks TamperGate.
+        if (stepIdRef.current === 'deviceAdmin' && grantingRef.current) {
+          return;
+        }
         cancelActivePermissionGrant();
       }
     };

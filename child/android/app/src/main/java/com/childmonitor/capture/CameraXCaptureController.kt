@@ -114,16 +114,25 @@ class CameraXCaptureController(
             object : CameraVideoCapturer.CameraSwitchHandler {
                 override fun onCameraSwitchDone(isFrontCamera: Boolean) {
                     useFrontCamera = isFrontCamera
-                    Log.i(TAG, "switchFacing done front=$isFrontCamera")
+                    Log.i(TAG, "switchFacing done front=$isFrontCamera (requested=$wantFront)")
                     onFinishedCallback?.accept(null)
                 }
 
                 override fun onCameraSwitchError(errorDescription: String?) {
                     useFrontCamera = capturer.isFrontFacing()
-                    Log.w(TAG, "switchFacing error: $errorDescription")
+                    Log.w(TAG, "switchFacing error: $errorDescription, restored to front=$useFrontCamera")
                     onFinishedCallback?.accept(Exception(errorDescription ?: "Camera switch failed"))
                 }
             },
         )
+    }
+
+    /**
+     * Get the current camera facing state for verification and debugging.
+     * This helps ensure the JS layer stays in sync with the native camera state.
+     */
+    fun isCurrentlyFrontFacing(): Boolean {
+        val capturer = videoCapturer as? CameraXVideoCapturer
+        return capturer?.isFrontFacing() ?: useFrontCamera
     }
 }

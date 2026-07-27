@@ -132,6 +132,7 @@ export function RegisterScreen({navigation}: Props) {
             data.data.refreshToken,
             form.email.trim(),
             verified,
+            data.data.expiresInSeconds,
           ),
         );
         return;

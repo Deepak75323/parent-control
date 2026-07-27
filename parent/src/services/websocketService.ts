@@ -3,15 +3,25 @@ import {config} from '../utils/config';
 import {useAuthStore} from '../store/authStore';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {resubscribeSignalingRooms, clearSignalingSubscriptions} from './signalingWebSocket';
+import {shouldReuseStompClient} from './stompConnectPolicy';
 import {plog} from './pairingLog';
 import {traceLog, traceError} from '../utils/traceLogger';
 import type {AlertItem, NotificationItem, LocationPoint} from './api';
 
 let client: Client | null = null;
 let connectToken: string | null = null;
+let connectAttempt = 0;
+let handshakeWatchdog: ReturnType<typeof setTimeout> | null = null;
 
 export function getWebSocketClient(): Client | null {
   return client;
+}
+
+function clearHandshakeWatchdog(): void {
+  if (handshakeWatchdog) {
+    clearTimeout(handshakeWatchdog);
+    handshakeWatchdog = null;
+  }
 }
 
 function parseJson<T>(message: IMessage): T {
@@ -28,23 +38,57 @@ export function connectWebSocket(): void {
     plog('WS skip — no access token');
     return;
   }
-  if (client?.active && connectToken === token) {
+  // Only skip when STOMP handshake completed. `active` alone is true while hung.
+  if (shouldReuseStompClient(client, connectToken, token)) {
     return;
   }
 
   disconnectWebSocket();
   connectToken = token;
   const wsUrl = config.wsNativeUrl;
-  plog('WS connecting', {url: wsUrl});
+  const attempt = ++connectAttempt;
+  plog('WS connecting', {url: wsUrl, attempt});
 
   client = new Client({
     brokerURL: wsUrl,
-    webSocketFactory: () => new WebSocket(wsUrl),
+    webSocketFactory: () => {
+      const socket = new WebSocket(wsUrl);
+      // RN may hang before onopen; surface raw transport lifecycle.
+      socket.addEventListener?.('open', () => plog('WS raw open', {attempt}));
+      socket.addEventListener?.('error', () => plog('WS raw error', {attempt}));
+      socket.addEventListener?.('close', (ev: Event) => {
+        const close = ev as CloseEvent;
+        plog('WS raw close', {attempt, code: close.code, reason: close.reason});
+      });
+      return socket;
+    },
     connectHeaders: {Authorization: `Bearer ${token}`},
     reconnectDelay: 5000,
-    heartbeatIncoming: 10000,
-    heartbeatOutgoing: 10000,
+    // RN WebSocket often drops the STOMP frame NUL terminator — without this,
+    // CONNECTED is never parsed and the client hangs with wsConnected=false forever.
+    appendMissingNULLonIncoming: true,
+    // Fail hung handshakes so reconnectDelay can retry (default 0 = wait forever).
+    connectionTimeout: 12_000,
+    heartbeatIncoming: 0,
+    heartbeatOutgoing: 0,
+    debug: msg => {
+      if (__DEV__) {
+        const line = msg.trim();
+        if (
+          line.startsWith('Opening') ||
+          line.startsWith('Web Socket') ||
+          line.startsWith('>>> CONNECT') ||
+          line.startsWith('<<< CONNECTED') ||
+          line.startsWith('<<< ERROR') ||
+          line.startsWith('Connection closed') ||
+          line.includes('connection timed out')
+        ) {
+          plog('WS debug', line.slice(0, 160));
+        }
+      }
+    },
     onConnect: () => {
+      clearHandshakeWatchdog();
       plog('WS connected');
       traceLog('Socket', 'onConnect', 'STOMP connected', {url: wsUrl});
       useRealtimeStore.getState().setWsConnected(true);
@@ -248,9 +292,24 @@ export function connectWebSocket(): void {
   });
 
   client.activate();
+
+  // stompjs connectionTimeout only arms after socket open; RN can hang before that.
+  clearHandshakeWatchdog();
+  handshakeWatchdog = setTimeout(() => {
+    if (attempt !== connectAttempt) {
+      return;
+    }
+    if (client?.connected) {
+      return;
+    }
+    plog('WS handshake watchdog — still not connected, forcing reconnect', {attempt});
+    disconnectWebSocket();
+    connectWebSocket();
+  }, 15_000);
 }
 
 export function disconnectWebSocket(): void {
+  clearHandshakeWatchdog();
   clearSignalingSubscriptions();
   if (client) {
     client.deactivate();

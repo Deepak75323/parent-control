@@ -52,7 +52,8 @@ public class FeatureGateService {
     }
     Subscription sub = requireExistingSubscription(parentProfileId);
     SubscriptionPlan plan = SubscriptionPlan.fromPlanId(sub.getPlanId());
-    long deviceCount = deviceRepository.countByParentProfileId(parentProfileId);
+    // Revoked devices do not consume a seat — revoke frees the slot for another child phone.
+    long deviceCount = deviceRepository.countNonRevokedByParentProfileId(parentProfileId);
     if (deviceCount >= plan.getMaxDevices()) {
       throw new BusinessException(
           ErrorCode.FORBIDDEN,

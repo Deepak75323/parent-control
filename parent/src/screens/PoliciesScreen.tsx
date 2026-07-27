@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Alert,
   FlatList,
   Pressable,
   TextInput,
@@ -27,6 +26,7 @@ import {
   ScreenShell,
 } from '../components/AppScreen';
 import {AppIcon} from '../components/AppIcon';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Policies'>;
 
@@ -60,7 +60,7 @@ export function PoliciesScreen({navigation, route}: Props) {
       );
       setInstalledApps(appsRes.data.data);
     } catch {
-      Alert.alert('Error', 'Couldn’t load policies. Check your connection and try again.');
+      appAlert('Error', 'Couldn’t load policies. Check your connection and try again.');
     }
   };
 
@@ -94,7 +94,7 @@ export function PoliciesScreen({navigation, route}: Props) {
 
   const selectCategoryApps = () => {
     if (categoryFilter === 'ALL') {
-      Alert.alert('Pick a category', 'Choose Games, Social, etc. then tap Block category.');
+      appAlert('Pick a category', 'Choose Games, Social, etc. then tap Block category.');
       return;
     }
     const pkgs = filteredApps.map(a => a.packageName);
@@ -103,7 +103,7 @@ export function PoliciesScreen({navigation, route}: Props) {
 
   const createAppBlock = async () => {
     if (selectedPackages.size === 0) {
-      Alert.alert('Select apps', 'Tap one or more apps from the list.');
+      appAlert('Select apps', 'Tap one or more apps from the list.');
       return;
     }
     const rules = Array.from(selectedPackages).map(packageName => {
@@ -117,16 +117,16 @@ export function PoliciesScreen({navigation, route}: Props) {
         rules,
       });
       await load();
-      Alert.alert('Created', `${selectedPackages.size} app(s) blocked`);
+      appAlert('Created', `${selectedPackages.size} app(s) blocked`);
       setSelectedPackages(new Set());
     } catch {
-      Alert.alert('Error', 'Couldn’t create this app block. Please try again.');
+      appAlert('Error', 'Couldn’t create this app block. Please try again.');
     }
   };
 
   const createCategoryBlock = async () => {
     if (categoryFilter === 'ALL') {
-      Alert.alert('Select a category', 'Choose a category chip first.');
+      appAlert('Select a category', 'Choose a category chip first.');
       return;
     }
     const label = APP_CATEGORIES.find(c => c.id === categoryFilter)?.label ?? categoryFilter;
@@ -143,15 +143,15 @@ export function PoliciesScreen({navigation, route}: Props) {
         ],
       });
       await load();
-      Alert.alert('Created', `${label} category blocked (includes future installs)`);
+      appAlert('Created', `${label} category blocked (includes future installs)`);
     } catch {
-      Alert.alert('Error', 'Couldn’t block this category. Please try again.');
+      appAlert('Error', 'Couldn’t block this category. Please try again.');
     }
   };
 
   const createScreenTime = async () => {
     if (selectedPackages.size === 0) {
-      Alert.alert('Select apps', 'Choose at least one app for the limit.');
+      appAlert('Select apps', 'Choose at least one app for the limit.');
       return;
     }
     const mins = parseInt(limitMinutes, 10) || 60;
@@ -173,9 +173,9 @@ export function PoliciesScreen({navigation, route}: Props) {
         });
       }
       await load();
-      Alert.alert('Created', 'Screen time limits saved');
+      appAlert('Created', 'Screen time limits saved');
     } catch {
-      Alert.alert('Error', 'Couldn’t create this time limit. Please try again.');
+      appAlert('Error', 'Couldn’t create this time limit. Please try again.');
     }
   };
 
@@ -207,7 +207,7 @@ export function PoliciesScreen({navigation, route}: Props) {
           // Wait a few seconds for the child to respond, then reload.
           await new Promise(r => setTimeout(r, 4000));
           await load();
-          Alert.alert('Refreshed', installedApps.length > 0
+          appAlert('Refreshed', installedApps.length > 0
             ? `${installedApps.length} apps loaded from child device`
             : 'No apps yet — make sure the child app is running on the phone and try again.');
         }}>

@@ -1,9 +1,10 @@
 import React, {useEffect, useState} from 'react';
-import {View, Text, StyleSheet, Alert, Pressable} from 'react-native';
+import {View, Text, StyleSheet, Pressable} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {parentPinApi} from '../services/api';
 import {Card, FormField, HeroBlock, PrimaryBtn, ScreenShell} from '../components/AppScreen';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ParentPin'>;
 
@@ -19,18 +20,21 @@ export function ParentPinScreen({navigation}: Props) {
   }, []);
 
   const savePin = async () => {
-    if (pin.length < 4) {
-      Alert.alert('Password', 'Enter at least 4 characters');
+    if (pin.length < 8 || !/[A-Za-z]/.test(pin) || !/\d/.test(pin)) {
+      appAlert(
+        'Password',
+        'Use at least 8 characters with a letter and a number (needed for offline unlock safety).',
+      );
       return;
     }
     setSaving(true);
     try {
       await parentPinApi.setPin(pin);
-      Alert.alert('Saved', 'Parent password updated');
+      appAlert('Saved', 'Parent password updated');
       const {data} = await parentPinApi.status();
       setStatus(data.data);
     } catch {
-      Alert.alert('Error', 'Couldn’t save password. Please try again.');
+      appAlert('Error', 'Couldn’t save password. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -40,13 +44,13 @@ export function ParentPinScreen({navigation}: Props) {
     try {
       const {data} = await parentPinApi.verify(pin);
       if (data.data.verified) {
-        Alert.alert('Verified', 'Screen sharing is unlocked for this account');
+        appAlert('Verified', 'Screen sharing is unlocked for this account');
         setStatus(s => (s ? {...s, silentStreamUnlocked: true} : s));
       } else {
-        Alert.alert('Incorrect password', 'Please try again');
+        appAlert('Incorrect password', 'Please try again');
       }
     } catch {
-      Alert.alert('Error', 'Couldn’t verify password. Please try again.');
+      appAlert('Error', 'Couldn’t verify password. Please try again.');
     }
   };
 
@@ -55,7 +59,7 @@ export function ParentPinScreen({navigation}: Props) {
       <HeroBlock
         eyebrow="Security"
         title="Parent password"
-        subtitle="Used to protect screen sharing and sensitive parent actions."
+        subtitle="Used to unlock child protection settings and sensitive parent actions. At least 8 characters with a letter and a number."
       />
 
       {status ? (

@@ -2,6 +2,7 @@ package com.parentalcontrol.monitoring.dao;
 
 import com.parentalcontrol.monitoring.domain.ScreenSession;
 import com.parentalcontrol.monitoring.domain.ScreenSessionStatus;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -47,4 +48,16 @@ public interface ScreenSessionDao {
       UUID deviceId, Collection<ScreenSessionStatus> statuses);
 
   long countByStatus(ScreenSessionStatus status);
+
+  /**
+   * Find all active (PENDING or ACTIVE) streaming sessions for a specific device.
+   * Used for cleanup when device goes offline.
+   */
+  List<ScreenSession> findActiveSessionsByDeviceId(UUID deviceId);
+
+  /**
+   * Find sessions by status that were started before the given timestamp.
+   * Used for cleaning up stale pending sessions.
+   */
+  List<ScreenSession> findByStatusAndStartedAtBefore(ScreenSessionStatus status, Instant cutoff);
 }

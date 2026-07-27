@@ -1,10 +1,11 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {View, Text, FlatList, StyleSheet, RefreshControl, Alert, Pressable} from 'react-native';
+import {View, Text, FlatList, StyleSheet, RefreshControl, Pressable} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {TimeExtensionRequestItem, timeExtensionApi} from '../services/api';
 import {EmptyState, HeroBlock, PrimaryBtn, ScreenShell} from '../components/AppScreen';
 import {appDisplayName} from '../utils/appDisplayName';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Requests'>;
 
@@ -18,7 +19,7 @@ export function RequestsScreen({navigation}: Props) {
       const {data} = await timeExtensionApi.listPending();
       setItems(data.data);
     } catch {
-      Alert.alert('Error', 'Couldn’t load requests. Check your connection and try again.');
+      appAlert('Error', 'Couldn’t load requests. Check your connection and try again.');
     }
   }, []);
 
@@ -31,7 +32,7 @@ export function RequestsScreen({navigation}: Props) {
     try {
       await timeExtensionApi.respond(item.id, approved, item.requestedMinutes);
       await load();
-      Alert.alert(
+      appAlert(
         approved ? 'Approved' : 'Denied',
         approved
           ? `${appDisplayName({
@@ -41,7 +42,7 @@ export function RequestsScreen({navigation}: Props) {
           : 'Request rejected',
       );
     } catch {
-      Alert.alert('Error', 'Couldn’t update this request. Please try again.');
+      appAlert('Error', 'Couldn’t update this request. Please try again.');
     } finally {
       setRespondingId(null);
     }

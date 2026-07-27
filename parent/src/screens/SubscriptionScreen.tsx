@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {View, Text, StyleSheet, Alert, Linking, Pressable} from 'react-native';
+import {View, Text, StyleSheet, Linking, Pressable} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {billingApi, PlanInfo, SubscriptionInfo} from '../services/api';
@@ -11,6 +11,7 @@ import {
   PrimaryBtn,
   ScreenShell,
 } from '../components/AppScreen';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Subscription'>;
 
@@ -27,7 +28,7 @@ export function SubscriptionScreen({navigation}: Props) {
         setSub(s.data.data);
         setPlans(p.data.data);
       })
-      .catch(() => Alert.alert('Error', 'Couldn’t load subscription. Check your connection and try again.'))
+      .catch(() => appAlert('Error', 'Couldn’t load subscription. Check your connection and try again.'))
       .finally(() => setLoading(false));
   };
 
@@ -43,7 +44,7 @@ export function SubscriptionScreen({navigation}: Props) {
         await Linking.openURL(data.data.checkoutUrl);
       }
     } catch {
-      Alert.alert('Checkout failed', 'Stripe may not be configured in this environment.');
+      appAlert('Checkout failed', 'Stripe may not be configured in this environment.');
     } finally {
       setCheckoutPlan(null);
     }

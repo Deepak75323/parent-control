@@ -30,6 +30,11 @@ let correlationId: string | null = null;
 let phase: StreamSessionPhase = 'IDLE';
 let roomId: string | null = null;
 let sessionId: string | undefined;
+/**
+ * Survives endSession/disconnectViewer so logout / screen unmount can still call
+ * stopScreenShare after local WebRTC state was cleared (otherwise child keeps cam/mic).
+ */
+let stickySessionId: string | undefined;
 
 function newCorrelationId(): string {
   return `pv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -45,6 +50,9 @@ export function beginSession(nextRoomId: string, nextSessionId?: string): string
   phase = 'CONNECTING';
   roomId = nextRoomId;
   sessionId = nextSessionId;
+  if (nextSessionId) {
+    stickySessionId = nextSessionId;
+  }
   return correlationId;
 }
 
@@ -58,10 +66,29 @@ export function endSession(): void {
   sessionId = undefined;
   correlationId = null;
   phase = 'IDLE';
+  // Keep stickySessionId — consumed by backend stop helpers.
 }
 
 export function getSessionSnapshot(): StreamSessionSnapshot {
   return {correlationId, phase, roomId, sessionId};
+}
+
+/** Session id still needing a backend stop (live or sticky after local disconnect). */
+export function getSessionIdForBackendStop(): string | undefined {
+  return sessionId ?? stickySessionId;
+}
+
+/** Take sticky/live session id once — used after a best-effort stopScreenShare. */
+export function takeSessionIdForBackendStop(): string | undefined {
+  const id = sessionId ?? stickySessionId;
+  stickySessionId = undefined;
+  sessionId = undefined;
+  return id;
+}
+
+/** Test helper — drop sticky without calling the API. */
+export function clearStickySessionId(): void {
+  stickySessionId = undefined;
 }
 
 /** Register screen-scoped listeners; returns unsubscribe that removes stale callbacks on navigation. */

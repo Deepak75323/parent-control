@@ -9,6 +9,7 @@ export interface PersistedAuth {
   refreshToken: string;
   email: string | null;
   emailVerified?: boolean;
+  accessTokenExpiresAtMs?: number;
 }
 
 /** Dev-only rollback: allow plain AsyncStorage when secure bridge is absent. */

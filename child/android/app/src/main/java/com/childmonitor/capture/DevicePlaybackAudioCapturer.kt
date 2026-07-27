@@ -44,7 +44,7 @@ object DevicePlaybackAudioCapturer {
             val channelMask = AudioFormat.CHANNEL_IN_MONO
             val encoding = AudioFormat.ENCODING_PCM_16BIT
             val minBuffer = AudioRecord.getMinBufferSize(SAMPLE_RATE, channelMask, encoding)
-                .coerceAtLeast(SAMPLE_RATE)
+                .coerceAtLeast(SAMPLE_RATE / 10) // At least 100ms of audio buffer
 
             val config = AudioPlaybackCaptureConfiguration.Builder(projection)
                 .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
@@ -61,7 +61,7 @@ object DevicePlaybackAudioCapturer {
                         .setChannelMask(channelMask)
                         .build(),
                 )
-                .setBufferSizeInBytes(minBuffer * 2)
+                .setBufferSizeInBytes(minBuffer * 4) // Larger buffer to reduce audio dropouts
                 .build()
 
             if (recorder.state != AudioRecord.STATE_INITIALIZED) {
@@ -77,7 +77,9 @@ object DevicePlaybackAudioCapturer {
             Log.i(TAG, "PLAYBACK_CAPTURE_STARTED sampleRate=$SAMPLE_RATE channels=$CHANNELS")
 
             worker = Thread({
-                val buf = ByteArray(minBuffer)
+                val buf = ByteArray(minBuffer / 4) // Smaller read chunks for lower latency
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+                
                 while (running.get()) {
                     val read = try {
                         recorder.read(buf, 0, buf.size)
@@ -86,17 +88,33 @@ object DevicePlaybackAudioCapturer {
                         break
                     }
                     if (read > 0) {
+                        // Only pass valid audio data to injector
+                        val audioData = buf.copyOf(read)
                         PlaybackCaptureInjector.onPlaybackPcm(
-                            buf.copyOf(read),
+                            audioData,
                             CHANNELS,
                             SAMPLE_RATE,
                         )
                     } else if (read < 0) {
-                        Log.e(TAG, "PLAYBACK_CAPTURE_READ_ERROR code=$read")
-                        break
+                        Log.w(TAG, "PLAYBACK_CAPTURE_READ_ERROR code=$read")
+                        // Don't break immediately on errors - could be temporary
+                        if (read == AudioRecord.ERROR_INVALID_OPERATION) {
+                            break
+                        }
+                        // Small delay before retrying
+                        try {
+                            Thread.sleep(10)
+                        } catch (ie: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            break
+                        }
                     }
                 }
-            }, "device-playback-capture").also { it.start() }
+                Log.i(TAG, "PLAYBACK_CAPTURE_THREAD_ENDED")
+            }, "device-playback-capture").also { 
+                it.priority = Thread.MAX_PRIORITY
+                it.start() 
+            }
             true
         } catch (e: SecurityException) {
             Log.e(TAG, "PLAYBACK_CAPTURE_FAILED reason=security ${e.message}", e)

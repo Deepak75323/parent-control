@@ -1,10 +1,11 @@
 import React, {useEffect, useState} from 'react';
-import {View, Text, StyleSheet, Alert} from 'react-native';
+import {View, Text, StyleSheet} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {childLoginPasswordApi, familyHandleApi} from '../services/api';
 import {Card, FormField, HeroBlock, PrimaryBtn, ScreenShell} from '../components/AppScreen';
 import {getApiErrorMessage} from '../utils/apiError';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'FamilyHandle'>;
 
@@ -35,7 +36,7 @@ export function FamilyHandleScreen({navigation, route}: Props) {
 
   const continueAfterSave = async () => {
     if (!pairingGate) {
-      Alert.alert('Saved', 'Children use this handle with your family password to link.');
+      appAlert('Saved', 'Children use this handle with your family password to link.');
       return;
     }
     try {
@@ -55,7 +56,7 @@ export function FamilyHandleScreen({navigation, route}: Props) {
   const saveHandle = async () => {
     const trimmed = handle.trim();
     if (trimmed.replace(/^@/, '').length < 3) {
-      Alert.alert('Family handle', 'Enter at least 3 characters');
+      appAlert('Family handle', 'Enter at least 3 characters');
       return;
     }
     setSaving(true);
@@ -67,7 +68,7 @@ export function FamilyHandleScreen({navigation, route}: Props) {
       }
       await continueAfterSave();
     } catch (e) {
-      Alert.alert('Couldn’t save', getApiErrorMessage(e, 'Handle may already be taken.'));
+      appAlert('Couldn’t save', getApiErrorMessage(e, 'Handle may already be taken.'));
     } finally {
       setSaving(false);
     }

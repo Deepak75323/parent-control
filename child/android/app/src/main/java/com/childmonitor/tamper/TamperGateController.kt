@@ -26,6 +26,13 @@ object TamperGateController {
     }
 
     private fun onTamperBypassRequested(context: Context, afterUnlock: String?, target: String?) {
+        // Setup / first-enable: do not open TamperGate (post-activate Settings looks like deactivate).
+        if (MonitoringPrefs.isPermissionSetupInProgress(context) ||
+            MonitoringPrefs.isDeviceAdminSetupGraceActive(context)
+        ) {
+            Log.i(TAG, "Ignoring tamper bypass during permission setup / admin grace")
+            return
+        }
         if (MonitoringPrefs.isTamperUnlocked(context)) {
             Log.i(TAG, "Tamper bypass allowed — unlock token active")
             if (!afterUnlock.isNullOrBlank()) {
@@ -40,6 +47,12 @@ object TamperGateController {
     }
 
     fun launchGate(context: Context, afterUnlock: String? = null, target: String? = null) {
+        if (MonitoringPrefs.isPermissionSetupInProgress(context) ||
+            MonitoringPrefs.isDeviceAdminSetupGraceActive(context)
+        ) {
+            Log.i(TAG, "Skipping tamper gate during permission setup / admin grace")
+            return
+        }
         val intent = buildGateIntent(context, afterUnlock, target)
         // Prefer AccessibilityService context on MIUI/HyperOS — plain app context is often
         // blocked by background-activity launch limits, so the gate never appears.
@@ -89,9 +102,13 @@ object TamperGateController {
     }
 
     fun shouldBlockSettingsInteraction(context: Context): Boolean {
-        if (!TamperProtectionManager.isDeviceAdminActive(context)) return false
-        if (!MonitoringPrefs.isTamperProtectionEnabled(context)) return false
-        return !MonitoringPrefs.isTamperUnlocked(context)
+        return TamperBlockPolicy.shouldBlockSettingsInteraction(
+            deviceAdminActive = TamperProtectionManager.isDeviceAdminActive(context),
+            tamperProtectionEnabled = MonitoringPrefs.isTamperProtectionEnabled(context),
+            tamperUnlocked = MonitoringPrefs.isTamperUnlocked(context),
+            permissionSetupInProgress = MonitoringPrefs.isPermissionSetupInProgress(context),
+            deviceAdminSetupGraceActive = MonitoringPrefs.isDeviceAdminSetupGraceActive(context),
+        )
     }
 
     fun shouldBlockAccessibilityDisable(context: Context): Boolean {

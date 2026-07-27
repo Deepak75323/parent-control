@@ -81,6 +81,11 @@ public class HeartbeatRequest {
   @Size(max = 32)
   private String standbyBucket;
 
+  /** Failed offline parent-password unlock attempts since last successful report. */
+  @Min(0)
+  @Max(1000)
+  private Integer offlineUnlockFailures;
+
   private Long dataSyncFgsUsedMs;
 
   private Long dataSyncFgsDailyCapMs;

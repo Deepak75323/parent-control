@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {View, Text, StyleSheet, Alert, Dimensions} from 'react-native';
+import {View, Text, StyleSheet, Dimensions} from 'react-native';
 import {Circle, Marker} from 'react-native-maps';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
@@ -7,6 +7,7 @@ import {SafeMapView} from '../components/SafeMapView';
 import {GeofenceZone, monitoringApi, policiesApi} from '../services/api';
 import {Card, FormField, HeroBlock, PrimaryBtn, ScreenShell} from '../components/AppScreen';
 import {useRealtimeStore} from '../store/realtimeStore';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Geofences'>;
 
@@ -25,7 +26,7 @@ export function GeofencesScreen({navigation, route}: Props) {
       const {data} = await monitoringApi.geofences(deviceId);
       setZones(data.data);
     } catch {
-      Alert.alert('Error', 'Couldn’t load geofences. Check your connection and try again.');
+      appAlert('Error', 'Couldn’t load geofences. Check your connection and try again.');
     }
   }, [deviceId]);
 
@@ -60,9 +61,9 @@ export function GeofencesScreen({navigation, route}: Props) {
         radiusM: parseFloat(radius) || 200,
       });
       await load();
-      Alert.alert('Created', `Geofence "${name}" saved`);
+      appAlert('Created', `Geofence "${name}" saved`);
     } catch {
-      Alert.alert('Error', 'Couldn’t create this geofence. Please try again.');
+      appAlert('Error', 'Couldn’t create this geofence. Please try again.');
     }
   };
 

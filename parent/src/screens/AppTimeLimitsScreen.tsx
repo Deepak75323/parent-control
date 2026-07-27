@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Pressable,
   FlatList,
-  Alert,
   ActivityIndicator,
   Modal,
   TextInput,
@@ -26,6 +25,7 @@ import {
 } from '../services/api';
 import {formatUsageMs} from '../utils/formatUsage';
 import {appDisplayName} from '../utils/appDisplayName';
+import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AppTimeLimits'>;
 
@@ -219,7 +219,7 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
       setScreenTimeRules(bundleRes.data.data.screenTime ?? []);
       setUsageEntries(usageRes.data.data.content ?? []);
     } catch {
-      Alert.alert('Error', 'Couldn’t load time limits. Check your connection and try again.');
+      appAlert('Error', 'Couldn’t load time limits. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -284,7 +284,7 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
       void deviceApi.sendCommand(deviceId, 'SYNC_POLICIES').catch(() => undefined);
       await load();
       setModalVisible(false);
-      Alert.alert(
+      appAlert(
         'Saved',
         `${limitMin} min/day limit set for ${appDisplayName({
           appLabel: selectedApp.appLabel,
@@ -292,14 +292,14 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
         })}`,
       );
     } catch {
-      Alert.alert('Error', 'Couldn’t save this limit. Please try again.');
+      appAlert('Error', 'Couldn’t save this limit. Please try again.');
     } finally {
       setSaving(false);
     }
   };
 
   const deletePolicy = async (policyId: string) => {
-    Alert.alert('Remove limit', 'Remove this time limit?', [
+    appAlert('Remove limit', 'Remove this time limit?', [
       {text: 'Cancel', style: 'cancel'},
       {
         text: 'Remove',
@@ -310,7 +310,7 @@ export function AppTimeLimitsScreen({navigation, route}: Props) {
             void deviceApi.sendCommand(deviceId, 'SYNC_POLICIES').catch(() => undefined);
             await load();
           } catch {
-            Alert.alert('Error', 'Couldn’t remove this limit. Please try again.');
+            appAlert('Error', 'Couldn’t remove this limit. Please try again.');
           }
         },
       },

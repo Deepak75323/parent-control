@@ -33,6 +33,45 @@ public final class HiddenCameraBridge {
     }
 
     /**
+     * Get the current camera facing mode for state synchronization.
+     */
+    public static String getCurrentFacing() {
+        AbstractVideoCaptureController ctrl = activeController;
+        if (ctrl == null) {
+            return null;
+        }
+        if (ctrl instanceof com.childmonitor.capture.CameraXCaptureController) {
+            boolean isFront = ((com.childmonitor.capture.CameraXCaptureController) ctrl).isCurrentlyFrontFacing();
+            return isFront ? "user" : "environment";
+        }
+        // For legacy controllers, try to infer from device ID or settings
+        try {
+            String deviceId = ctrl.getDeviceId();
+            // Convention: "0" = front, "1" = back
+            if ("0".equals(deviceId)) {
+                return "user";
+            } else if ("1".equals(deviceId)) {
+                return "environment";
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not determine facing from device ID", e);
+        }
+        return null;
+    }
+
+    /**
+     * Flip live camera facing without a RN Promise — used when STOMP SWITCH_CAMERA arrives
+     * and the JS control listener may be missing.
+     */
+    public static void switchFacingToggle(java.util.function.BiConsumer<String, Exception> result) {
+        String current = getCurrentFacing();
+        boolean wantFront = current == null || "environment".equalsIgnoreCase(current);
+        String nextFacing = wantFront ? "user" : "environment";
+        Log.i(TAG, "switchFacingToggle current=" + current + " next=" + nextFacing);
+        switchFacingInternal(nextFacing, result);
+    }
+
+    /**
      * Flip the live hidden CameraX capturer to an absolute facing without recreating
      * the MediaStream (avoids Xiaomi unbind races and stuck applyConstraints).
      */
@@ -44,18 +83,30 @@ public final class HiddenCameraBridge {
         }
         boolean wantFront = facingMode == null
                 || !facingMode.toLowerCase(java.util.Locale.US).contains("environment");
+
+        Log.i(TAG, "switchFacing request: " + facingMode + " (wantFront=" + wantFront + ")");
+
         if (ctrl instanceof com.childmonitor.capture.CameraXCaptureController) {
             Log.i(TAG, "switchFacing CameraX wantFront=" + wantFront);
+            boolean alreadyFront = ((com.childmonitor.capture.CameraXCaptureController) ctrl)
+                    .isCurrentlyFrontFacing();
+            final boolean wasNoOp = (wantFront == alreadyFront);
             ((com.childmonitor.capture.CameraXCaptureController) ctrl).switchFacing(
                     wantFront,
                     e -> {
                         if (e != null) {
+                            Log.w(TAG, "CameraX switchFacing failed: " + e.getMessage(), e);
                             promise.reject("CAMERA_SWITCH", e.getMessage(), e);
                         } else {
+                            boolean actualFront = ((com.childmonitor.capture.CameraXCaptureController) ctrl)
+                                    .isCurrentlyFrontFacing();
+                            String actualFacing = actualFront ? "user" : "environment";
+                            Log.i(TAG, "CameraX switchFacing success: requested=" + facingMode
+                                    + ", actual=" + actualFacing + ", noop=" + wasNoOp);
                             WritableMap result = Arguments.createMap();
-                            result.putString(
-                                    "facingMode",
-                                    wantFront ? "user" : "environment");
+                            result.putString("facingMode", actualFacing);
+                            result.putBoolean("switchSuccessful", !wasNoOp && actualFront == wantFront);
+                            result.putBoolean("noop", wasNoOp);
                             promise.resolve(result);
                         }
                     });
@@ -83,15 +134,72 @@ public final class HiddenCameraBridge {
                 });
     }
 
-    public static void stopActiveCapture(ReactApplicationContext reactContext) {
-        String streamId = activeStreamId;
-        if (streamId == null) {
+    private static void switchFacingInternal(
+            String facingMode,
+            java.util.function.BiConsumer<String, Exception> result) {
+        AbstractVideoCaptureController ctrl = activeController;
+        if (ctrl == null) {
+            if (result != null) {
+                result.accept(null, new IllegalStateException("No active hidden camera capture"));
+            }
             return;
         }
+        boolean wantFront = facingMode == null
+                || !facingMode.toLowerCase(java.util.Locale.US).contains("environment");
+
+        Log.i(TAG, "switchFacingInternal request: " + facingMode + " (wantFront=" + wantFront + ")");
+
+        if (ctrl instanceof com.childmonitor.capture.CameraXCaptureController) {
+            ((com.childmonitor.capture.CameraXCaptureController) ctrl).switchFacing(
+                    wantFront,
+                    e -> {
+                        if (e != null) {
+                            Log.w(TAG, "CameraX switchFacing failed: " + e.getMessage(), e);
+                            if (result != null) {
+                                result.accept(
+                                        null,
+                                        e instanceof Exception ? (Exception) e : new Exception(e));
+                            }
+                        } else {
+                            boolean actualFront = ((com.childmonitor.capture.CameraXCaptureController) ctrl)
+                                    .isCurrentlyFrontFacing();
+                            String actualFacing = actualFront ? "user" : "environment";
+                            Log.i(TAG, "CameraX switchFacingInternal success actual=" + actualFacing);
+                            if (result != null) {
+                                result.accept(actualFacing, null);
+                            }
+                        }
+                    });
+            return;
+        }
+        com.facebook.react.bridge.WritableMap constraints = Arguments.createMap();
+        constraints.putString("facingMode", wantFront ? "user" : "environment");
+        constraints.putInt("width", ctrl.getWidth());
+        constraints.putInt("height", ctrl.getHeight());
+        constraints.putInt("frameRate", ctrl.getFrameRate());
+        ctrl.applyConstraints(
+                constraints,
+                e -> {
+                    if (e != null) {
+                        if (result != null) {
+                            result.accept(
+                                    null,
+                                    e instanceof Exception ? (Exception) e : new Exception(e));
+                        }
+                    } else if (result != null) {
+                        result.accept(wantFront ? "user" : "environment", null);
+                    }
+                });
+    }
+
+    public static void stopActiveCapture(ReactApplicationContext reactContext) {
+        String streamId = activeStreamId;
         activeStreamId = null;
 
         // Stop the CameraX capturer first so ProcessCameraProvider.unbindAll() runs
         // synchronously and the green camera privacy indicator is cleared immediately.
+        // Do this even when streamId is already null — PC may still hold the track while
+        // the controller reference remains (network-loss teardown race).
         AbstractVideoCaptureController ctrl = activeController;
         activeController = null;
         if (ctrl != null) {
@@ -101,6 +209,10 @@ public final class HiddenCameraBridge {
             } catch (Exception e) {
                 Log.w(TAG, "stopActiveCapture: capturer stopCapture failed", e);
             }
+        }
+
+        if (streamId == null) {
+            return;
         }
 
         try {

@@ -16,6 +16,7 @@ object SecureCredentialStore {
     private const val KEY_OFFLINE_PIN_SALT = "offline_parent_pin_salt"
     private const val KEY_OFFLINE_PIN_HASH = "offline_parent_pin_hash"
     private const val KEY_OFFLINE_PIN_ITERATIONS = "offline_parent_pin_iterations"
+    private const val KEY_OFFLINE_PIN_SYNCED_AT = "offline_parent_pin_synced_at_ms"
 
     @Volatile
     private var encryptedPrefs: SharedPreferences? = null
@@ -77,12 +78,14 @@ object SecureCredentialStore {
         saltBase64: String,
         hashBase64: String,
         iterations: Int,
+        syncedAtMs: Long = System.currentTimeMillis(),
     ) {
         if (saltBase64.isBlank() || hashBase64.isBlank() || iterations < 1) return
         prefs(context).edit()
             .putString(KEY_OFFLINE_PIN_SALT, saltBase64)
             .putString(KEY_OFFLINE_PIN_HASH, hashBase64)
             .putInt(KEY_OFFLINE_PIN_ITERATIONS, iterations)
+            .putLong(KEY_OFFLINE_PIN_SYNCED_AT, syncedAtMs)
             .commit()
     }
 
@@ -95,11 +98,15 @@ object SecureCredentialStore {
         return Triple(salt, hash, iterations)
     }
 
+    fun offlineParentPinSyncedAtMs(context: Context): Long =
+        prefs(context).getLong(KEY_OFFLINE_PIN_SYNCED_AT, 0L)
+
     fun clearOfflineParentPin(context: Context) {
         prefs(context).edit()
             .remove(KEY_OFFLINE_PIN_SALT)
             .remove(KEY_OFFLINE_PIN_HASH)
             .remove(KEY_OFFLINE_PIN_ITERATIONS)
+            .remove(KEY_OFFLINE_PIN_SYNCED_AT)
             .apply()
     }
 

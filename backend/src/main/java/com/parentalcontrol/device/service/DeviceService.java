@@ -361,6 +361,8 @@ public class DeviceService {
     deviceTrustService.evaluateHeartbeat(
         device, request.getIntegrityToken(), request.getTrustSignals());
 
+    // Update device to ONLINE status since we received a successful heartbeat
+    boolean wasOffline = device.getStatus() == DeviceStatus.OFFLINE;
     device.setStatus(DeviceStatus.ONLINE);
     device.setLastSeenAt(Instant.now());
     if (request.getBatteryLevel() != null) {
@@ -467,9 +469,20 @@ public class DeviceService {
     if (device.isMediaProjectionGranted()) {
       deviceHealthObservabilityService.recordMediaProjectionState(true);
     }
+    
+    // Publish device status update - this will notify parent in real-time
     realtimeEventService.publishDeviceStatus(device);
+    
+    // If device was offline and is now online, log the recovery
+    if (wasOffline) {
+      log.info("Device {} came back ONLINE — lastSeenAt={}", device.getId(), device.getLastSeenAt());
+    }
+    
     monitoringKafkaPublisher.heartbeat(device.getId());
     alertService.checkLowBattery(device, device.getBatteryLevel());
+    if (request.getOfflineUnlockFailures() != null && request.getOfflineUnlockFailures() > 0) {
+      alertService.checkOfflineUnlockFailures(device, request.getOfflineUnlockFailures());
+    }
     return toResponse(device);
   }
 

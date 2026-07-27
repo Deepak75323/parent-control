@@ -37,4 +37,8 @@ object HiddenCameraCapture {
     fun switchFacing(facingMode: String, promise: Promise) {
         HiddenCameraBridge.switchFacing(facingMode, promise)
     }
+
+    fun getCurrentFacing(): String? {
+        return HiddenCameraBridge.getCurrentFacing()
+    }
 }

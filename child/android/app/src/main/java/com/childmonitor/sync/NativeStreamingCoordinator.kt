@@ -612,18 +612,38 @@ object NativeStreamingCoordinator {
     }
 
     private fun onStreamControl(context: Context, sessionId: String, command: String) {
-        if (command != "SWITCH_CAMERA") return
+        if (!command.equals("SWITCH_CAMERA", ignoreCase = true)) return
         if (sessionId.isNotBlank() && activeSessionId != null && activeSessionId != sessionId) {
             Log.w(TAG, "stream-control SWITCH_CAMERA ignored — session mismatch want=$sessionId have=$activeSessionId")
             return
         }
-        val delivered = com.childmonitor.native.ChildMonitorNativeModule.emitStreamControl("SWITCH_CAMERA")
         Log.i(
             TAG,
-            "stream-control SWITCH_CAMERA delivered=$delivered jsActive=${jsListenerActive.get()} " +
-                "canJs=${canUseJsStreaming()}",
+            "stream-control SWITCH_CAMERA received session=$sessionId " +
+                "cameraActive=${com.oney.WebRTCModule.HiddenCameraBridge.isCaptureActive()} " +
+                "jsActive=${jsListenerActive.get()} canJs=${canUseJsStreaming()}",
         )
-        // If JS did not receive the event (background / no React instance), flip via headless.
+
+        // Primary path: flip on the native CameraX capturer. Do not emit SWITCH_CAMERA to JS
+        // afterward — JS listeners would call switchCamera() and flip a second time (net no-op).
+        if (com.oney.WebRTCModule.HiddenCameraBridge.isCaptureActive()) {
+            com.oney.WebRTCModule.HiddenCameraBridge.switchFacingToggle { facing, err ->
+                if (err != null) {
+                    Log.w(TAG, "native SWITCH_CAMERA failed: ${err.message}", err)
+                    val delivered =
+                        com.childmonitor.native.ChildMonitorNativeModule.emitStreamControl("SWITCH_CAMERA")
+                    if (!delivered) {
+                        StreamingHeadlessTaskService.sendSwitchCamera(context)
+                    }
+                } else {
+                    Log.i(TAG, "native SWITCH_CAMERA ok facing=$facing")
+                }
+            }
+            return
+        }
+
+        val delivered = com.childmonitor.native.ChildMonitorNativeModule.emitStreamControl("SWITCH_CAMERA")
+        Log.i(TAG, "stream-control SWITCH_CAMERA (no native camera) delivered=$delivered")
         if (!delivered) {
             StreamingHeadlessTaskService.sendSwitchCamera(context)
         }

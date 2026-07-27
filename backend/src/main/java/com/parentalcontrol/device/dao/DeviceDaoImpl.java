@@ -97,6 +97,11 @@ public class DeviceDaoImpl implements DeviceDao {
   }
 
   @Override
+  public long countNonRevokedByParentProfileId(UUID parentProfileId) {
+    return repository.countNonRevokedByParentProfileId(parentProfileId, DeviceStatus.REVOKED);
+  }
+
+  @Override
   public List<Device> findByStatusAndLastSeenAtBefore(DeviceStatus status, Instant cutoff) {
     return repository.findByStatusAndLastSeenAtBefore(status, cutoff);
   }

@@ -11,7 +11,9 @@ public enum AlertType {
   LOW_BATTERY,
   TIME_EXTENSION_REQUEST,
   /** Android 15+ dataSync FGS quota / standby degradation (P1-08). */
-  MONITORING_DEGRADED;
+  MONITORING_DEGRADED,
+  /** Child reported failed offline parent-password unlock attempts. */
+  OFFLINE_UNLOCK_FAILURES;
 
   public String code() {
     return name();

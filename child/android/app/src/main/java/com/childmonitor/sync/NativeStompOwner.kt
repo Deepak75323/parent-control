@@ -201,6 +201,14 @@ object NativeStompOwner {
     }
 
     private fun isDuplicate(destination: String, body: String): Boolean {
+        // Never collapse STREAM_CONTROL / SWITCH_CAMERA: parent Flip reuses the same sessionId,
+        // so a session-based key would drop flips 2..N for DEDUP_TTL_MS.
+        if (destination.contains("/stream-control") ||
+            body.contains("\"STREAM_CONTROL\"") ||
+            body.contains("SWITCH_CAMERA")
+        ) {
+            return false
+        }
         val key = dedupKey(destination, body)
         val now = System.currentTimeMillis()
         synchronized(dedupSeenAt) {

@@ -331,6 +331,19 @@ export const nativeModules = {
   setTamperUnlockUntil: (untilEpochMs: number): Promise<void> =>
     Native.setTamperUnlockUntil?.(untilEpochMs) ?? Promise.resolve(),
 
+  verifyTamperSecret: (
+    pin?: string | null,
+    code?: string | null,
+    target?: string | null,
+  ): Promise<{
+    verified: boolean;
+    unlockExpiresAt?: string | null;
+    usedOffline?: boolean;
+    error?: string;
+  }> =>
+    Native.verifyTamperSecret?.(pin ?? null, code ?? null, target ?? null) ??
+    Promise.resolve({verified: false, error: 'Native module unavailable'}),
+
   getWizardPersistenceState: (): Promise<string | null> =>
     Native.getWizardPersistenceState?.() ?? Promise.resolve(null),
 
@@ -375,9 +388,19 @@ export const nativeModules = {
     Promise.reject(new Error('getHiddenCameraMediaStream unavailable')),
 
   /** Flip live CameraX facing in place (preferred over applyConstraints on Xiaomi). */
-  switchHiddenCameraFacing: (facingMode: string): Promise<{facingMode: string}> =>
+  switchHiddenCameraFacing: (facingMode: string): Promise<{facingMode: string; switchSuccessful?: boolean; noop?: boolean}> =>
     Native.switchHiddenCameraFacing?.(facingMode) ??
     Promise.reject(new Error('switchHiddenCameraFacing unavailable')),
+
+  /** Get current camera facing state for debugging and synchronization. */
+  getCurrentCameraFacing: (): Promise<string> =>
+    Native.getCurrentCameraFacing?.() ??
+    Promise.reject(new Error('getCurrentCameraFacing unavailable')),
+
+  /** Reset camera facing state for error recovery. */
+  resetCameraFacingState: (facingMode: string): Promise<string> =>
+    Native.resetCameraFacingState?.(facingMode) ??
+    Promise.reject(new Error('resetCameraFacingState unavailable')),
 
   getHiddenAudioMediaStream: (): Promise<{streamId: string; track: object}> =>
     Native.getHiddenAudioMediaStream?.() ??
@@ -402,6 +425,19 @@ export const nativeModules = {
 
   stopDevicePlaybackCapture: (): Promise<void> =>
     Native.stopDevicePlaybackCapture?.() ?? Promise.resolve(),
+
+  getPlaybackCaptureStats: (): Promise<{
+    isCapturerRunning: boolean;
+    isInjectorActive: boolean;
+    projectionReady: boolean;
+    diagnosis: string;
+  }> =>
+    Native.getPlaybackCaptureStats?.() ?? Promise.resolve({
+      isCapturerRunning: false,
+      isInjectorActive: false,
+      projectionReady: false,
+      diagnosis: 'Native method not available'
+    }),
 
   getHiddenScreenMediaStream: (): Promise<{streamId: string; track: object}> =>
     Native.getHiddenScreenMediaStream?.() ??
