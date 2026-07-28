@@ -33,6 +33,7 @@ import {
 import type {PermissionDef, PermissionId, PermissionStatusMap} from '../services/permissionDashboard/types';
 import {flowLog} from '../services/flowLogger';
 import {Colors, Radii} from '../theme/design';
+import {TamperProtectionToggle} from '../components/TamperProtectionToggle';
 
 type Props = NativeStackScreenProps<ChildStackParamList, 'PermissionDashboard'>;
 
@@ -325,6 +326,18 @@ export function PermissionDashboardScreen({navigation}: Props) {
                     onTurnOn={() => void handleTurnOn(permId)}
                     onTurnOff={() => void handleTurnOff(permId)}
                   />
+                  {permId === 'accessibility' ? (
+                    <>
+                      <View style={styles.rowDivider} />
+                      <TamperProtectionToggle kind="accessibility" enabled={granted && known} />
+                    </>
+                  ) : null}
+                  {permId === 'deviceAdmin' ? (
+                    <>
+                      <View style={styles.rowDivider} />
+                      <TamperProtectionToggle kind="deviceAdmin" enabled={granted && known} />
+                    </>
+                  ) : null}
                 </View>
               );
             })}

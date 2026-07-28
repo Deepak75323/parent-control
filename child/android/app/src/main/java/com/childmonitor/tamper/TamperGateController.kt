@@ -26,17 +26,14 @@ object TamperGateController {
     }
 
     private fun onTamperBypassRequested(context: Context, afterUnlock: String?, target: String?) {
-        // Setup / first-enable: do not open TamperGate (post-activate Settings looks like deactivate).
-        if (MonitoringPrefs.isPermissionSetupInProgress(context) ||
-            MonitoringPrefs.isDeviceAdminSetupGraceActive(context)
-        ) {
-            Log.i(TAG, "Ignoring tamper bypass during permission setup / admin grace")
-            return
-        }
-        if (MonitoringPrefs.isTamperUnlocked(context)) {
-            Log.i(TAG, "Tamper bypass allowed — unlock token active")
-            if (!afterUnlock.isNullOrBlank()) {
+        if (!shouldOpenTamperGateForTarget(context, target)) {
+            Log.i(TAG, "Ignoring tamper bypass — protection off, unpaired, unlocked, or setup in progress")
+            if (MonitoringPrefs.isTamperUnlocked(context) && !afterUnlock.isNullOrBlank()) {
                 openAfterUnlock(context, afterUnlock)
+            } else if (target == ACTION_ACCESSIBILITY &&
+                !MonitoringPrefs.isAccessibilityTamperProtectionEnabled(context)
+            ) {
+                openAfterUnlock(context, ACTION_ACCESSIBILITY)
             }
             return
         }
@@ -47,10 +44,8 @@ object TamperGateController {
     }
 
     fun launchGate(context: Context, afterUnlock: String? = null, target: String? = null) {
-        if (MonitoringPrefs.isPermissionSetupInProgress(context) ||
-            MonitoringPrefs.isDeviceAdminSetupGraceActive(context)
-        ) {
-            Log.i(TAG, "Skipping tamper gate during permission setup / admin grace")
+        if (!shouldOpenTamperGateForTarget(context, target)) {
+            Log.i(TAG, "Skipping tamper gate — protection off, unpaired, unlocked, or setup in progress")
             return
         }
         val intent = buildGateIntent(context, afterUnlock, target)
@@ -68,6 +63,10 @@ object TamperGateController {
 
     fun launchGateForAction(context: Context, action: String?) {
         if (MonitoringPrefs.isTamperUnlocked(context)) {
+            openAfterUnlock(context, action)
+            return
+        }
+        if (!shouldOpenTamperGateForTarget(context, action)) {
             openAfterUnlock(context, action)
             return
         }
@@ -104,6 +103,7 @@ object TamperGateController {
     fun shouldBlockSettingsInteraction(context: Context): Boolean {
         return TamperBlockPolicy.shouldBlockSettingsInteraction(
             deviceAdminActive = TamperProtectionManager.isDeviceAdminActive(context),
+            paired = MonitoringPrefs.isPaired(context),
             tamperProtectionEnabled = MonitoringPrefs.isTamperProtectionEnabled(context),
             tamperUnlocked = MonitoringPrefs.isTamperUnlocked(context),
             permissionSetupInProgress = MonitoringPrefs.isPermissionSetupInProgress(context),
@@ -112,7 +112,34 @@ object TamperGateController {
     }
 
     fun shouldBlockAccessibilityDisable(context: Context): Boolean {
-        if (!AccessibilityHealthChecker.isAccessibilityEnabled(context)) return false
-        return shouldBlockSettingsInteraction(context)
+        return TamperBlockPolicy.shouldBlockAccessibilityDisable(
+            accessibilityEnabled = AccessibilityHealthChecker.isAccessibilityEnabled(context),
+            accessibilityTamperEnabled = MonitoringPrefs.isAccessibilityTamperProtectionEnabled(context),
+            paired = MonitoringPrefs.isPaired(context),
+            tamperUnlocked = MonitoringPrefs.isTamperUnlocked(context),
+            permissionSetupInProgress = MonitoringPrefs.isPermissionSetupInProgress(context),
+        )
+    }
+
+    private fun shouldOpenTamperGateForTarget(context: Context, target: String?): Boolean {
+        val paired = MonitoringPrefs.isPaired(context)
+        val tamperUnlocked = MonitoringPrefs.isTamperUnlocked(context)
+        val setupInProgress = MonitoringPrefs.isPermissionSetupInProgress(context)
+        return if (target == ACTION_ACCESSIBILITY) {
+            TamperBlockPolicy.shouldOpenAccessibilityTamperGate(
+                accessibilityTamperEnabled = MonitoringPrefs.isAccessibilityTamperProtectionEnabled(context),
+                paired = paired,
+                tamperUnlocked = tamperUnlocked,
+                permissionSetupInProgress = setupInProgress,
+            )
+        } else {
+            TamperBlockPolicy.shouldOpenDeviceAdminTamperGate(
+                deviceAdminTamperEnabled = MonitoringPrefs.isTamperProtectionEnabled(context),
+                paired = paired,
+                tamperUnlocked = tamperUnlocked,
+                permissionSetupInProgress = setupInProgress,
+                deviceAdminSetupGraceActive = MonitoringPrefs.isDeviceAdminSetupGraceActive(context),
+            )
+        }
     }
 }

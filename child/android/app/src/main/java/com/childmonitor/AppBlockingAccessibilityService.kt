@@ -123,6 +123,7 @@ class AppBlockingAccessibilityService : AccessibilityService() {
         ) {
             mainHandler.post {
                 DeviceAdminTamperGuard.tryBlockDeactivate(this, packageName)
+                DeviceAdminTamperGuard.relockIfLeftSettings(this, packageName)
                 AccessibilityTamperGuard.tryBlockDisable(this, packageName, eventType)
             }
         }

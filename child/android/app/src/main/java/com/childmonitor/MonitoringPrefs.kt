@@ -35,6 +35,7 @@ object MonitoringPrefs {
     private const val KEY_PERMISSION_SETUP_IN_PROGRESS = "permission_setup_in_progress"
     private const val KEY_SKIP_AUTO_RELOCK_UNTIL = "skip_auto_relock_until_ms"
     private const val KEY_DEVICE_ADMIN_SETUP_GRACE_UNTIL = "device_admin_setup_grace_until_ms"
+    private const val KEY_ACCESSIBILITY_TAMPER_PROTECTION = "accessibility_tamper_protection_enabled"
 
     /** Arm Accessibility auto-tap for MediaProjection dialog (sideload child APK). */
     fun armScreenCaptureAutoApprove(context: Context, windowMs: Long = 45_000L) {
@@ -211,7 +212,18 @@ object MonitoringPrefs {
 
     fun isTamperProtectionEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_TAMPER_PROTECTION, false)
+            .getBoolean(KEY_TAMPER_PROTECTION, true)
+
+    /** User-controlled — blocks turning off accessibility in Settings until parent PIN/code. */
+    fun isAccessibilityTamperProtectionEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_ACCESSIBILITY_TAMPER_PROTECTION, false)
+
+    fun setAccessibilityTamperProtectionEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_ACCESSIBILITY_TAMPER_PROTECTION, enabled)
+            .apply()
+    }
 
     fun setTamperUnlockUntilMs(context: Context, untilMs: Long) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

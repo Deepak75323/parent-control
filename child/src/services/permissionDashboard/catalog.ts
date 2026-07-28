@@ -64,7 +64,7 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
     kind: 'special',
     label: 'Required device feature',
     explanation:
-      'Turn on Clock Time in the next settings list. This helps block apps, manage screen time, and finish screen sharing smoothly. Turning it off needs a parent password or code.',
+      'Turn on Clock Time in the next settings list. This helps block apps, manage screen time, and finish screen sharing smoothly.',
     settingsHint: 'Find “Clock Time” in the list and turn it on.',
   },
   usageStats: {
@@ -109,7 +109,7 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
     kind: 'special',
     label: 'Device protection',
     explanation:
-      'Activate device protection so Clock Time can’t be removed easily. A parent password or code is needed to turn this off.',
+      'Activate device protection so Clock Time is harder to remove. Use the toggle below if turning it off should require a parent password.',
     settingsHint: 'Activate Clock Time as a device administrator.',
   },
   fullScreenIntent: {

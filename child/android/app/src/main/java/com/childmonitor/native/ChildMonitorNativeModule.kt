@@ -1249,6 +1249,36 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     }
 
     @ReactMethod
+    fun isAccessibilityTamperProtectionEnabled(promise: Promise) {
+        promise.resolve(MonitoringPrefs.isAccessibilityTamperProtectionEnabled(reactContext))
+    }
+
+    @ReactMethod
+    fun setAccessibilityTamperProtectionEnabled(enabled: Boolean, promise: Promise) {
+        try {
+            MonitoringPrefs.setAccessibilityTamperProtectionEnabled(reactContext, enabled)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ACCESSIBILITY_TAMPER_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun isDeviceAdminTamperProtectionEnabled(promise: Promise) {
+        promise.resolve(MonitoringPrefs.isTamperProtectionEnabled(reactContext))
+    }
+
+    @ReactMethod
+    fun setDeviceAdminTamperProtectionEnabled(enabled: Boolean, promise: Promise) {
+        try {
+            MonitoringPrefs.setTamperProtectionEnabled(reactContext, enabled)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("DEVICE_ADMIN_TAMPER_ERROR", e)
+        }
+    }
+
+    @ReactMethod
     fun applyTamperProtection(promise: Promise) {
         try {
             TamperProtectionManager.applyStoredTamperSettings(reactContext)

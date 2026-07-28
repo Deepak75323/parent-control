@@ -177,7 +177,6 @@ object TamperProtectionManager {
 
     fun onDeviceAdminDisabled(context: Context) {
         setHideLauncher(context, false)
-        MonitoringPrefs.setTamperProtectionEnabled(context, false)
         MonitoringPrefs.setHideLauncherEnabled(context, false)
         SetupAccessNotificationHelper.sync(context)
     }

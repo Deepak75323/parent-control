@@ -1,9 +1,10 @@
 /**
  * Blocks ServiceStatus menu navigations briefly after screen transitions.
  * Phantom touches from ChildLogin "Continue" or Diagnostics "Back to home"
- * can arrive 3–4s after ServiceStatus gains focus (delayed touch lift).
+ * can land on a menu row that appeared at the same coordinates.
+ * MenuButton also rejects press-in timestamps before menusEnabledAt.
  */
-export const SERVICE_STATUS_MENU_GUARD_MS = 2500;
+export const SERVICE_STATUS_MENU_GUARD_MS = 600;
 
 /** Extra cooldown for Diagnostics — the usual phantom-tap target after Back to home. */
 export const DEBUG_DASHBOARD_REOPEN_COOLDOWN_MS = 5000;

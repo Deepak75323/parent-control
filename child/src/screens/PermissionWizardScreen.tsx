@@ -34,6 +34,7 @@ import {cancelActivePermissionGrant} from '../services/permissionDashboard/grant
 import {flowLog} from '../services/flowLogger';
 import {startMonitoringSync} from '../services/syncService';
 import {Colors, Radii} from '../theme/design';
+import {TamperProtectionToggle} from '../components/TamperProtectionToggle';
 
 type Props = NativeStackScreenProps<ChildStackParamList, 'PermissionWizard'>;
 
@@ -252,6 +253,11 @@ export function PermissionWizardScreen({navigation}: Props) {
   }, [advanceFrom, granting, stepId]);
 
   useEffect(() => {
+    // Accessibility / device-admin steps show a tamper-protection toggle — wait for
+    // the user to tap Continue so they can choose before Settings opens.
+    if (stepId === 'accessibility' || stepId === 'deviceAdmin') {
+      return;
+    }
     if (!booting && stepId && !granting && !grantLock.current && !denied) {
       const timer = setTimeout(() => void runGrant(), 400);
       return () => clearTimeout(timer);
@@ -297,6 +303,22 @@ export function PermissionWizardScreen({navigation}: Props) {
 
       <View style={styles.bodyCard}>
         <Text style={styles.body}>{body}</Text>
+        {stepId === 'accessibility' ? (
+          <View style={styles.tamperToggleWrap}>
+            <TamperProtectionToggle kind="accessibility" compact />
+            <Text style={styles.tamperPrompt}>
+              Optional — leave Off to turn accessibility off freely later. Then tap Open Settings.
+            </Text>
+          </View>
+        ) : null}
+        {stepId === 'deviceAdmin' ? (
+          <View style={styles.tamperToggleWrap}>
+            <TamperProtectionToggle kind="deviceAdmin" compact />
+            <Text style={styles.tamperPrompt}>
+              Optional — leave Off to turn device protection off freely later. Then tap Open Settings.
+            </Text>
+          </View>
+        ) : null}
         {accessibilityNudge && stepId === 'accessibility' ? (
           <Text style={styles.nudge}>{accessibilityNudge}</Text>
         ) : null}
@@ -398,6 +420,18 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   body: {fontSize: 15, color: Colors.textSecondary, lineHeight: 22},
+  tamperToggleWrap: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  tamperPrompt: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 17,
+    color: Colors.textTertiary,
+  },
   denied: {
     marginTop: 16,
     fontSize: 14,

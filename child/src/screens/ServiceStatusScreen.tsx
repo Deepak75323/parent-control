@@ -454,15 +454,15 @@ export function ServiceStatusScreen({navigation}: Props) {
           </View>
         </AnimCard>
 
-        {/* Settings — not mounted until touch guard expires (no hit target for phantom taps). */}
-        {touchReady ? (
-        <AnimCard delay={200}>
+        {/* Settings — visible immediately; taps blocked until phantom-tap guard expires. */}
+        <AnimCard delay={120}>
           <Text style={styles.sectionLabel}>Settings</Text>
           <MenuButton
             icon="🔐"
             label="Permissions"
             subtitle="See what’s on and finish anything that’s missing"
             menusEnabledAt={menusEnabledAtRef.current}
+            disabled={!touchReady}
             onPress={() => navigateFromServiceStatus('CheckPermissions', 'menu_grant_permissions')}
           />
           {__DEV__ ? (
@@ -473,6 +473,7 @@ export function ServiceStatusScreen({navigation}: Props) {
                 label="Diagnostics"
                 subtitle="Developer tools (debug builds only)"
                 menusEnabledAt={menusEnabledAtRef.current}
+                disabled={!touchReady}
                 onPress={() => navigateFromServiceStatus('DebugDashboard', 'menu_diagnostics')}
               />
             </>
@@ -483,6 +484,7 @@ export function ServiceStatusScreen({navigation}: Props) {
             label="Parent password"
             subtitle="Change the password used to open settings"
             menusEnabledAt={menusEnabledAtRef.current}
+            disabled={!touchReady}
             onPress={() => navigateFromServiceStatus('PinVerification', 'menu_parent_pin')}
           />
           <View style={styles.menuDivider} />
@@ -495,6 +497,7 @@ export function ServiceStatusScreen({navigation}: Props) {
                 : 'Hide Clock Time from the app list'
             }
             menusEnabledAt={menusEnabledAtRef.current}
+            disabled={!touchReady || hideBusy}
             onPress={() => void toggleHideApp()}
           />
           <View style={styles.menuDivider} />
@@ -503,12 +506,10 @@ export function ServiceStatusScreen({navigation}: Props) {
             label="Connect to a new parent"
             subtitle="Use a new pairing code from the parent app"
             menusEnabledAt={menusEnabledAtRef.current}
+            disabled={!touchReady}
             onPress={() => setConfirmAction('repair')}
           />
         </AnimCard>
-        ) : (
-          <View style={styles.settingsPlaceholder} />
-        )}
 
         {/* Version */}
         <AnimCard delay={300} style={styles.versionCard}>
@@ -667,7 +668,6 @@ const styles = StyleSheet.create({
 
   // Menu
   sectionLabel: {fontSize: 12, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12},
-  settingsPlaceholder: {minHeight: 320},
   menuBtn: {flexDirection: 'row', alignItems: 'center', paddingVertical: 10},
   menuIconWrap: {width: 42, height: 42, borderRadius: 12, backgroundColor: '#ede9fe', alignItems: 'center', justifyContent: 'center', marginRight: 14},
   menuIconDanger: {backgroundColor: '#fee2e2'},

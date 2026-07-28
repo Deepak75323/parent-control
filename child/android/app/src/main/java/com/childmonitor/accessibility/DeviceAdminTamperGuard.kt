@@ -6,6 +6,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.childmonitor.R
+import com.childmonitor.tamper.TamperBlockPolicy
 import com.childmonitor.tamper.TamperGateController
 
 /**
@@ -29,6 +30,49 @@ object DeviceAdminTamperGuard {
     private var lastPageBlockAt = 0L
     private var lastPageScanAt = 0L
     private var dialogSweepRemaining = 0
+    /** True after Settings was seen during an active parent unlock window. */
+    @Volatile
+    private var sawSettingsWhileUnlocked = false
+
+    /**
+     * If parent unlocked to open Settings but left without turning protection off,
+     * clear the unlock so the next visit shows the tamper password screen again.
+     */
+    fun relockIfLeftSettings(service: AccessibilityService, packageName: String?) {
+        val unlocked = com.childmonitor.MonitoringPrefs.isTamperUnlocked(service)
+        if (!unlocked) {
+            sawSettingsWhileUnlocked = false
+            return
+        }
+        val adminActive = com.childmonitor.TamperProtectionManager.isDeviceAdminActive(service)
+        val a11yTamper =
+            com.childmonitor.MonitoringPrefs.isAccessibilityTamperProtectionEnabled(service) &&
+                com.childmonitor.AccessibilityHealthChecker.isAccessibilityEnabled(service)
+        val protectionStillActive = adminActive || a11yTamper
+        if (!protectionStillActive) {
+            sawSettingsWhileUnlocked = false
+            return
+        }
+        val pkg = packageName ?: return
+        val isSettings = TamperSettingsHeuristics.isSettingsPackage(pkg)
+        val isOurApp = pkg == service.packageName
+        if (isSettings) {
+            sawSettingsWhileUnlocked = true
+            return
+        }
+        if (TamperBlockPolicy.shouldClearUnlockAfterLeavingSettings(
+                tamperUnlocked = true,
+                protectionStillActive = true,
+                sawSettingsWhileUnlocked = sawSettingsWhileUnlocked,
+                packageIsSettings = false,
+                packageIsOurApp = isOurApp,
+            )
+        ) {
+            Log.i(TAG, "Left Settings with protection still on — clearing tamper unlock")
+            com.childmonitor.MonitoringPrefs.clearTamperUnlock(service)
+            sawSettingsWhileUnlocked = false
+        }
+    }
 
     fun tryBlockDeactivate(service: AccessibilityService, packageName: String?): Boolean {
         if (!TamperGateController.shouldBlockSettingsInteraction(service)) return false

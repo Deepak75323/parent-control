@@ -325,6 +325,18 @@ export const nativeModules = {
   setHideLauncher: (hidden: boolean): Promise<boolean> =>
     Native.setHideLauncher?.(hidden) ?? Promise.resolve(false),
 
+  isAccessibilityTamperProtectionEnabled: (): Promise<boolean> =>
+    Native.isAccessibilityTamperProtectionEnabled?.() ?? Promise.resolve(false),
+
+  setAccessibilityTamperProtectionEnabled: (enabled: boolean): Promise<void> =>
+    Native.setAccessibilityTamperProtectionEnabled?.(enabled) ?? Promise.resolve(),
+
+  isDeviceAdminTamperProtectionEnabled: (): Promise<boolean> =>
+    Native.isDeviceAdminTamperProtectionEnabled?.() ?? Promise.resolve(true),
+
+  setDeviceAdminTamperProtectionEnabled: (enabled: boolean): Promise<void> =>
+    Native.setDeviceAdminTamperProtectionEnabled?.(enabled) ?? Promise.resolve(),
+
   applyTamperProtection: (): Promise<void> =>
     Native.applyTamperProtection?.() ?? Promise.resolve(),
 
