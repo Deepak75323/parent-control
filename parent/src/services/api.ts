@@ -400,10 +400,19 @@ export interface ScreenShareSession {
   traceId?: string;
 }
 
+export interface DeviceWakeResult {
+  deviceId: string;
+  fcmDispatched: boolean;
+  status: string;
+  lastSeenAt: string | null;
+}
+
 export const deviceApi = {
   list: () => api.get<ApiResponse<DeviceSummary[]>>(ApiPaths.DEVICES),
   get: (deviceId: string) =>
     api.get<ApiResponse<DeviceSummary>>(ApiPaths.device(deviceId)),
+  wake: (deviceId: string) =>
+    api.post<ApiResponse<DeviceWakeResult>>(ApiPaths.deviceWake(deviceId), {}),
   createPairingCode: () =>
     api.post<ApiResponse<{code: string; qrPayload: string; expiresAt?: string}>>(
       ApiPaths.DEVICES_PAIRING_CODE,
