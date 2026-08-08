@@ -35,6 +35,7 @@ import {
   SERVICE_STATUS_MENU_GUARD_MS,
   suppressServiceStatusMenus,
 } from '../navigation/navigationInputGuard';
+import {isSetupPermissionsComplete} from '../services/permissionSetupSequence';
 
 type Props = NativeStackScreenProps<ChildStackParamList, 'ServiceStatus'>;
 type ConfirmAction = 'repair';
@@ -223,57 +224,61 @@ export function ServiceStatusScreen({navigation}: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      const refreshScreenCapture = async () => {
+      const refreshPermissions = async () => {
         try {
-          const [projection, accessibility, usageStats, overlay] = await Promise.all([
-            nativeModules.isMediaProjectionGranted(),
+          const [accessibility, setupComplete] = await Promise.all([
             nativeModules.isAccessibilityEnabled(),
-            nativeModules.isUsageStatsGranted(),
-            nativeModules.isOverlayGranted(),
+            isSetupPermissionsComplete(),
           ]);
-          const prevScreenCaptureOk = screenCaptureOkRef.current;
           const prevAccessibilityOk = accessibilityOkRef.current;
           const prevMissingCritical = missingCriticalRef.current;
           const nextAccessibilityOk = accessibility;
-          const nextScreenCaptureOk = projection && accessibility;
-          const nextMissingCritical = !accessibility || !usageStats || !overlay;
+          // Camera-only: warn only when keep-list perms are incomplete (not usage/overlay/screen).
+          const nextMissingCritical = accessibility && !setupComplete;
           setAccessibilityOk(nextAccessibilityOk);
-          setScreenCaptureOk(nextScreenCaptureOk);
+          setScreenCaptureOk(true);
           setMissingCritical(nextMissingCritical);
-          navTracePermissions('ServiceStatus permission poll', {
-            screenCapture: projection,
-            accessibility,
-            usageStats,
-            overlay,
-          }, false, {
-            touchReady,
-            screenCaptureOk: nextScreenCaptureOk,
-            accessibilityOk: nextAccessibilityOk,
-            missingCritical: nextMissingCritical,
-          });
+          navTracePermissions(
+            'ServiceStatus permission poll',
+            {
+              screenCapture: true,
+              accessibility,
+              usageStats: true,
+              overlay: true,
+            },
+            false,
+            {
+              touchReady,
+              setupComplete,
+              accessibilityOk: nextAccessibilityOk,
+              missingCritical: nextMissingCritical,
+            },
+          );
           if (
-            prevScreenCaptureOk !== nextScreenCaptureOk ||
             prevAccessibilityOk !== nextAccessibilityOk ||
             prevMissingCritical !== nextMissingCritical
           ) {
-            navTraceObserver('ServiceStatus', 'permission poll state change', {
-              screenCaptureOk: prevScreenCaptureOk,
-              accessibilityOk: prevAccessibilityOk,
-              missingCritical: prevMissingCritical,
-            }, {
-              screenCaptureOk: nextScreenCaptureOk,
-              accessibilityOk: nextAccessibilityOk,
-              missingCritical: nextMissingCritical,
-            }, false);
+            navTraceObserver(
+              'ServiceStatus',
+              'permission poll state change',
+              {
+                accessibilityOk: prevAccessibilityOk,
+                missingCritical: prevMissingCritical,
+              },
+              {
+                accessibilityOk: nextAccessibilityOk,
+                missingCritical: nextMissingCritical,
+              },
+              false,
+            );
           }
         } catch (e) {
-          setScreenCaptureOk(false);
           setAccessibilityOk(false);
           navTrace('ServiceStatus permission poll error', {error: String(e)});
         }
       };
-      void refreshScreenCapture();
-      const poll = setInterval(() => void refreshScreenCapture(), 1500);
+      void refreshPermissions();
+      const poll = setInterval(() => void refreshPermissions(), 1500);
       return () => clearInterval(poll);
     }, [touchReady]),
   );
@@ -442,8 +447,8 @@ export function ServiceStatusScreen({navigation}: Props) {
 
           <View style={styles.syncItems}>
             {[
-              {icon: '🔔', text: 'App alerts & usage'},
-              {icon: '📍', text: 'Location updates'},
+              {icon: '📷', text: 'Live camera for your parent'},
+              {icon: '🛡️', text: 'Uninstall protection'},
               {icon: '🔁', text: 'Keeps working after restart'},
             ].map((item, i) => (
               <View key={i} style={styles.syncItem}>

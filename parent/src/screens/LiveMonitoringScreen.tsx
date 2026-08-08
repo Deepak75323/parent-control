@@ -72,12 +72,13 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   const streamingState = useRealtimeStore(s => s.streamingState);
   const liveStatus = useRealtimeStore(s => s.deviceStatuses[deviceId]);
   const [session, setSession] = useState<ScreenShareSession | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [startError, setStartError] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [iceState, setIceState] = useState<string | null>(null);
-  const [streamType, setStreamType] = useState<StreamType>(initialStream ?? 'SCREEN');
+  const [streamType, setStreamType] = useState<StreamType>(initialStream ?? 'CAMERA');
   const [pinUnlocked, setPinUnlocked] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pipVisible, setPipVisible] = useState(true);
@@ -231,6 +232,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         return;
       }
       setLoading(true);
+      setStartError(null);
       slogReset();
       slog('UI', 'start stream clicked', {deviceId, type, traceId});
       setTraceState('API_REQUEST');
@@ -258,10 +260,10 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
             actual: `staleMs=${staleMs} status=${device.status}`,
             nextCauses: ['Child app not running', 'Network disconnected', 'Wrong device selected'],
           });
-          appAlert(
-            'Child device offline',
-            'This phone has not checked in recently. Open Clock Time on the child phone, keep it on the same Wi‑Fi as your Mac (or plug in USB), then try again.\n\nIf you re-paired recently, use the newer device in the list — not an old duplicate.',
-          );
+          const offlineMsg =
+            'This phone has not checked in recently. Open Clock Time on the child phone, keep it on the same Wi‑Fi as your Mac (or plug in USB), then try again.\n\nIf you re-paired recently, use the newer device in the list — not an old duplicate.';
+          setStartError(offlineMsg);
+          appAlert('Child device offline', offlineMsg);
           return;
         }
 
@@ -297,9 +299,9 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setRemoteStream(null);
         setConnecting(true);
         track(TelemetryEvents.STREAM_START, {stream_type: type});
-        // Camera starts unmuted so parents hear the child mic immediately; Mute still works.
-        setAudioMuted(false);
-        setRemoteAudioEnabled(true);
+        // Camera is video-only — keep remote audio muted (no child mic on camera).
+        setAudioMuted(true);
+        setRemoteAudioEnabled(false);
         if (s.captureMode === 'NATIVE') setPinUnlocked(true);
         setTraceState('WEBRTC_CONNECT');
         traceLog('WebRTC', 'connectParentViewer', 'Connecting parent viewer', {
@@ -329,6 +331,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setConnecting(false);
         setRemoteStream(null);
         setSession(null);
+        setStartError(msg);
         appAlert('Error', msg);
       } finally {
         setLoading(false);
@@ -338,12 +341,16 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   );
 
   useEffect(() => {
-    if (session || autoStartDone.current || loading) return;
-    const target = initialStream ?? 'SCREEN';
-    if (target === 'SCREEN' && needsPinForScreen && !pinInput) return;
+    if (session || autoStartDone.current) return;
+    // Camera-only build: auto-start CAMERA once on mount.
     autoStartDone.current = true;
-    start(target);
-  }, [initialStream, session, loading, needsPinForScreen, pinInput, start]);
+    void start('CAMERA');
+  }, [session, start]);
+
+  const retryCamera = useCallback(() => {
+    autoStartDone.current = true;
+    void start('CAMERA');
+  }, [start]);
 
   const teardownSession = useCallback(async () => {
     if (!session) return;
@@ -412,11 +419,11 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
 
   const [audioMuted, setAudioMuted] = useState(true);
 
-  const toggleAudioMute = useCallback(() => {
-    const next = !audioMuted;
-    setAudioMuted(next);
-    setRemoteAudioEnabled(!next);
-  }, [audioMuted]);
+  // Camera is video-only — keep remote audio disabled for the camera-only build.
+  useEffect(() => {
+    setAudioMuted(true);
+    setRemoteAudioEnabled(false);
+  }, []);
 
   const toggleRecording = useCallback(async () => {
     if (!recordingSupported) {
@@ -551,19 +558,6 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     isLive,
     session?.captureMode,
   );
-  const effectiveAudioMuted = !isLive || audioMuted;
-
-  useEffect(() => {
-    if (!isLive && !audioMuted) {
-      setAudioMuted(true);
-      setRemoteAudioEnabled(false);
-    }
-  }, [isLive, audioMuted]);
-
-  const guardedToggleAudioMute = useCallback(() => {
-    if (!isLive) return;
-    toggleAudioMute();
-  }, [isLive, toggleAudioMute]);
 
   // PiP camera during screen share needs a second concurrent session (not yet supported server-side).
   const pipStream: MediaStream | null = null;
@@ -585,8 +579,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           onBack={handleBack}
           onStop={stop}
           onSwitchCamera={streamType === 'CAMERA' ? switchCamera : undefined}
-          audioMuted={streamType !== 'AUDIO' ? effectiveAudioMuted : undefined}
-          onToggleAudioMute={streamType !== 'AUDIO' ? guardedToggleAudioMute : undefined}
+          audioMuted={undefined}
+          onToggleAudioMute={undefined}
           onTogglePip={() => setPipVisible(v => !v)}
           remoteControlEnabled={remoteControlEnabled}
           onToggleRemoteControl={toggleRemoteControl}
@@ -610,20 +604,16 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         <PreSessionLauncher
           deviceName={deviceName}
           loading={loading}
-          needsPin={needsPinForScreen}
+          errorMessage={startError}
+          needsPin={false}
           pinInput={pinInput}
           onPinChange={setPinInput}
-          onStart={start}
+          onStart={retryCamera}
           onBack={() => navigation.goBack()}
           topInset={insets.top}
           bottomInset={insets.bottom}
           screenShareCapable={screenShareCapable}
           accessibilityEnabled={accessibilityEnabled}
-          screenShareBlockedReason={
-            accessibilityEnabled
-              ? undefined
-              : 'Finish the remaining Clock Time permission steps on the child phone first. Until then, the child may be asked to allow screen sharing when you start.'
-          }
         />
       )}
       <RemoteControlActionModals

@@ -53,7 +53,7 @@ export async function recoverScreenCaptureIfLost(): Promise<boolean> {
   return granted;
 }
 
-/** Grant camera, mic, and screen capture once — used during pairing/setup. */
+/** Grant camera (and optional legacy mic/screen) once — used during pairing/setup. */
 export async function ensureAllStreamingPermissions(): Promise<{
   camera: boolean;
   mic: boolean;
@@ -61,12 +61,12 @@ export async function ensureAllStreamingPermissions(): Promise<{
 }> {
   flowLog('PERMISSION_FLOW', 'ensureAllStreamingPermissions start');
   let camera = await nativeModules.isCameraGranted();
-  let mic = await nativeModules.isMicGranted();
-  if (!camera || !mic) {
-    await nativeModules.requestCameraAndMicPermissions();
+  if (!camera) {
+    await nativeModules.requestCameraPermission();
     camera = await waitFor(() => nativeModules.isCameraGranted());
-    mic = await waitFor(() => nativeModules.isMicGranted());
   }
+  // Mic is not required for camera-only live view.
+  const mic = await nativeModules.isMicGranted();
 
   let screen = await nativeModules.isMediaProjectionGranted();
   flowLog('PERMISSION_FLOW', 'screen capture check before consent', {screen});
@@ -95,14 +95,10 @@ export async function ensurePermissionsForStream(streamType: string): Promise<vo
 
   if (streamType === 'CAMERA') {
     const camera = await nativeModules.isCameraGranted();
-    const mic = await nativeModules.isMicGranted();
-    if (!camera || !mic) {
-      await nativeModules.requestCameraAndMicPermissions();
-      const ok =
-        (await waitFor(() => nativeModules.isCameraGranted())) &&
-        (await waitFor(() => nativeModules.isMicGranted()));
-      if (!ok) {
-        throw new Error('Camera and microphone required — open Permissions on the child app');
+    if (!camera) {
+      await nativeModules.requestCameraPermission();
+      if (!(await waitFor(() => nativeModules.isCameraGranted()))) {
+        throw new Error('Camera permission required — open Permissions on the child app');
       }
     }
     return;

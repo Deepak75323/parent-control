@@ -689,13 +689,7 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         runtimeChainIndex = 0
         inRuntimeChain = true
         runtimeChainSteps.clear()
-        runtimeChainSteps.add { LocationReader.hasPermission(reactContext) }
-        runtimeChainSteps.add {
-            ContextCompat.checkSelfPermission(
-                reactContext,
-                android.Manifest.permission.RECORD_AUDIO,
-            ) == PackageManager.PERMISSION_GRANTED
-        }
+        // Camera-only keep list: camera → notifications (no mic / location).
         runtimeChainSteps.add {
             ContextCompat.checkSelfPermission(
                 reactContext,
@@ -714,12 +708,6 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     }
 
     private fun allRuntimePermissionsGranted(): Boolean {
-        if (!LocationReader.hasPermission(reactContext)) return false
-        if (ContextCompat.checkSelfPermission(reactContext, android.Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            return false
-        }
         if (ContextCompat.checkSelfPermission(reactContext, android.Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -747,10 +735,8 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
             return
         }
         when (runtimeChainIndex) {
-            0 -> requestLocationPermissionInternal(chainAdvancePromise)
-            1 -> requestMicrophonePermission(chainAdvancePromise)
-            2 -> requestCameraPermission(chainAdvancePromise)
-            3 -> requestPostNotificationsPermission(chainAdvancePromise)
+            0 -> requestCameraPermission(chainAdvancePromise)
+            1 -> requestPostNotificationsPermission(chainAdvancePromise)
             else -> {
                 runtimeChainIndex++
                 runtimeChainAdvance()

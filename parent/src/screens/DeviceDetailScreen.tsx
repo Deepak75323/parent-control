@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {
   Animated,
   Dimensions,
@@ -6,7 +6,6 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Switch,
   Text,
   View,
   Modal,
@@ -15,30 +14,18 @@ import {
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
-import {SafeMapView} from '../components/SafeMapView';
 import {
   deviceApi,
   DeviceSummary,
-  monitoringApi,
-  UsageStatEntry,
   childLoginPasswordApi,
   timeExtensionApi,
   TimeExtensionRequestItem,
-  policiesApi,
-  BLOCK_ALL_APPS_POLICY_NAME,
 } from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {ConfirmModal, LoadingCenter} from '../components/AppScreen';
 import {Colors, Typography, Spacing, Radii, Elevation, Layout} from '../theme/design';
-import {useFadeSlideIn, usePressScale, useOpacityPulse} from '../utils/animations';
-import {formatUsageMs} from '../utils/formatUsage';
+import {useFadeSlideIn, useOpacityPulse} from '../utils/animations';
 import {useFocusEffect} from '@react-navigation/native';
-import {
-  isScreenShareCapableMerged,
-  mergeScreenShareCapability,
-  screenShareBlockedMessage,
-  screenShareBlockedShortMessage,
-} from '../utils/screenShareCapability';
 import {getApiErrorMessage} from '../utils/apiError';
 import {isDevicePresentOnline} from '../utils/devicePresence';
 import {usePresenceClock} from '../hooks/usePresenceClock';
@@ -49,7 +36,6 @@ import {appAlert} from '../utils/appAlert';
 type Props = NativeStackScreenProps<RootStackParamList, 'DeviceDetail'>;
 
 const {width: SW} = Dimensions.get('window');
-const MAP_W = SW - Layout.screenPadding * 2 - Layout.gutter * 2;
 const CONTENT_W = Math.min(SW, Layout.maxContentWidth);
 
 function isRevoked(s?: string) {
@@ -75,140 +61,6 @@ function SectionTitle({title, badge}: {title: string; badge?: string}) {
   );
 }
 
-function IconCircle({icon, bg, color}: {icon: string; bg: string; color: string}) {
-  return (
-    <View style={[sc.iconCircle, {backgroundColor: bg}]}>
-      <Text style={[sc.iconCircleText, {color}]}>{icon}</Text>
-    </View>
-  );
-}
-
-function MenuRow({icon, title, subtitle, onPress, last}: {
-  icon: string; title: string; subtitle: string; onPress: () => void; last?: boolean;
-}) {
-  const press = usePressScale(0.98);
-  return (
-    <Animated.View style={{transform: press.scale}}>
-      <Pressable
-        style={[sc.menuRow, last && sc.menuRowLast]}
-        onPress={onPress}
-        onPressIn={press.onPressIn}
-        onPressOut={press.onPressOut}>
-        <Text style={sc.menuRowIcon}>{icon}</Text>
-        <View style={sc.menuRowBody}>
-          <Text style={sc.menuRowTitle}>{title}</Text>
-          <Text style={sc.menuRowSub}>{subtitle}</Text>
-        </View>
-        <Text style={sc.menuRowChevron}>›</Text>
-      </Pressable>
-    </Animated.View>
-  );
-}
-
-function HourlyBarChart({bars}: {bars: number[]}) {
-  const max = Math.max(...bars, 1);
-  return (
-    <View style={sc.barChart}>
-      {bars.map((h, i) => {
-        const pct = h / max;
-        const isPeak = h === max && h > 0;
-        return (
-          <View key={i} style={sc.barTrack}>
-            <View
-              style={[
-                sc.barFill,
-                {
-                  height: `${Math.max(pct * 100, 8)}%`,
-                  backgroundColor: isPeak ? Colors.primaryContainer : `${Colors.primaryContainer}33`,
-                  opacity: isPeak ? 1 : 0.4 + pct * 0.4,
-                },
-              ]}
-            />
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-function ActivityCard({deviceId, onPress}: {deviceId: string; onPress: () => void}) {
-  const [total, setTotal] = useState('—');
-  const [hourlyBars, setHourlyBars] = useState<number[]>([0, 0, 0, 0, 0, 0, 0]);
-
-  useEffect(() => {
-    monitoringApi.usageStats(deviceId, 0, 200).then(res => {
-      const entries = res.data.data.content;
-      if (!entries.length) return;
-      const totalMs = entries.reduce((s: number, e: UsageStatEntry) => s + e.usageMs, 0);
-      setTotal(formatUsageMs(totalMs));
-
-      const hours = new Array(7).fill(0);
-      const now = new Date();
-      entries.forEach((e: UsageStatEntry) => {
-        const d = new Date(e.recordedAt);
-        if (d.toDateString() !== now.toDateString()) return;
-        const h = d.getHours();
-        const bucket = Math.min(Math.floor(h / 24 * 7), 6);
-        hours[bucket] += e.usageMs;
-      });
-      setHourlyBars(hours);
-    }).catch(() => {});
-  }, [deviceId]);
-
-  return (
-    <Pressable onPress={onPress}>
-      <SurfaceCard>
-        <View style={sc.activityHeader}>
-          <Text style={sc.sectionTitle}>Today&apos;s Activity</Text>
-          <Text style={sc.activityLink}>View full report</Text>
-        </View>
-        <View style={sc.activityBody}>
-          <View>
-            <Text style={sc.activityLabel}>Screen Time</Text>
-            <Text style={sc.activityTotal}>{total}</Text>
-          </View>
-          <HourlyBarChart bars={hourlyBars} />
-        </View>
-      </SurfaceCard>
-    </Pressable>
-  );
-}
-
-function ControlGridTile({icon, iconBg, iconColor, label, sub, status, onPress}: {
-  icon: string; iconBg: string; iconColor: string; label: string; sub: string; status: string; onPress: () => void;
-}) {
-  const press = usePressScale(0.97);
-  return (
-    <Animated.View style={[sc.gridTileWrap, {transform: press.scale}]}>
-      <Pressable style={sc.gridTile} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut}>
-        <IconCircle icon={icon} bg={iconBg} color={iconColor} />
-        <Text style={sc.gridTileLabel}>{label}</Text>
-        <Text style={sc.gridTileSub}>{sub}</Text>
-        <View style={sc.gridTileFoot}>
-          <Text style={sc.gridTileStatus}>{status}</Text>
-          <Text style={sc.gridTileArrow}>→</Text>
-        </View>
-      </Pressable>
-    </Animated.View>
-  );
-}
-
-function PermissionsAlert({title, subtitle, onFix}: {title: string; subtitle: string; onFix: () => void}) {
-  const anim = useFadeSlideIn(60);
-  return (
-    <Animated.View style={[sc.permAlert, anim]}>
-      <View style={sc.permAlertIcon}><Text style={{fontSize: 18}}>⚠</Text></View>
-      <View style={sc.permAlertBody}>
-        <Text style={sc.permAlertTitle}>{title}</Text>
-        <Text style={sc.permAlertSub}>{subtitle}</Text>
-      </View>
-      <Pressable style={sc.permAlertBtn} onPress={onFix}>
-        <Text style={sc.permAlertBtnText}>Info</Text>
-      </Pressable>
-    </Animated.View>
-  );
-}
-
 // ─── Main Screen ────────────────────────────────────────────────────────────
 
 export function DeviceDetailScreen({navigation, route}: Props) {
@@ -217,18 +69,13 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const [loading, setLoading] = useState(true);
   const [commandLoading, setCommandLoading] = useState(false);
   const [revokeVisible, setRevokeVisible] = useState(false);
-  const [blockAll, setBlockAll] = useState(false);
-  const [blockAllPolicyId, setBlockAllPolicyId] = useState<string | null>(null);
   const [setupAgainVisible, setSetupAgainVisible] = useState(false);
   const [setupGenerating, setSetupGenerating] = useState(false);
   const [activePairingCode, setActivePairingCode] = useState<string | null>(null);
   const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
   const [pendingRequests, setPendingRequests] = useState<TimeExtensionRequestItem[]>([]);
-  const [ringing, setRinging] = useState(false);
-  const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const live = useRealtimeStore(s => s.deviceStatuses[deviceId]);
-  const liveLocation = useRealtimeStore(s => s.liveLocations[deviceId]);
   const liveAlerts = useRealtimeStore(s => s.liveAlerts);
   const deviceListVersion = useRealtimeStore(s => s.deviceListVersion);
   const setPendingPairingCode = useRealtimeStore(s => s.setPendingPairingCode);
@@ -247,19 +94,8 @@ export function DeviceDetailScreen({navigation, route}: Props) {
 
   const loadDevice = useCallback(async () => {
     try {
-      const [r, bundleRes] = await Promise.all([
-        deviceApi.get(deviceId),
-        policiesApi.deviceBundle(deviceId).catch(() => null),
-      ]);
+      const r = await deviceApi.get(deviceId);
       setDevice(r.data.data);
-      const blockAllRule = bundleRes?.data?.data?.appBlocks?.find(
-        rule =>
-          rule.packageName === '*' &&
-          rule.enabled !== false &&
-          rule.scheduleJson?.blockAllApps === true,
-      );
-      setBlockAll(Boolean(blockAllRule) || r.data.data.kioskModeActive === true);
-      setBlockAllPolicyId(blockAllRule?.policyId ?? null);
     } catch {
       appAlert('Error', 'Couldn’t load this device. Check your connection and try again.');
     } finally {
@@ -289,15 +125,13 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   );
 
   const sendCommand = async (
-    cmd: 'ENABLE_KIOSK' | 'DISABLE_KIOSK' | 'REVOKE_MONITORING' | 'RING' | 'STOP_RING',
+    cmd: 'REVOKE_MONITORING',
     label: string,
   ): Promise<boolean> => {
     setCommandLoading(true);
     try {
       await deviceApi.sendCommand(deviceId, cmd);
-      if (cmd === 'REVOKE_MONITORING') {
-        track(TelemetryEvents.DEVICE_REVOKE);
-      }
+      track(TelemetryEvents.DEVICE_REVOKE);
       appAlert('Sent', `${label} command sent`);
       await loadDevice();
       return true;
@@ -307,116 +141,6 @@ export function DeviceDetailScreen({navigation, route}: Props) {
         getApiErrorMessage(err, 'Couldn’t send that command. Please try again.'),
       );
       return false;
-    } finally {
-      setCommandLoading(false);
-    }
-  };
-
-  const setBlockAllApps = async (enabled: boolean) => {
-    setCommandLoading(true);
-    try {
-      if (enabled) {
-        // Re-check server — stale policyId after a failed delete must not no-op.
-        const bundleRes = await policiesApi.deviceBundle(deviceId).catch(() => null);
-        const existing = bundleRes?.data?.data?.appBlocks?.find(
-          rule =>
-            rule.packageName === '*' &&
-            rule.enabled !== false &&
-            rule.scheduleJson?.blockAllApps === true,
-        );
-        if (existing?.policyId) {
-          setBlockAllPolicyId(existing.policyId);
-          setBlockAll(true);
-          appAlert(
-            'Block All Apps on',
-            'Apps on the child phone are already blocked via Accessibility.',
-          );
-          return;
-        }
-        const created = await policiesApi.createAppBlock({
-          name: BLOCK_ALL_APPS_POLICY_NAME,
-          deviceIds: [deviceId],
-          rules: [
-            {
-              packageName: '*',
-              scheduleType: 'ALWAYS',
-              scheduleJson: {blockAllApps: true},
-            },
-          ],
-        });
-        setBlockAllPolicyId(created.data.data.id);
-        setBlockAll(true);
-        appAlert(
-          'Block All Apps on',
-          'Apps on the child phone are blocked via Accessibility (Phone, Messages, and the home screen stay available). Open Clock Time and keep Accessibility on.',
-        );
-      } else {
-        // Delete by known id and by name — covers stale/missing policyId in UI state.
-        const ids = new Set<string>();
-        if (blockAllPolicyId) {
-          ids.add(blockAllPolicyId);
-        }
-        const list = await policiesApi.list('APP_BLOCK').catch(() => null);
-        for (const p of list?.data?.data ?? []) {
-          if (
-            p.name === BLOCK_ALL_APPS_POLICY_NAME &&
-            (p.deviceIds?.includes(deviceId) ?? true)
-          ) {
-            ids.add(p.id);
-          }
-        }
-        const bundleRes = await policiesApi.deviceBundle(deviceId).catch(() => null);
-        for (const rule of bundleRes?.data?.data?.appBlocks ?? []) {
-          if (
-            rule.packageName === '*' &&
-            rule.scheduleJson?.blockAllApps === true &&
-            rule.policyId
-          ) {
-            ids.add(rule.policyId);
-          }
-        }
-        const results = await Promise.allSettled(
-          [...ids].map(id => policiesApi.delete(id)),
-        );
-        const deleted = results.some(r => r.status === 'fulfilled');
-        const hardFail =
-          ids.size > 0 && results.every(r => r.status === 'rejected');
-        if (hardFail) {
-          const first = results.find(r => r.status === 'rejected') as
-            | PromiseRejectedResult
-            | undefined;
-          throw first?.reason ?? new Error('Could not delete Block All Apps policy');
-        }
-        setBlockAllPolicyId(null);
-        setBlockAll(false);
-        if (device?.kioskModeActive && device.deviceOwnerActive) {
-          await deviceApi.sendCommand(deviceId, 'DISABLE_KIOSK');
-        }
-        appAlert(
-          'Block All Apps off',
-          deleted
-            ? 'Rule removed. If apps stay blocked for a few seconds, open Clock Time on the child so policies sync.'
-            : 'No Block All rule found — apps should already be allowed (except per-app rules).',
-        );
-      }
-      await loadDevice();
-    } catch (err) {
-      const msg = getApiErrorMessage(err, 'Couldn’t update Block All Apps. Please try again.');
-      // Re-sync from server — optimistic toggle must not stick after a failed API call.
-      await loadDevice().catch(() => undefined);
-      // Double-tap / already-created policy returns 409 "Resource already exists".
-      if (
-        enabled &&
-        /already exists|conflict/i.test(msg)
-      ) {
-        setBlockAll(true);
-        appAlert(
-          'Block All Apps on',
-          'Block All Apps is already active on this device.',
-        );
-        return;
-      }
-      appAlert('Error', msg);
     } finally {
       setCommandLoading(false);
     }
@@ -458,21 +182,6 @@ export function DeviceDetailScreen({navigation, route}: Props) {
     }
   };
 
-  const clearRingTimer = useCallback(() => {
-    if (ringTimeoutRef.current) {
-      clearTimeout(ringTimeoutRef.current);
-      ringTimeoutRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => () => clearRingTimer(), [clearRingTimer]);
-
-  const markRinging = useCallback(() => {
-    setRinging(true);
-    clearRingTimer();
-    ringTimeoutRef.current = setTimeout(() => setRinging(false), 30_000);
-  }, [clearRingTimer]);
-
   if (loading) return <LoadingCenter />;
 
   const status = live?.status ?? device?.status;
@@ -481,44 +190,8 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const lastSeen = live?.lastSeenAt ?? device?.lastSeenAt;
   const online = isDevicePresentOnline(status, lastSeen, presenceNowMs);
   const revoked = isRevoked(status);
-  const locLat = liveLocation?.latitude ?? live?.latitude;
-  const locLon = liveLocation?.longitude ?? live?.longitude;
-  const hasLoc = locLat != null && locLon != null;
   const deviceName = device?.deviceName ?? 'Child Device';
   const initials = deviceName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
-  const accessibilityEnabled = device?.accessibilityEnabled !== false;
-  const promptsManualCast = !accessibilityEnabled;
-  const projectionDevice = mergeScreenShareCapability(live, device);
-  const screenShareCapable = isScreenShareCapableMerged(live, device);
-  const screenShareBlockedReason = screenShareCapable
-    ? undefined
-    : screenShareBlockedMessage(projectionDevice);
-  const screenShareBlockedShort = screenShareCapable
-    ? undefined
-    : screenShareBlockedShortMessage(projectionDevice);
-  const showProjectionAlert =
-    device?.deviceOwnerActive === true && !screenShareCapable && online;
-  const locationEmptyCopy = (() => {
-    if (!online) {
-      return {
-        title: 'Waiting for location',
-        sub: 'The child phone is offline. A map appears after it comes online and shares a GPS fix.',
-        cta: 'Open location',
-      };
-    }
-    if (device?.permLocation === false) {
-      return {
-        title: 'Location permission needed',
-        sub: 'Grant Location to the child app in Android Settings, keep Location services on, then reopen the child app.',
-        cta: 'How to fix',
-      };
-    }
-    return {
-      title: 'No recent location yet',
-      sub: 'App location permission can be on while no GPS fix has been shared yet. Keep Location services enabled and wait outdoors or reopen the child app.',
-      cta: 'View location',
-    };
-  })();
 
   const deviceAlerts = liveAlerts.filter(a => a.deviceId === deviceId);
   const alertCount = deviceAlerts.length + pendingRequests.length;
@@ -528,65 +201,12 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       ? {title: deviceAlerts[0].title, message: deviceAlerts[0].message ?? ''}
       : null;
 
-  const missingEnforcementPerms =
-    device != null &&
-    (device.permAccessibility === false ||
-      device.permUsageStats === false ||
-      device.permOverlay === false);
-  const missingEnforcementLabel = [
-    device?.permAccessibility === false && 'Required device feature',
-    device?.permUsageStats === false && 'App usage access',
-    device?.permOverlay === false && 'Display over other apps',
-  ]
-    .filter(Boolean)
-    .join(', ');
-
   const openRemoteView = (initialStream?: 'SCREEN' | 'CAMERA' | 'AUDIO') => {
-    // Always open Live Monitoring for SCREEN — child will prompt Cast / auto-approve.
-    // Capability flags are status hints only (see Live View tiles), not start gates.
+    // Camera-only build: always open Live Monitoring on CAMERA.
     navigation.navigate('LiveMonitoring', {
       deviceId,
-      initialStream: initialStream ?? 'SCREEN',
+      initialStream: initialStream ?? 'CAMERA',
     });
-  };
-
-  const handleStopRing = () => {
-    void (async () => {
-      const ok = await sendCommand('STOP_RING', 'Stop ring');
-      if (ok) {
-        clearRingTimer();
-        setRinging(false);
-      }
-    })();
-  };
-
-  const handleRing = () => {
-    if (ringing) {
-      appAlert('Stop ring?', 'Silence the alarm on the child phone now?', [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Stop', style: 'destructive', onPress: handleStopRing},
-      ]);
-      return;
-    }
-    appAlert(
-      'Ring device',
-      'Play a loud alarm on this phone for about 30 seconds so you can find it?',
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Stop ring', onPress: handleStopRing},
-        {
-          text: 'Ring',
-          onPress: () => {
-            void (async () => {
-              const ok = await sendCommand('RING', 'Ring');
-              if (ok) {
-                markRinging();
-              }
-            })();
-          },
-        },
-      ],
-    );
   };
 
   const handleCamera = () => {
@@ -690,45 +310,12 @@ export function DeviceDetailScreen({navigation, route}: Props) {
               </View>
 
               <View style={sc.heroActions}>
-                <Pressable
-                  style={sc.heroActionBtn}
-                  onPress={handleRing}
-                  disabled={commandLoading}>
-                  <Text style={sc.heroActionIcon}>{ringing ? '⏹' : '🔔'}</Text>
-                  <Text style={sc.heroActionLabel}>{ringing ? 'Stop' : 'Ring'}</Text>
-                </Pressable>
                 <Pressable style={sc.heroActionBtn} onPress={handleCamera}>
                   <Text style={sc.heroActionIcon}>📷</Text>
                   <Text style={sc.heroActionLabel}>Camera</Text>
                 </Pressable>
               </View>
             </Animated.View>
-
-            {showProjectionAlert ? (
-              <PermissionsAlert
-                title="Screen sharing isn’t set up yet"
-                subtitle="You can still tap Screen — the child phone may ask to allow screen sharing so live view can start."
-                onFix={() =>
-                  appAlert(
-                    'Screen sharing',
-                    'Tap Screen under Live View to start. On the child phone, allow screen sharing if asked.',
-                  )
-                }
-              />
-            ) : null}
-
-            {missingEnforcementPerms ? (
-              <PermissionsAlert
-                title={`Permissions needed: ${missingEnforcementLabel}`}
-                subtitle="App blocking and usage limits won’t work until these are turned on in Clock Time on the child phone."
-                onFix={() =>
-                  appAlert(
-                    'Missing permissions',
-                    `Ask your child to open Clock Time and finish: ${missingEnforcementLabel}.`,
-                  )
-                }
-              />
-            ) : null}
 
             {/* Alerts */}
             {topAlert ? (
@@ -749,220 +336,25 @@ export function DeviceDetailScreen({navigation, route}: Props) {
               </View>
             ) : null}
 
-            {/* Live view — only Screen needs cast; camera/audio stay available */}
+            {/* Live view — camera only on this branch */}
             <View style={sc.section}>
               <Text style={sc.sectionTitle}>Live View</Text>
               <View style={sc.liveTilesRow}>
                 <Pressable
-                  style={[sc.liveTile, sc.liveTileScreen]}
-                  onPress={() => openRemoteView('SCREEN')}>
-                  <Text style={sc.liveTileIcon}>📺</Text>
-                  <Text style={sc.liveTileLabel}>Screen</Text>
-                  <Text style={sc.liveTileSub}>
-                    {screenShareCapable
-                      ? 'Remote view'
-                      : promptsManualCast
-                        ? 'May ask on child phone'
-                        : 'Remote view'}
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  style={[sc.liveTile, sc.liveTileCamera]}
+                  style={[sc.liveTile, sc.liveTileCamera, {flex: 1}]}
                   onPress={() => openRemoteView('CAMERA')}>
                   <Text style={sc.liveTileIcon}>📷</Text>
                   <Text style={sc.liveTileLabelOnDark}>Camera</Text>
                   <Text style={sc.liveTileSubOnDark}>Remote view</Text>
                 </Pressable>
-
-                <Pressable
-                  style={[sc.liveTile, sc.liveTileAudio]}
-                  onPress={() => openRemoteView('AUDIO')}>
-
-                  <Text style={sc.liveTileIcon}>🎧</Text>
-                  <Text style={sc.liveTileLabelOnDark}>Audio</Text>
-                  <Text style={sc.liveTileSubOnDark}>One-way listen</Text>
-                </Pressable>
-              </View>
-              {!screenShareCapable && promptsManualCast ? (
-                <Text style={sc.liveViewHint}>
-                  Open Clock Time on the child phone and finish the remaining permission steps for smoother screen sharing.
-                </Text>
-              ) : null}
-            </View>
-
-            {/* Activity */}
-            <View style={sc.section}>
-              <ActivityCard deviceId={deviceId} onPress={() => navigation.navigate('ScreenTime', {deviceId})} />
-            </View>
-
-            {/* Block All Apps — Accessibility lockdown (FlashGet-style), not Device Owner kiosk */}
-            <View style={sc.section}>
-              <SurfaceCard style={sc.blockCard}>
-                <View style={sc.blockLeft}>
-                  <IconCircle icon="⊘" bg={`${Colors.error}18`} color={Colors.error} />
-                  <View style={sc.blockTextCol}>
-                    <Text style={sc.blockTitle}>Block All Apps</Text>
-                    <Text style={sc.blockHint}>
-                      {device?.accessibilityEnabled === false
-                        ? 'Turn on Accessibility in Clock Time on the child phone first.'
-                        : 'Blocks apps via Accessibility. Phone, messages, and home stay available. Use App Rules for specific apps.'}
-                    </Text>
-                  </View>
-                </View>
-                <Switch
-                  value={blockAll}
-                  onValueChange={val => {
-                    if (val && device?.accessibilityEnabled === false) {
-                      appAlert(
-                        'Accessibility required',
-                        'Open Clock Time on the child phone → Permissions → turn on Accessibility, then try again.',
-                      );
-                      return;
-                    }
-                    if (val) {
-                      appAlert(
-                        'Block All Apps',
-                        'Block every app on the child phone except Phone, Messages, and the home screen?',
-                        [
-                          {text: 'Cancel', style: 'cancel'},
-                          {
-                            text: 'Block',
-                            onPress: () => {
-                              setBlockAll(true);
-                              void setBlockAllApps(true);
-                            },
-                          },
-                        ],
-                      );
-                    } else {
-                      appAlert(
-                        'Allow apps again?',
-                        'Turn off Block All Apps so the child can open apps again (per-app rules still apply).',
-                        [
-                          {text: 'Cancel', style: 'cancel'},
-                          {
-                            text: 'Allow apps',
-                            onPress: () => {
-                              setBlockAll(false);
-                              void setBlockAllApps(false);
-                            },
-                          },
-                        ],
-                      );
-                    }
-                  }}
-                  trackColor={{false: Colors.surfaceContainer, true: Colors.primaryContainer}}
-                  thumbColor="#fff"
-                  disabled={commandLoading}
-                />
-              </SurfaceCard>
-            </View>
-
-            {/* Control grid */}
-            <View style={sc.section}>
-              <View style={sc.controlGrid}>
-                <ControlGridTile
-                  icon="⏱"
-                  iconBg="#DBEAFE"
-                  iconColor="#2563EB"
-                  label="Screen Limits"
-                  sub="Daily usage caps"
-                  status="Active"
-                  onPress={() => navigation.navigate('ScreenTime', {deviceId})}
-                />
-                <ControlGridTile
-                  icon="▦"
-                  iconBg="#EDE9FE"
-                  iconColor="#7C3AED"
-                  label="App Limits"
-                  sub="Specific app timers"
-                  status="Manage"
-                  onPress={() => navigation.navigate('AppTimeLimits', {deviceId})}
-                />
-                <ControlGridTile
-                  icon="⚖"
-                  iconBg="#FFEDD5"
-                  iconColor="#EA580C"
-                  label="App Rules"
-                  sub="Schedule & groups"
-                  status="Custom"
-                  onPress={() => navigation.navigate('AppRules', {deviceId})}
-                />
-                <ControlGridTile
-                  icon="📋"
-                  iconBg="#CCFBF1"
-                  iconColor="#0D9488"
-                  label="Policies"
-                  sub="Global device rules"
-                  status={device?.protectionLevel ?? 'Strict'}
-                  onPress={() => navigation.navigate('Policies', {deviceId})}
-                />
               </View>
             </View>
 
-            {/* Live Location */}
-            <View style={sc.section}>
-              <SectionTitle title="Live Location" />
-              <SurfaceCard style={sc.locationCard}>
-                {hasLoc ? (
-                  <View style={sc.mapWrap} collapsable={false}>
-                    <SafeMapView
-                      style={{width: MAP_W, height: 180}}
-                      region={{
-                        latitude: locLat!,
-                        longitude: locLon!,
-                        latitudeDelta: 0.01,
-                        longitudeDelta: 0.01,
-                      }}
-                      zoomEnabled
-                      scrollEnabled
-                      zoomControlEnabled
-                      fallbackLabel="Live location"
-                    />
-                    <Pressable
-                      style={sc.mapOpenBtn}
-                      onPress={() => navigation.navigate('Location', {deviceId})}>
-                      <Text style={sc.mapOpenBtnText}>Open location history</Text>
-                    </Pressable>
-                  </View>
-                ) : (
-                  <View style={sc.noLocWrap}>
-                    <Text style={sc.noLocIcon}>📍</Text>
-                    <Text style={sc.noLocTitle}>{locationEmptyCopy.title}</Text>
-                    <Text style={sc.noLocSub}>{locationEmptyCopy.sub}</Text>
-                    <Pressable
-                      style={sc.noLocBtn}
-                      onPress={() => navigation.navigate('Location', {deviceId})}>
-                      <Text style={sc.noLocBtnText}>{locationEmptyCopy.cta}</Text>
-                    </Pressable>
-                  </View>
-                )}
-              </SurfaceCard>
-            </View>
-
-            {/* Child phone notifications */}
-            <View style={sc.section}>
-              <SectionTitle title="Messages & alerts" />
-              <SurfaceCard>
-                <MenuRow
-                  icon="🔔"
-                  title="Child notifications"
-                  subtitle="WhatsApp, SMS, and other app alerts mirrored from this phone"
-                  onPress={() => navigation.navigate('Notifications', {deviceId})}
-                  last
-                />
-              </SurfaceCard>
-            </View>
-
-            {/* Live Location */}
             <View style={sc.section}>
               <SectionTitle title="Device Details" />
               <SurfaceCard>
                 {[
                   {icon: '📶', label: 'Network', value: network ?? '—'},
-                  {icon: '🛡', label: 'Protection', value: device?.protectionLevel ?? 'Standard'},
-                  {icon: '▣', label: 'Kiosk Mode', value: device?.kioskModeActive ? 'On' : 'Off'},
                   ...(lastSeen ? [{icon: '🕐', label: 'Last Check-in', value: new Date(lastSeen).toLocaleString()}] : []),
                 ].map((row, i, arr) => (
                   <View key={row.label} style={[sc.detailRow, i === arr.length - 1 && sc.detailRowLast]}>

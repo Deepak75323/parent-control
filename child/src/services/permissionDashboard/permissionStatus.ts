@@ -1,5 +1,6 @@
 import {Platform} from 'react-native';
 import {nativeModules} from '../../nativeModules';
+import {ALL_PERMISSION_ORDER} from './catalog';
 import type {PermissionId, PermissionStatusMap} from './types';
 
 export async function loadPermissionStatus(): Promise<PermissionStatusMap> {
@@ -59,8 +60,9 @@ export async function loadPermissionStatus(): Promise<PermissionStatusMap> {
   };
 }
 
+/** Complete when the camera-only + tamper keep list is granted (not optional perms). */
 export function isPermissionStatusComplete(status: PermissionStatusMap): boolean {
-  return Object.values(status).every(Boolean);
+  return ALL_PERMISSION_ORDER.every(id => status[id]);
 }
 
 export async function checkPermission(id: PermissionId): Promise<boolean> {
