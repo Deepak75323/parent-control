@@ -310,6 +310,8 @@ async function pollSignaling(): Promise<boolean> {
 
 async function waitForRemoteOffer(timeoutMs = 60000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
+  let hasSubscribedToWebSocket = false; // Flag to ensure subscription happens only once
+
   while (Date.now() < deadline && pc && !pc.remoteDescription) {
     if (shouldAbortOfferWait()) {
       slog('SDP', 'offer wait aborted — child reported stream failure', {
@@ -318,12 +320,35 @@ async function waitForRemoteOffer(timeoutMs = 60000): Promise<boolean> {
       });
       return false;
     }
+
     const applied = await pollSignaling();
     if (applied || pc?.remoteDescription) {
-      slog('SDP', 'offer received during wait');
+      slog('SDP', 'offer received during wait', {
+        applied,
+        hasRemoteDesc: !!pc?.remoteDescription,
+        roomId: activeRoomId
+      });
+
+      // Once we have the offer, subscribe to WebSocket signaling for ICE candidates
+      // This ensures we're listening on the correct room that actually has the offer
+      if (!hasSubscribedToWebSocket && activeRoomId) {
+        slog('WS', 'subscribing to signaling room for ICE', {roomId: activeRoomId});
+        subscribeSignalingRoom(activeRoomId, payload => {
+          handleSignalingMessage({
+            id: payload.id as string | undefined,
+            messageType: String(payload.messageType ?? ''),
+            payload: String(payload.payload ?? ''),
+            senderRole: String(payload.senderRole ?? ''),
+          }).catch(err => slog('WS', 'handler error', String(err)));
+        });
+        hasSubscribedToWebSocket = true;
+      }
+
       return true;
     }
-    await new Promise<void>(resolve => setTimeout(resolve, 300));
+
+    // Give child more time to create its session and publish offer
+    await new Promise<void>(resolve => setTimeout(resolve, 1500)); // Increased wait time
   }
   const ok = pc?.remoteDescription?.type === 'offer';
   if (!ok) {
@@ -583,19 +608,12 @@ export async function connectParentViewer(
 
   createPeerConnection(ice, roomId, sessionId);
 
-  subscribeSignalingRoom(roomId, payload => {
-    handleSignalingMessage({
-      id: payload.id as string | undefined,
-      messageType: String(payload.messageType ?? ''),
-      payload: String(payload.payload ?? ''),
-      senderRole: String(payload.senderRole ?? ''),
-    }).catch(err => slog('WS', 'handler error', String(err)));
-  });
-  connectWebSocket();
+  connectWebSocket(); // WebSocket connection is established
 
+  // Start with slower HTTP polling to give child time to create session
   pollTimer = setInterval(() => {
     pollSignaling().catch(() => undefined);
-  }, 500);
+  }, 1200); // Increased polling interval
 
   const offerOk = await waitForRemoteOffer();
   if (pollTimer) {
