@@ -26,6 +26,7 @@ import com.parentalcontrol.device.dto.CreatePairingCodeRequest;
 import com.parentalcontrol.device.dto.DevicePairRequest;
 import com.parentalcontrol.device.dto.DevicePairResponse;
 import com.parentalcontrol.device.dto.DeviceResponse;
+import com.parentalcontrol.device.dto.DeviceWakeResponse;
 import com.parentalcontrol.device.dto.HeartbeatRequest;
 import com.parentalcontrol.device.dto.PairingCodeResponse;
 import com.parentalcontrol.device.dto.PairingCodeStatusResponse;
@@ -78,6 +79,7 @@ public class DeviceService {
   private final PasswordEncoder passwordEncoder;
   private final DefaultChildLoginPasswordService defaultChildLoginPasswordService;
   private final FamilyHandleService familyHandleService;
+  private final FcmWakeService fcmWakeService;
   private final SecureRandom secureRandom = new SecureRandom();
 
   @Transactional
@@ -356,6 +358,37 @@ public class DeviceService {
   public DeviceResponse getDevice(UUID deviceId) {
     Device device = getOwnedDevice(deviceId);
     return toResponse(device);
+  }
+
+  /**
+   * Parent-initiated FCM wake for a specific child device.
+   *
+   * <p>Fires a high-priority {@code HEARTBEAT_NUDGE} data message so the child app posts a fresh
+   * heartbeat without waiting for its 5-minute alarm or the 2-minute nudge sweep. This is the
+   * mechanism the parent UI uses to remove the "device offline" gate when the parent taps live
+   * view moments after the child reconnects.
+   *
+   * <p>Returns the current status/{@code lastSeenAt} so the caller can poll for freshness. FCM
+   * dispatch is best-effort — {@link FcmWakeService} logs (and swallows) transport errors so a
+   * broken FCM configuration does not block the parent's retry loop.
+   */
+  @Transactional(readOnly = true)
+  public DeviceWakeResponse wakeDevice(UUID deviceId) {
+    Device device = getOwnedDevice(deviceId);
+    String tokenPresent = device.getFcmToken() != null && !device.getFcmToken().isBlank() ? "yes" : "no";
+    log.info(
+        "PARENT_WAKE_REQUEST deviceId={} status={} lastSeenAt={} fcmToken={}",
+        device.getId(),
+        device.getStatus(),
+        device.getLastSeenAt(),
+        tokenPresent);
+    fcmWakeService.wakeDevice(device, "HEARTBEAT_NUDGE", Map.of("source", "parent_wake"));
+    return DeviceWakeResponse.builder()
+        .deviceId(device.getId())
+        .fcmDispatched(device.getFcmToken() != null && !device.getFcmToken().isBlank())
+        .status(device.getStatus())
+        .lastSeenAt(device.getLastSeenAt())
+        .build();
   }
 
   @Transactional

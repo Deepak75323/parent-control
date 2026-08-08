@@ -20,6 +20,7 @@ export const ApiPaths = {
   DEVICES: `${V1}/devices`,
   DEVICES_PAIRING_CODE: `${V1}/devices/pairing-code`,
   device: (deviceId: string) => `${V1}/devices/${deviceId}`,
+  deviceWake: (deviceId: string) => `${V1}/devices/${deviceId}/wake`,
   deviceCommands: (deviceId: string) => `${V1}/devices/${deviceId}/commands`,
   deviceTamperCode: (deviceId: string) => `${V1}/devices/${deviceId}/tamper-code`,
   deviceNotifications: (deviceId: string) => `${V1}/devices/${deviceId}/notifications`,

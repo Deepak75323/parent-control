@@ -6,6 +6,7 @@ import com.parentalcontrol.device.dto.CreatePairingCodeRequest;
 import com.parentalcontrol.device.dto.DeviceCommandRequest;
 import com.parentalcontrol.device.dto.DeviceCommandResponse;
 import com.parentalcontrol.device.dto.DeviceResponse;
+import com.parentalcontrol.device.dto.DeviceWakeResponse;
 import com.parentalcontrol.device.dto.PairingCodeResponse;
 import com.parentalcontrol.device.dto.PairingCodeStatusResponse;
 import com.parentalcontrol.device.dto.TamperCodeResponse;
@@ -75,5 +76,16 @@ public class ParentDeviceController {
   @Operation(summary = "Active verification code for device-admin removal attempt")
   public ApiResponse<TamperCodeResponse> getTamperCode(@PathVariable UUID deviceId) {
     return ApiResponse.ok(tamperService.getActiveCodeForParent(deviceId));
+  }
+
+  @PostMapping("/{deviceId}/wake")
+  @Operation(
+      summary = "Nudge a child device via FCM so it posts a fresh heartbeat",
+      description =
+          "Parent-initiated wake for a specific device. Used before starting live view when the"
+              + " device looks briefly offline (Wi-Fi handoff, radio recovery). Best-effort — the"
+              + " caller should still poll GET /devices/{deviceId} for a newer lastSeenAt.")
+  public ApiResponse<DeviceWakeResponse> wakeDevice(@PathVariable UUID deviceId) {
+    return ApiResponse.ok(deviceService.wakeDevice(deviceId));
   }
 }
