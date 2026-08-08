@@ -40,6 +40,7 @@ import {STREAM_COLORS} from '../components/liveMonitoring/layout';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {streamFailureMessage} from '../utils/streamFailureMessages';
 import {isDevicePresentOnline} from '../utils/devicePresence';
+import {waitForDevicePresence} from '../utils/waitForDevicePresence';
 import {liveSessionUiState, sessionStatusLabel} from '../utils/liveSessionStatus';
 import {
   isStreamRecordingSupported,
@@ -249,22 +250,62 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setMediaProjectionConsentState(device.mediaProjectionConsentState);
         setSilentScreenCapable(isSilentScreenCapable(device));
         setAccessibilityEnabled(device.accessibilityEnabled !== false);
-        // Align with shared presence helper (trust fresh lastSeen even if status lags).
+        // Presence gate — fresh lastSeen (or explicit ONLINE) allows the start to proceed.
+        // If the device looks stale (typical after a brief network flap or Wi-Fi handoff),
+        // fire an FCM wake and poll for up to ~8s before giving up. The child's
+        // NetworkConnectivityMonitor already posts an immediate heartbeat when the radio
+        // returns; this loop just tolerates the moments between "internet back" and
+        // "heartbeat landed".
         const lastSeenAt = device.lastSeenAt;
         if (!isDevicePresentOnline(device.status, lastSeenAt)) {
-          const staleMs = lastSeenAt ? Date.now() - Date.parse(lastSeenAt) : Number.POSITIVE_INFINITY;
-          traceFailure({
-            component: 'Parent',
-            fn: 'start',
-            reason: 'Child device offline',
-            actual: `staleMs=${staleMs} status=${device.status}`,
-            nextCauses: ['Child app not running', 'Network disconnected', 'Wrong device selected'],
+          const initialStaleMs = lastSeenAt
+            ? Date.now() - Date.parse(lastSeenAt)
+            : Number.POSITIVE_INFINITY;
+          traceLog('Parent', 'start', 'Device looked offline — attempting wake+poll', {
+            deviceId,
+            initialStaleMs,
+            status: device.status,
           });
-          const offlineMsg =
-            'This phone has not checked in recently. Open Clock Time on the child phone, keep it on the same Wi‑Fi as your Mac (or plug in USB), then try again.\n\nIf you re-paired recently, use the newer device in the list — not an old duplicate.';
-          setStartError(offlineMsg);
-          appAlert('Child device offline', offlineMsg);
-          return;
+          const waited = await waitForDevicePresence(deviceId, {
+            timeoutMs: 8000,
+            pollIntervalMs: 1500,
+          });
+          if (waited.present && waited.device) {
+            traceLog('Parent', 'start', 'Device became present after wake', {
+              deviceId,
+              attempts: waited.attempts,
+              wakeDispatched: waited.wakeDispatched,
+              status: waited.device.status,
+              lastSeenAt: waited.device.lastSeenAt,
+            });
+            // Refresh derived state from the newer snapshot so downstream capability
+            // checks (screen-share, silent screen) don't use the stale copy.
+            setMediaProjectionGranted(waited.device.mediaProjectionGranted === true);
+            setMediaProjectionConsentState(waited.device.mediaProjectionConsentState);
+            setSilentScreenCapable(isSilentScreenCapable(waited.device));
+            setAccessibilityEnabled(waited.device.accessibilityEnabled !== false);
+          } else {
+            const finalStaleMs = waited.device?.lastSeenAt
+              ? Date.now() - Date.parse(waited.device.lastSeenAt)
+              : initialStaleMs;
+            traceFailure({
+              component: 'Parent',
+              fn: 'start',
+              reason: 'Child device offline (after wake retry)',
+              actual: `staleMs=${finalStaleMs} status=${waited.device?.status ?? device.status} attempts=${waited.attempts} wakeDispatched=${waited.wakeDispatched}`,
+              nextCauses: [
+                'Child app not running',
+                'Network disconnected',
+                'FCM push blocked on child (OEM auto-start)',
+                'Wrong device selected',
+              ],
+            });
+            const offlineMsg =
+              'This phone has not checked in recently. Open Clock Time on the child phone, keep it on the same Wi‑Fi as your Mac (or plug in USB), then try again.\n\nIf you re-paired recently, use the newer device in the list — not an old duplicate.';
+            setStartError(offlineMsg);
+            appAlert('Child device offline', offlineMsg);
+            return;
+          }
         }
 
         traceLog('Parent', 'start', 'Sending start-stream API request', {deviceId, type, traceId});
