@@ -90,6 +90,9 @@ object StreamFgsPreparer {
                 return false
             }
         }
+        // Camera-with-sound mic FGS is started inside StreamBootstrapActivity (eligible
+        // foreground window). Starting AUDIO FGS here from a background STOMP/FCM worker
+        // typically throws SecurityException on Android 14+/MIUI and wastes the timeout.
         val ready = StreamFgsHelper.startAndWait(appContext, kind, timeoutMs)
         if (ready) {
             Log.i(TAG, "$kind FGS started for inbound stream request")

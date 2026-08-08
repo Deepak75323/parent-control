@@ -8,10 +8,10 @@ import {
   buildPermissionGroups,
 } from '../catalog';
 
-describe('camera-only permission catalog', () => {
-  it('requires only camera (and notifications on Android 13+) runtime permissions', () => {
+describe('camera-with-sound permission catalog', () => {
+  it('requires camera and microphone (and notifications on Android 13+)', () => {
     expect(RUNTIME_PERMISSION_ORDER).toContain('camera');
-    expect(RUNTIME_PERMISSION_ORDER).not.toContain('microphone');
+    expect(RUNTIME_PERMISSION_ORDER).toContain('microphone');
     expect(RUNTIME_PERMISSION_ORDER).not.toContain('location');
     if (Platform.OS === 'android' && Platform.Version >= 33) {
       expect(RUNTIME_PERMISSION_ORDER).toContain('postNotifications');
@@ -34,7 +34,6 @@ describe('camera-only permission catalog', () => {
     expect(OPTIONAL_PERMISSION_IDS).toEqual(
       expect.arrayContaining([
         'location',
-        'microphone',
         'usageStats',
         'notificationAccess',
         'overlay',
@@ -42,21 +41,22 @@ describe('camera-only permission catalog', () => {
         'screenCapture',
       ]),
     );
+    expect(OPTIONAL_PERMISSION_IDS).not.toContain('microphone');
   });
 
-  it('builds dashboard groups without location, usage, or screen share', () => {
+  it('builds dashboard groups with camera and microphone', () => {
     const groups = buildPermissionGroups(true);
     const ids = groups.flatMap(g => g.permissionIds);
     expect(ids).toEqual(
       expect.arrayContaining([
         'camera',
+        'microphone',
         'accessibility',
         'battery',
         'autoStart',
         'deviceAdmin',
       ]),
     );
-    expect(ids).not.toContain('microphone');
     expect(ids).not.toContain('location');
     expect(ids).not.toContain('screenCapture');
     expect(ids).not.toContain('overlay');

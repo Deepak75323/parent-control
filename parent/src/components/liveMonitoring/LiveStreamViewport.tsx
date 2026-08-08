@@ -343,8 +343,8 @@ export function LiveStreamViewport({
           pipVisible={pipVisible}
           isFullscreen={isFullscreen}
           bottomInset={bottomInset}
-          audioMuted={undefined}
-          onToggleAudioMute={undefined}
+          audioMuted={streamType !== 'AUDIO' ? audioMuted : undefined}
+          onToggleAudioMute={streamType !== 'AUDIO' ? onToggleAudioMute : undefined}
           recording={recording}
           recordingSupported={recordingSupported}
           onToggleRecording={onToggleRecording}

@@ -2,11 +2,12 @@ import {Platform} from 'react-native';
 import type {PermissionDef, PermissionGroupDef, PermissionId} from './types';
 
 /**
- * Camera-only + tamper keep list.
+ * Camera-with-sound + tamper keep list.
  * Still defined in PERMISSION_DEFS for status sync, but not shown/required in setup.
  */
 export const RUNTIME_PERMISSION_ORDER: PermissionId[] = [
   'camera',
+  'microphone',
   ...(Platform.OS === 'android' && Platform.Version >= 33
     ? (['postNotifications'] as PermissionId[])
     : []),
@@ -28,10 +29,9 @@ export const ALL_PERMISSION_ORDER: PermissionId[] = [
   ...SCREEN_CAPTURE_ORDER,
 ];
 
-/** Permissions intentionally not required for camera-only + tamper. */
+/** Permissions intentionally not required for camera-with-sound + tamper. */
 export const OPTIONAL_PERMISSION_IDS: PermissionId[] = [
   'location',
-  'microphone',
   'usageStats',
   'notificationAccess',
   'overlay',
@@ -53,7 +53,7 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
     id: 'microphone',
     kind: 'runtime',
     label: 'Microphone',
-    explanation: 'Allow the microphone for live listening (not used for live camera).',
+    explanation: 'Allow the microphone so your parent can hear room sound during live camera.',
   },
   camera: {
     id: 'camera',

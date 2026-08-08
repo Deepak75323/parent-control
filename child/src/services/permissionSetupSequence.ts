@@ -2,7 +2,7 @@ import {Platform} from 'react-native';
 import {nativeModules} from '../nativeModules';
 import {flowLog} from './flowLogger';
 
-/** Camera-only + tamper setup keys (no location / screen share / usage / overlay). */
+/** Camera-with-sound + tamper setup keys (no location / screen share / usage / overlay). */
 export type SetupPermissionKey =
   | 'accessibility'
   | 'notification'
@@ -34,11 +34,12 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
   const steps: SetupPermissionStep[] = [
     {
       key: 'camera',
-      title: 'Camera',
-      check: () => nativeModules.isCameraGranted(),
+      title: 'Camera & microphone',
+      check: async () =>
+        (await nativeModules.isCameraGranted()) && (await nativeModules.isMicGranted()),
       open: async () => ({
         mode: 'in_app',
-        granted: await nativeModules.requestCameraPermission(),
+        granted: await nativeModules.requestCameraAndMicPermissions(),
       }),
       inApp: true,
     },
@@ -171,13 +172,14 @@ export async function confirmOemBackgroundSetup(): Promise<boolean> {
   return nativeModules.isOemAutostartPromptDone();
 }
 
-/** Camera-only + tamper — every required setup permission must be granted. */
+/** Camera-with-sound + tamper — every required setup permission must be granted. */
 export async function isSetupPermissionsComplete(): Promise<boolean> {
   const requiresOem = await nativeModules.requiresOemBackgroundSetup();
   const needsPostNotifications = Platform.OS === 'android' && Platform.Version >= 33;
-  const [camera, postNotifications, accessibility, battery, oemBackground, deviceAdmin] =
+  const [camera, mic, postNotifications, accessibility, battery, oemBackground, deviceAdmin] =
     await Promise.all([
       nativeModules.isCameraGranted(),
+      nativeModules.isMicGranted(),
       needsPostNotifications
         ? nativeModules.isPostNotificationsGranted()
         : Promise.resolve(true),
@@ -193,6 +195,7 @@ export async function isSetupPermissionsComplete(): Promise<boolean> {
 
   return (
     camera &&
+    mic &&
     postNotifications &&
     accessibility &&
     accessibilityConnected &&

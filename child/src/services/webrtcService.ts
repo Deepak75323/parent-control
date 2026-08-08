@@ -769,9 +769,49 @@ async function connectChildStreamImpl(
         readyState: videoTrack?.readyState,
       });
       await waitForCaptureTrackLive(videoTrack);
-      // Camera is video-only — do not capture ambient mic.
+
+      // Capture ambient room mic alongside the camera (FlashGet Kids-style).
+      // Do NOT use MODE_IN_COMMUNICATION or exclusive AUDIOFOCUS_GAIN — that pauses
+      // YouTube/Spotify on the child while the parent is only monitoring.
       cameraAudioTrack = null;
-      cameraAudioStream = null;
+      try {
+        await nativeModules.setMonitoringAudioMode(false).catch(() => undefined);
+        flowLog('CAMERA_FLOW', 'AMBIENT_MIC_CAPTURE_STARTED', {sessionId});
+        const audioData = await nativeModules.getHiddenAmbientAudioMediaStream();
+        cameraAudioStream = new MediaStream({
+          streamId: audioData.streamId,
+          streamReactTag: audioData.streamId,
+          tracks: [audioData.track],
+        } as {streamId: string; streamReactTag: string; tracks: object[]});
+        const audioTrack = cameraAudioStream.getAudioTracks()[0];
+        if (audioTrack) {
+          cameraAudioTrack = audioTrack;
+          slog('CAMERA', 'ambient mic track captured, will add to PC after creation', {trackId: audioTrack.id});
+          flowLog('CAMERA_FLOW', 'MIC_TRACK_CAPTURED', {sessionId, trackId: audioTrack.id, ambient: true});
+          flowLog('CAMERA_FLOW', 'MIC_PCM_GENERATED', {sessionId, trackId: audioTrack.id});
+        } else {
+          throw new Error('Microphone wasn’t available. Close other apps and try again.');
+        }
+      } catch (audioErr) {
+        slog('CAMERA', 'ambient mic capture failed — retrying once', String(audioErr));
+        try {
+          await nativeModules.setMonitoringAudioMode(false).catch(() => undefined);
+          const audioData = await nativeModules.getHiddenAmbientAudioMediaStream();
+          cameraAudioStream = new MediaStream({
+            streamId: audioData.streamId,
+            streamReactTag: audioData.streamId,
+            tracks: [audioData.track],
+          } as {streamId: string; streamReactTag: string; tracks: object[]});
+          const audioTrack = cameraAudioStream.getAudioTracks()[0];
+          if (!audioTrack) throw audioErr;
+          cameraAudioTrack = audioTrack;
+          flowLog('CAMERA_FLOW', 'MIC_TRACK_CAPTURED', {sessionId, trackId: audioTrack.id, retry: true, ambient: true});
+        } catch (retryErr) {
+          slog('CAMERA', 'ambient mic capture failed after retry — continuing video-only', String(retryErr));
+          cameraAudioStream = null;
+          cameraAudioTrack = null;
+        }
+      }
     } else {
       flowLog('MEDIA_PROJECTION', 'hidden screen capture — no UI', {sessionId});
       const data = await nativeModules.getHiddenScreenMediaStream();
@@ -906,7 +946,11 @@ async function connectChildStreamImpl(
       }
     });
 
-    // Camera is video-only — no ambient mic track on the peer connection.
+    if (streamType === 'CAMERA' && cameraAudioTrack) {
+      pc?.addTrack(cameraAudioTrack, stream);
+      slog('PC', 'addTrack ambient mic', {kind: 'audio', id: cameraAudioTrack.id});
+      flowLog('CAMERA_FLOW', 'MIC_TRACK_ADDED_TO_PC', {sessionId, trackId: cameraAudioTrack.id});
+    }
     if (streamType === 'SCREEN' && screenDeviceAudioTrack) {
       pc?.addTrack(screenDeviceAudioTrack, stream);
       slog('PC', 'addTrack screen device audio', {kind: 'audio', id: screenDeviceAudioTrack.id});

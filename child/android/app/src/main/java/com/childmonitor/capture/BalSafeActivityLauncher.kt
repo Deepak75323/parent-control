@@ -30,19 +30,25 @@ object BalSafeActivityLauncher {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
+        val oemDropsBal = oemSilentDropsBal()
+
         // Layer 1 — Accessibility context (best BAL exemption on MIUI).
+        // On OEMs that silently drop BAL, treat a11y success as "attempted" only — still
+        // post FSI so unlock/screen-off auto-starts and a11y can auto-tap the heads-up.
         if (AppBlockingAccessibilityService.tryStartActivity(intent)) {
             PcpFlowLogger.log(
                 PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
                 "$tag accessibility launch",
-                "oem=${OemVendor.detect().id}",
+                "oem=${OemVendor.detect().id} trust=${!oemDropsBal}",
             )
-            return
+            if (!oemDropsBal) {
+                return
+            }
         }
 
         // Layer 2 — Direct startActivity from app context.
         // On OEMs that silently drop BAL, never treat this as success — fall through to FSI.
-        if (canLaunchDirectly(context) && !oemSilentDropsBal()) {
+        if (canLaunchDirectly(context) && !oemDropsBal) {
             try {
                 context.startActivity(intent)
                 PcpFlowLogger.log(
@@ -58,7 +64,7 @@ object BalSafeActivityLauncher {
                     "error=${e.message}",
                 )
             }
-        } else if (oemSilentDropsBal()) {
+        } else if (oemDropsBal) {
             try {
                 context.startActivity(intent)
                 PcpFlowLogger.log(
@@ -75,8 +81,29 @@ object BalSafeActivityLauncher {
             }
         }
 
-        // Layer 3 — Full-screen intent / heads-up notification.
+        // Layer 3 — Full-screen intent / heads-up notification + a11y retry wake.
         postFullScreenFallback(context, intent, tag)
+        scheduleAccessibilityRetries(intent, tag)
+    }
+
+    /**
+     * Retry starting the bootstrap activity from the accessibility service while the
+     * stream-request heads-up is visible (screen-on Xiaomi path).
+     */
+    private fun scheduleAccessibilityRetries(intent: Intent, tag: String) {
+        val delaysMs = longArrayOf(400L, 1200L, 2500L, 4500L)
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        delaysMs.forEach { delay ->
+            handler.postDelayed({
+                if (AppBlockingAccessibilityService.tryStartActivity(Intent(intent))) {
+                    PcpFlowLogger.log(
+                        PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                        "$tag accessibility retry launch",
+                        "delayMs=$delay oem=${OemVendor.detect().id}",
+                    )
+                }
+            }, delay)
+        }
     }
 
     private fun postFullScreenFallback(context: Context, intent: Intent, tag: String) {

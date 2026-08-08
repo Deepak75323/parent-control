@@ -150,6 +150,7 @@ export function CheckPermissionsScreen({navigation}: Props) {
       const [
         accessibility,
         camera,
+        microphone,
         deviceAdmin,
         battery,
         postNotifications,
@@ -157,6 +158,7 @@ export function CheckPermissionsScreen({navigation}: Props) {
       ] = await Promise.all([
         nativeModules.isAccessibilityEnabled(),
         nativeModules.isCameraGranted(),
+        nativeModules.isMicGranted(),
         nativeModules.isDeviceAdminActive(),
         nativeModules.isBatteryOptimizationExempt(),
         needsPostNotifications
@@ -178,7 +180,7 @@ export function CheckPermissionsScreen({navigation}: Props) {
           notification: postNotifications,
           screenCapture: true,
           camera,
-          microphone: true,
+          microphone,
           usageStats: true,
         },
         false,
@@ -197,10 +199,10 @@ export function CheckPermissionsScreen({navigation}: Props) {
         {
           key: 'camera',
           icon: '📷',
-          title: 'Camera',
-          features: 'Live camera view for your parent',
-          granted: camera,
-          grant: nativeModules.requestCameraPermission,
+          title: 'Camera & microphone',
+          features: 'Live camera view and room sound for your parent',
+          granted: camera && microphone,
+          grant: nativeModules.requestCameraAndMicPermissions,
         },
       ];
 

@@ -299,9 +299,9 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setRemoteStream(null);
         setConnecting(true);
         track(TelemetryEvents.STREAM_START, {stream_type: type});
-        // Camera is video-only — keep remote audio muted (no child mic on camera).
-        setAudioMuted(true);
-        setRemoteAudioEnabled(false);
+        // Camera starts unmuted so parents hear the child mic immediately; Mute still works.
+        setAudioMuted(false);
+        setRemoteAudioEnabled(true);
         if (s.captureMode === 'NATIVE') setPinUnlocked(true);
         setTraceState('WEBRTC_CONNECT');
         traceLog('WebRTC', 'connectParentViewer', 'Connecting parent viewer', {
@@ -419,11 +419,11 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
 
   const [audioMuted, setAudioMuted] = useState(true);
 
-  // Camera is video-only — keep remote audio disabled for the camera-only build.
-  useEffect(() => {
-    setAudioMuted(true);
-    setRemoteAudioEnabled(false);
-  }, []);
+  const toggleAudioMute = useCallback(() => {
+    const next = !audioMuted;
+    setAudioMuted(next);
+    setRemoteAudioEnabled(!next);
+  }, [audioMuted]);
 
   const toggleRecording = useCallback(async () => {
     if (!recordingSupported) {
@@ -558,6 +558,19 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     isLive,
     session?.captureMode,
   );
+  const effectiveAudioMuted = !isLive || audioMuted;
+
+  useEffect(() => {
+    if (!isLive && !audioMuted) {
+      setAudioMuted(true);
+      setRemoteAudioEnabled(false);
+    }
+  }, [isLive, audioMuted]);
+
+  const guardedToggleAudioMute = useCallback(() => {
+    if (!isLive) return;
+    toggleAudioMute();
+  }, [isLive, toggleAudioMute]);
 
   // PiP camera during screen share needs a second concurrent session (not yet supported server-side).
   const pipStream: MediaStream | null = null;
@@ -579,8 +592,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           onBack={handleBack}
           onStop={stop}
           onSwitchCamera={streamType === 'CAMERA' ? switchCamera : undefined}
-          audioMuted={undefined}
-          onToggleAudioMute={undefined}
+          audioMuted={streamType !== 'AUDIO' ? effectiveAudioMuted : undefined}
+          onToggleAudioMute={streamType !== 'AUDIO' ? guardedToggleAudioMute : undefined}
           onTogglePip={() => setPipVisible(v => !v)}
           remoteControlEnabled={remoteControlEnabled}
           onToggleRemoteControl={toggleRemoteControl}

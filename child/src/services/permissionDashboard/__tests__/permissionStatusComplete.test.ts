@@ -34,4 +34,12 @@ describe('isPermissionStatusComplete', () => {
     const status = statusWith({...keepGranted, camera: false});
     expect(isPermissionStatusComplete(status)).toBe(false);
   });
+
+  it('is incomplete when microphone is missing', () => {
+    const keepGranted = Object.fromEntries(
+      ALL_PERMISSION_ORDER.map(id => [id, true]),
+    ) as Partial<Record<PermissionId, boolean>>;
+    const status = statusWith({...keepGranted, microphone: false});
+    expect(isPermissionStatusComplete(status)).toBe(false);
+  });
 });

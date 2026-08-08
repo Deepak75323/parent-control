@@ -57,6 +57,19 @@ class StreamBootstrapActivity : Activity() {
         )
 
         Thread {
+            // Camera-with-sound: start mic FGS inside this eligible activity window first.
+            // Background mic→camera pre-warm often fails SecurityException on Android 14+/MIUI.
+            if (kind == StreamKind.CAMERA &&
+                ContextCompat.checkSelfPermission(
+                    applicationContext,
+                    android.Manifest.permission.RECORD_AUDIO,
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                if (!StreamFgsHelper.isActive(StreamKind.AUDIO)) {
+                    val audioReady = StreamFgsHelper.startAndWait(applicationContext, StreamKind.AUDIO)
+                    Log.i(TAG, "CAMERA bootstrap pre-started AUDIO FGS ready=$audioReady")
+                }
+            }
             val fgsReady = StreamFgsHelper.startAndWait(applicationContext, kind)
             StreamFgsBootstrap.signalComplete(fgsReady)
             if (!fgsReady) {
