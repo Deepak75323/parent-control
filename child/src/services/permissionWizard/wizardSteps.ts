@@ -8,6 +8,7 @@ import {
 import type {PermissionId} from '../permissionDashboard/types';
 import {grantSinglePermission} from '../permissionDashboard/grantOrchestrator';
 import {isPermissionGranted} from './permissionChecks';
+import {shouldReturnToAccessibilityForScreenCapture} from './screenCaptureWizardPolicy';
 
 export type WizardExplainCallbacks = {
   onExplain: (id: PermissionId, title: string, body: string) => Promise<void>;
@@ -37,8 +38,17 @@ export async function resolveResumeStep(
   for (let i = startIndex; i < order.length; i++) {
     const id = order[i];
     if (!(await isPermissionGranted(id))) {
-      if (id === 'screenCapture' && !(await isPermissionGranted('accessibility'))) {
-        return 'accessibility';
+      if (id === 'screenCapture') {
+        const projectionGranted = await nativeModules.isMediaProjectionGranted();
+        const accessibilityReady = await isPermissionGranted('accessibility');
+        if (
+          shouldReturnToAccessibilityForScreenCapture({
+            mediaProjectionGranted: projectionGranted,
+            accessibilityReady,
+          })
+        ) {
+          return 'accessibility';
+        }
       }
       return id;
     }

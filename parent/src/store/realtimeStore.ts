@@ -55,6 +55,8 @@ interface RealtimeState {
   clearPendingPairingCode: () => void;
   bumpDeviceListVersion: () => void;
   notifyPairingComplete: (device: {deviceId: string; deviceName: string}) => void;
+  /** Previous parent drops a child that was re-assigned to another family. */
+  notifyDeviceRemoved: (deviceId: string) => void;
   setWsConnected: (connected: boolean) => void;
   upsertDeviceStatus: (event: DeviceStatusLive) => void;
   prependNotification: (item: NotificationItem) => void;
@@ -126,6 +128,20 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       pairingBaselineLastSeen: {},
       pairingBaselineStatuses: {},
     }));
+  },
+  notifyDeviceRemoved: deviceId => {
+    if (!deviceId) {
+      return;
+    }
+    set(state => {
+      const {[deviceId]: _removed, ...deviceStatuses} = state.deviceStatuses;
+      const {[deviceId]: _loc, ...liveLocations} = state.liveLocations;
+      return {
+        deviceStatuses,
+        liveLocations,
+        deviceListVersion: state.deviceListVersion + 1,
+      };
+    });
   },
   setWsConnected: wsConnected => set({wsConnected}),
   upsertDeviceStatus: event =>

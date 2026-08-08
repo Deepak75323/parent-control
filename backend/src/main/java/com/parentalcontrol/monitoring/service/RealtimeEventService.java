@@ -44,6 +44,31 @@ public class RealtimeEventService {
             });
   }
 
+  /**
+   * Notify the previous parent that a physical device was re-assigned to another family.
+   * Parent apps should drop the device from their list without waiting for a manual refresh.
+   */
+  public void publishDeviceRemovedFromParent(
+      UUID previousParentProfileId, UUID deviceId, String deviceName) {
+    parentUserResolver
+        .resolveUserIdByProfileId(previousParentProfileId)
+        .ifPresent(
+            parentUserId -> {
+              var event =
+                  Map.of(
+                      "eventType",
+                      "DEVICE_REASSIGNED",
+                      "deviceId",
+                      deviceId.toString(),
+                      "deviceName",
+                      deviceName != null ? deviceName : "",
+                      "status",
+                      "REMOVED");
+              messagingTemplate.convertAndSendToUser(
+                  parentUserId.toString(), "/queue/device-removed", event);
+            });
+  }
+
   public void publishDeviceStatus(Device device) {
     DeviceStatusEvent event =
         DeviceStatusEvent.builder()

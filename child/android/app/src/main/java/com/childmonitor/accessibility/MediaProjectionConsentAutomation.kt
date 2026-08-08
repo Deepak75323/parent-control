@@ -5,6 +5,7 @@ import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import com.childmonitor.MonitoringPrefs
 
 /**
  * Sideload-only helper: auto-tap Android "Share screen" / "Start now" on the
@@ -171,8 +172,6 @@ object MediaProjectionConsentAutomation {
         "com.miui.home",
         "com.miui.securitycenter",
         "com.miui.permcenter",
-        // ── Self (used during DeviceOwner-mode onboarding) ──────────────────
-        "com.childmonitor",
     )
 
     fun tryAutoApprove(service: AccessibilityService, packageName: String?): Boolean {
@@ -180,6 +179,7 @@ object MediaProjectionConsentAutomation {
         if (now - lastClickAt < 1200) return false
         if (now - lastScanAt < 400) return false
         lastScanAt = now
+        val armed = MonitoringPrefs.isScreenCaptureAutoApproveArmed(service)
 
         val roots = collectDialogRoots(service)
         if (roots.isEmpty()) {
@@ -199,13 +199,19 @@ object MediaProjectionConsentAutomation {
                     continue
                 }
 
-                // Always verify window content regardless of package.
-                // A known package alone cannot distinguish a MediaProjection dialog from a
-                // battery-optimisation, camera-permission, or overlay-permission dialog —
-                // all of which may originate from com.android.systemui or a permission
-                // controller. The content check (title AND approve-button, see AND logic in
-                // looksLikeMediaProjectionContent) is the authoritative gate.
-                if (!looksLikeMediaProjectionDialog(root)) continue
+                val strictDialogMatch = looksLikeMediaProjectionDialog(root)
+                val relaxedKnownHostMatch =
+                    armed &&
+                        !rootPkg.isNullOrBlank() &&
+                        rootPkg != service.packageName &&
+                        rootPkg in DIALOG_PACKAGES
+
+                // Prefer the strict title+button match. During an explicit, time-bounded
+                // screen-share grant window, allow a fallback for known system consent hosts
+                // even if OEM wording differs from our title hints. Do not relax this for our
+                // own package, or we'd risk re-clicking the wizard's "Allow screen sharing"
+                // button instead of the real system consent dialog.
+                if (!strictDialogMatch && !relaxedKnownHostMatch) continue
 
                 if (clickApproveButton(root)) {
                     lastClickAt = now

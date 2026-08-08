@@ -64,7 +64,8 @@ public class AuthService {
             stored -> {
               stored.setRevoked(true);
               refreshTokenRepository.save(stored);
-              userTokenInvalidationService.invalidateAllSessions(stored.getUserId());
+              // Revoke only this device's refresh token so other clients (app ↔ web)
+              // stay signed in. Full wipe remains for token reuse / password reset.
             });
   }
 
@@ -114,7 +115,7 @@ public class AuthService {
     return buildAuthResponse(user, profile);
   }
 
-  @Transactional(readOnly = true)
+  @Transactional
   public AuthResponse login(LoginRequest request) {
     String normalizedEmail = normalizeEmail(request.getEmail());
     log.info("[AUTH LOGIN] email={}", SensitiveDataRedactor.email(normalizedEmail));

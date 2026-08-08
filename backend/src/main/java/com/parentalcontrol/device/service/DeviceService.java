@@ -238,11 +238,13 @@ public class DeviceService {
 
     String hmacKey = deviceHmacService.generateSecret();
     Device device;
+    UUID previousParentProfileId = null;
 
     if (existingOpt.isPresent()) {
       Device existing = existingOpt.get();
       if (!existing.getParentProfileId().equals(pairingCode.getParentProfileId())) {
         // Valid fresh pairing code re-assigns this physical device to the new parent.
+        previousParentProfileId = existing.getParentProfileId();
         featureGateService.requireDeviceSlot(pairingCode.getParentProfileId());
         existing.setParentProfileId(pairingCode.getParentProfileId());
       }
@@ -261,9 +263,10 @@ public class DeviceService {
       existing.setChildLoginPasswordHash(familyPasswordHash);
       device = deviceRepository.save(existing);
       log.info(
-          "Re-paired existing device id={} androidId={}",
+          "Re-paired existing device id={} androidId={} previousParentProfileId={}",
           device.getId(),
-          SensitiveDataRedactor.androidId(request.getAndroidId()));
+          SensitiveDataRedactor.androidId(request.getAndroidId()),
+          previousParentProfileId);
     } else {
       device =
           Device.builder()
@@ -312,13 +315,18 @@ public class DeviceService {
     String deviceToken =
         jwtTokenProvider.createDeviceToken(device.getId(), parentUserId, device.getTokenVersion());
 
+    if (previousParentProfileId != null) {
+      realtimeEventService.publishDeviceRemovedFromParent(
+          previousParentProfileId, device.getId(), device.getDeviceName());
+    }
     realtimeEventService.publishDevicePaired(device, parentDisplayName);
 
     log.info(
-        "Pair success deviceId={} parentUserId={} parentDisplayName={}",
+        "Pair success deviceId={} parentUserId={} parentDisplayName={} crossParentReassign={}",
         device.getId(),
         parentUserId,
-        SensitiveDataRedactor.displayName(parentDisplayName));
+        SensitiveDataRedactor.displayName(parentDisplayName),
+        previousParentProfileId != null);
 
     return DevicePairResponse.builder()
         .deviceId(device.getId())

@@ -232,7 +232,15 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const liveAlerts = useRealtimeStore(s => s.liveAlerts);
   const deviceListVersion = useRealtimeStore(s => s.deviceListVersion);
   const setPendingPairingCode = useRealtimeStore(s => s.setPendingPairingCode);
+  const pendingPairingCode = useRealtimeStore(s => s.pendingPairingCode);
   const presenceNowMs = usePresenceClock(15_000);
+
+  useEffect(() => {
+    if (!pendingPairingCode) {
+      setActivePairingCode(null);
+      setPairingExpiresAt(null);
+    }
+  }, [pendingPairingCode]);
 
   const heroAnim = useFadeSlideIn(0);
   const dotBlink = useOpacityPulse(0.5, 1, 700);

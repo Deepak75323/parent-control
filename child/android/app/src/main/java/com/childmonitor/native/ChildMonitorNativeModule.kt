@@ -996,24 +996,15 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun openBatteryOptimizationSettings(promise: Promise) {
         try {
-            val pm = reactContext.getSystemService(Context.POWER_SERVICE) as PowerManager
-            if (pm.isIgnoringBatteryOptimizations(reactContext.packageName)) {
-                val listIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                reactContext.startActivity(listIntent)
-                promise.resolve(null)
-                return
-            }
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:${reactContext.packageName}")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
+            val intent = com.childmonitor.oem.OemCompatibilityManager
+                .buildBatteryOptimizationIntent(reactContext)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             reactContext.startActivity(intent)
             promise.resolve(null)
         } catch (e: Exception) {
             try {
-                val fallback = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:${reactContext.packageName}")
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 reactContext.startActivity(fallback)

@@ -118,13 +118,12 @@ export function connectWebSocket(): void {
         }>(msg);
         const deviceId = normalizeDeviceId(event.deviceId);
         const store = useRealtimeStore.getState();
-        // While a pairing code is active, only devices absent from the baseline snapshot
-        // count as newly paired. Heartbeats from already-paired children must not
-        // clear the code (deviceStatuses may be empty before the list API loads).
+        // While a pairing code is active, heartbeats from devices already in the
+        // baseline must not clear the code. An empty baseline (first child) OR any
+        // id absent from baseline counts as newly paired.
         const isNewlyPaired =
-          deviceId &&
-          store.pendingPairingCode &&
-          store.pairingBaselineIds.size > 0 &&
+          !!deviceId &&
+          !!store.pendingPairingCode &&
           !store.pairingBaselineIds.has(deviceId);
         if (isNewlyPaired) {
           plog('WS device-status new device', {deviceId, deviceName: event.deviceName});
@@ -165,6 +164,7 @@ export function connectWebSocket(): void {
         plog('WS device-paired', event);
         // Ignore stale/replay events when no pairing code is active — otherwise a
         // re-pair or reconnect clears the code before the parent can display it.
+        // Parent B's code clears only after a real claim for the active code.
         if (!store.pendingPairingCode) {
           plog('WS device-paired ignored — no active pairing code');
           return;
@@ -173,6 +173,21 @@ export function connectWebSocket(): void {
           deviceId,
           deviceName: event.deviceName?.trim() || 'Child device',
         });
+      });
+
+      client?.subscribe('/user/queue/device-removed', msg => {
+        const event = parseJson<{
+          deviceId: string;
+          deviceName?: string;
+          eventType?: string;
+          status?: string;
+        }>(msg);
+        const deviceId = normalizeDeviceId(event.deviceId);
+        plog('WS device-removed', event);
+        if (!deviceId) {
+          return;
+        }
+        useRealtimeStore.getState().notifyDeviceRemoved(deviceId);
       });
 
       client?.subscribe('/user/queue/notifications', msg => {

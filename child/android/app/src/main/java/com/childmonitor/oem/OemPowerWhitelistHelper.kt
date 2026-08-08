@@ -35,13 +35,12 @@ object OemPowerWhitelistHelper {
         }
 
         try {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:${context.packageName}")
+            val intent = OemCompatibilityManager.buildBatteryOptimizationIntent(context).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
             markPrompted(context)
-            Log.i(TAG, "Requested battery optimization exemption")
+            Log.i(TAG, "Requested battery optimization exemption via ${intent.action}")
         } catch (e: Exception) {
             Log.w(TAG, "Battery optimization intent failed — trying OEM-specific", e)
             if (!openOemBatterySettings(context)) {

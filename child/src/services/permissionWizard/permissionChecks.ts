@@ -1,6 +1,7 @@
 import {Platform} from 'react-native';
 import {nativeModules} from '../../nativeModules';
 import type {PermissionId} from '../permissionDashboard/types';
+import {isScreenCaptureStepComplete} from './screenCaptureWizardPolicy';
 
 /** Verify real permission state — do not rely on activity results alone. */
 export async function isPermissionGranted(id: PermissionId): Promise<boolean> {
@@ -39,9 +40,7 @@ export async function isPermissionGranted(id: PermissionId): Promise<boolean> {
         ? nativeModules.isFullScreenIntentGranted()
         : true;
     case 'screenCapture':
-      return (
-        (await nativeModules.isMediaProjectionGranted()) &&
-        (await nativeModules.isAccessibilityEnabled())
-      );
+      // Accessibility is required to *request* consent, not to count an active grant.
+      return isScreenCaptureStepComplete(await nativeModules.isMediaProjectionGranted());
   }
 }

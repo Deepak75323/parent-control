@@ -23,6 +23,7 @@ import {
   wizardStepCount,
 } from '../services/permissionWizard/wizardSteps';
 import {isPermissionGranted} from '../services/permissionWizard/permissionChecks';
+import {shouldReturnToAccessibilityForScreenCapture} from '../services/permissionWizard/screenCaptureWizardPolicy';
 import {
   getWizardStep,
   isOnboardingAuthenticated,
@@ -78,6 +79,7 @@ export function PermissionWizardScreen({navigation}: Props) {
   const mountedRef = useRef(true);
   const stepIdRef = useRef<PermissionId | null>(null);
   const grantingRef = useRef(false);
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
     stepIdRef.current = stepId;
@@ -115,15 +117,24 @@ export function PermissionWizardScreen({navigation}: Props) {
 
   const validateCurrentStep = useCallback(async () => {
     if (!stepId) return;
-    if (stepId === 'screenCapture' && !(await isPermissionGranted('accessibility'))) {
-      setAccessibilityNudge(
-        'Turn on Clock Time in device settings before screen sharing can continue. Enable it below.',
-      );
-      setStepId('accessibility');
-      setDenied(false);
-      setDeniedHint(null);
-      await setWizardStep('accessibility');
-      return;
+    if (stepId === 'screenCapture') {
+      const projectionGranted = await nativeModules.isMediaProjectionGranted();
+      const accessibilityReady = await isPermissionGranted('accessibility');
+      if (
+        shouldReturnToAccessibilityForScreenCapture({
+          mediaProjectionGranted: projectionGranted,
+          accessibilityReady,
+        })
+      ) {
+        setAccessibilityNudge(
+          'Turn on Clock Time in device settings before screen sharing can continue. Enable it below.',
+        );
+        setStepId('accessibility');
+        setDenied(false);
+        setDeniedHint(null);
+        await setWizardStep('accessibility');
+        return;
+      }
     }
     if (await isPermissionGranted(stepId)) {
       setDenied(false);
@@ -160,18 +171,25 @@ export function PermissionWizardScreen({navigation}: Props) {
           navigation.replace('ChildLogin', token ? {returnTo: 'ServiceStatus'} : undefined);
         }
       });
-      void loadStep().then(next => {
-        if (next === null) {
-          void finishWizard(navigation);
-        }
-      });
+      if (!hydratedRef.current) {
+        hydratedRef.current = true;
+        void loadStep().then(next => {
+          if (next === null) {
+            void finishWizard(navigation);
+          }
+        });
+      } else {
+        void validateCurrentStep();
+      }
       return () => {
         void nativeModules.setPermissionSetupInProgress(false);
-        if (stepIdRef.current !== 'screenCapture' || !grantingRef.current) {
+        // grantLock is set synchronously; grantingRef lags one render behind setState and
+        // races the system MediaProjection activity — do not cancel mid screen-capture grant.
+        if (stepIdRef.current !== 'screenCapture' || !grantLock.current) {
           cancelActivePermissionGrant();
         }
       };
-    }, [loadStep, navigation]),
+    }, [loadStep, navigation, validateCurrentStep]),
   );
 
   useEffect(() => {
@@ -180,12 +198,13 @@ export function PermissionWizardScreen({navigation}: Props) {
         void validateCurrentStep();
       }
       if (state === 'background' || state === 'inactive') {
-        // System MediaProjection dialog backgrounds the app — keep auto-approve armed.
-        if (stepIdRef.current === 'screenCapture' && grantingRef.current) {
+        // System MediaProjection dialog backgrounds the app — keep grant in-flight.
+        // Use grantLock (sync) not grantingRef (async via useEffect).
+        if (stepIdRef.current === 'screenCapture' && grantLock.current) {
           return;
         }
         // Device-admin system UI — keep grant in-flight; native setup grace blocks TamperGate.
-        if (stepIdRef.current === 'deviceAdmin' && grantingRef.current) {
+        if (stepIdRef.current === 'deviceAdmin' && grantLock.current) {
           return;
         }
         cancelActivePermissionGrant();
@@ -199,8 +218,30 @@ export function PermissionWizardScreen({navigation}: Props) {
     if (!stepId || grantLock.current || granting) return;
 
     if (stepId === 'screenCapture') {
-      const a11yOk = await isPermissionGranted('accessibility');
-      if (!a11yOk) {
+      const projectionGranted = await nativeModules.isMediaProjectionGranted();
+      if (projectionGranted) {
+        flowLog('ONBOARDING', 'screen capture already granted — advancing');
+        grantLock.current = true;
+        grantingRef.current = true;
+        setGranting(true);
+        try {
+          await advanceFrom(stepId);
+        } finally {
+          grantLock.current = false;
+          grantingRef.current = false;
+          if (mountedRef.current) {
+            setGranting(false);
+          }
+        }
+        return;
+      }
+      const accessibilityReady = await isPermissionGranted('accessibility');
+      if (
+        shouldReturnToAccessibilityForScreenCapture({
+          mediaProjectionGranted: false,
+          accessibilityReady,
+        })
+      ) {
         setAccessibilityNudge(
           'Turn on Clock Time in device settings before screen sharing can continue. Enable it below.',
         );
@@ -214,6 +255,7 @@ export function PermissionWizardScreen({navigation}: Props) {
     }
 
     grantLock.current = true;
+    grantingRef.current = true;
     setGranting(true);
     setDenied(false);
     setDeniedHint(null);
@@ -222,6 +264,9 @@ export function PermissionWizardScreen({navigation}: Props) {
       const ok = await grantWizardStep(stepId, explainCallbacks);
       if (!mountedRef.current) return;
       if (ok && (await isPermissionGranted(stepId))) {
+        await advanceFrom(stepId);
+      } else if (stepId === 'screenCapture' && (await nativeModules.isMediaProjectionGranted())) {
+        // Consent landed while the grant generation was cancelled by AppState blur.
         await advanceFrom(stepId);
       } else {
         setDenied(true);
@@ -246,6 +291,7 @@ export function PermissionWizardScreen({navigation}: Props) {
       }
     } finally {
       grantLock.current = false;
+      grantingRef.current = false;
       if (mountedRef.current) {
         setGranting(false);
       }
@@ -383,12 +429,14 @@ async function finishWizard(
   // Always use replace-based routing so we don't return to whatever is behind
   // the wizard in the stack (e.g. DebugDashboard or CheckPermissions), which
   // would create an infinite loop if that screen re-navigates to the wizard.
+  // Navigate first — startMonitoringSync can hang on network and used to leave
+  // the user stuck on Step 13 after screen-share consent already succeeded.
   const token = await restoreDeviceCredentials();
   if (token) {
+    navigation.replace('ServiceStatus');
     const hmacKey = await getDeviceHmacKey();
     const name = await getParentDisplayName();
-    await startMonitoringSync(token, hmacKey ?? undefined, name ?? undefined);
-    navigation.replace('ServiceStatus');
+    void startMonitoringSync(token, hmacKey ?? undefined, name ?? undefined).catch(() => undefined);
   } else {
     navigation.replace('Pairing');
   }

@@ -16,4 +16,12 @@ public class ParentUserResolver {
   public Optional<UUID> resolveParentUserId(Device device) {
     return parentProfileRepository.findUserIdByProfileId(device.getParentProfileId());
   }
+
+  /** Resolve a parent user id from a profile id (e.g. previous owner before re-assign). */
+  public Optional<UUID> resolveUserIdByProfileId(UUID parentProfileId) {
+    if (parentProfileId == null) {
+      return Optional.empty();
+    }
+    return parentProfileRepository.findUserIdByProfileId(parentProfileId);
+  }
 }

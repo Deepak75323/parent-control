@@ -39,6 +39,7 @@ Complete guide for new developers setting up the **backend**, **parent app**, an
 |-----------|------|---------|
 | **Backend API** | `backend/` | Single Spring Boot service: auth, device registry, monitoring ingest, policies, WebRTC signaling, billing, audit, remote commands |
 | **Parent app** | `parent/` | React Native dashboard for parents: register/login, pair devices, view notifications/location/usage, manage policies, live WebRTC monitoring, subscription, audit log |
+| **Parent web** | `web/` | Vite + React parent portal — same JWT as mobile; devices, policies, geofences, billing, audit, settings, live WebRTC view |
 | **Child app** | `child/` | React Native UI + **Android native agent**: captures notifications/location/usage, enforces policies, streams media, runs foreground service, optional Device Owner / kiosk |
 
 **Legal scope:** Lawful parental monitoring with **informed consent** on parent registration and child pairing. Android child agent only — **no iOS**.
@@ -238,8 +239,9 @@ The child app supports **FCM high-priority data wakes** when `google-services.js
 ```
 parentalControlApp/
 ├── backend/                 # Spring Boot API
-├── parent/              # React Native parent dashboard
-├── child/               # React Native + Android native agent
+├── parent/                  # React Native parent dashboard
+├── web/                     # Vite + React parent portal (same JWT as parent app)
+├── child/                   # React Native + Android native agent
 ├── docs/                    # Architecture, API, security, this guide
 ├── helm/                    # Kubernetes chart for API
 ├── scripts/                 # split-repos.sh, export-openapi.sh
@@ -774,6 +776,19 @@ adb shell cmd notification allow_listener com.childmonitor/.NotificationCaptureS
 
 ## 7. Running the full system locally
 
+For the **parent website** (same login as the parent app):
+
+```bash
+# Terminal A — backend (dev profile; CORS allows :5173 by default)
+cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+
+# Terminal B — parent web
+cd web && npm install && npm run dev
+# open http://localhost:5173 — devices already paired on mobile appear after login
+```
+
+See [web/README.md](../web/README.md).
+
 ### Step-by-step (correct order)
 
 | Step | Action | Verification |
@@ -782,6 +797,7 @@ adb shell cmd notification allow_listener com.childmonitor/.NotificationCaptureS
 | 2 | (Optional) `./scripts/dev/compose.sh up -d kafka` + `KAFKA_ENABLED=true` | Kafka container up |
 | 3 | `cd backend && mvn spring-boot:run` | `curl localhost:8080/actuator/health` |
 | 4 | Parent: `npm start` + `npm run android` | Login screen |
+| 4b | Parent web (optional): `cd web && npm run dev` | http://localhost:5173 — same account as mobile |
 | 5 | Child: `npm start` + `npm run android` (device 2) | Setup wizard |
 | 6 | Parent: Register → Login → Generate pairing code | 8-char code shown |
 | 7 | Child: Permissions → Enter code → Pair | "Monitoring active" notification |

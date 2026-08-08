@@ -15,7 +15,12 @@ import {
   setRemoteAudioEnabled,
 } from '../services/webrtcService';
 import {stopBackendStreamSession} from '../services/streamAuthTeardown';
-import {getSessionIdForBackendStop} from '../services/streamSessionOwner';
+import {
+  clearStickySessionId,
+  getSessionIdForBackendStop,
+  getSessionSnapshot,
+} from '../services/streamSessionOwner';
+import {shouldReleaseViewerOnStreamingEnded} from '../services/streamTakeover';
 import {slog, slogReset} from '../services/streamDebug';
 import {
   generateTraceId,
@@ -155,12 +160,39 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   }, [remoteStream, iceState]);
 
   useEffect(() => {
-    if (!streamingState || streamingState.deviceId !== deviceId) return;
+    if (!streamingState) return;
+    if (streamingState.deviceId && streamingState.deviceId !== deviceId) return;
     if (streamingState.status !== 'FAILED') return;
     setConnecting(false);
     setRemoteStream(null);
     appAlert('Live view could not start', streamFailureMessage(streamingState.failureReason));
   }, [streamingState, deviceId]);
+
+  // Another parent client (e.g. web) took over this live session — release local viewer.
+  useEffect(() => {
+    if (!streamingState) return;
+    if (streamingState.deviceId && streamingState.deviceId !== deviceId) return;
+    const activeRoom =
+      session?.signalingRoomId ?? getSessionSnapshot().roomId ?? undefined;
+    if (!shouldReleaseViewerOnStreamingEnded(streamingState, activeRoom)) return;
+
+    slog('UI', 'stream taken over by another client — releasing viewer', {
+      roomId: streamingState.roomId,
+      streamType: streamingState.streamType,
+    });
+    clearStickySessionId();
+    void disconnectViewer().catch(() => undefined);
+    setSession(null);
+    setRemoteStream(null);
+    setConnecting(false);
+    setIceState(null);
+    setLoading(false);
+    resetStreamState();
+    appAlert(
+      'Live view moved',
+      'This stream is now open on another parent device or the web portal.',
+    );
+  }, [streamingState, deviceId, session?.signalingRoomId]);
 
   const needsPinForScreen = silentScreenCapable && !pinUnlocked;
   const screenShareCapable = isScreenShareCapable({
@@ -553,8 +585,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           onBack={handleBack}
           onStop={stop}
           onSwitchCamera={streamType === 'CAMERA' ? switchCamera : undefined}
-          audioMuted={effectiveAudioMuted}
-          onToggleAudioMute={streamType === 'CAMERA' ? guardedToggleAudioMute : undefined}
+          audioMuted={streamType !== 'AUDIO' ? effectiveAudioMuted : undefined}
+          onToggleAudioMute={streamType !== 'AUDIO' ? guardedToggleAudioMute : undefined}
           onTogglePip={() => setPipVisible(v => !v)}
           remoteControlEnabled={remoteControlEnabled}
           onToggleRemoteControl={toggleRemoteControl}

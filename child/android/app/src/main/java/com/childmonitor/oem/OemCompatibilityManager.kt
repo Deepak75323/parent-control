@@ -121,7 +121,7 @@ object OemCompatibilityManager {
                     "Tap 'Manage apps' or 'App Manager'",
                     "Search for '${context.applicationInfo.loadLabel(context.packageManager)}'",
                     "Tap 'Autostart' and enable it",
-                    "Also tap 'Battery saver' → 'No restrictions'",
+                    "Also open Battery optimisation → All apps → this app → Not optimised",
                 ),
                 warningNote = "Without Autostart enabled, MIUI will stop monitoring within 2–3 minutes after you leave the app.",
             )
@@ -135,7 +135,7 @@ object OemCompatibilityManager {
                     "Open Settings → Apps → Manage apps",
                     "Find '${context.applicationInfo.loadLabel(context.packageManager)}'",
                     "Tap 'Autostart' and enable the toggle",
-                    "Go back → Battery saver → No restrictions",
+                    "Open Battery optimisation → All apps → this app → Not optimised",
                 ),
                 warningNote = "HyperOS has stricter background limits than MIUI. Both Autostart AND battery exemption are required.",
             )
@@ -237,16 +237,25 @@ object OemCompatibilityManager {
     }
 
     /**
-     * Returns an Intent that opens the standard Android battery optimization exemption dialog.
-     * Safe on all API levels ≥ 23.
+     * Returns an Intent for battery-background exemption.
+     *
+     * On Xiaomi HyperOS / MIUI, [Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS] is
+     * remapped to PowerDetailActivity ("Battery details") with only usage % — no control.
+     * Open the system **Battery optimisation** list instead (All apps → Clock Time → Not
+     * optimised). HyperOS 3 does not always expose a "No restrictions" row on App info.
      */
-    fun buildBatteryOptimizationIntent(context: Context): Intent {
-        return try {
-            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-        } catch (_: Exception) {
-            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+    fun buildBatteryOptimizationIntent(context: Context): Intent =
+        buildBatteryOptimizationIntentForOem(detectOem(), context.packageName)
+
+    /** Package-visible for unit tests — avoids relying on live [Build.MANUFACTURER]. */
+    fun buildBatteryOptimizationIntentForOem(oem: OemType, packageName: String): Intent {
+        return when (oem) {
+            OemType.XIAOMI_MIUI, OemType.XIAOMI_HYPEROS ->
+                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            else ->
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
         }
     }
 

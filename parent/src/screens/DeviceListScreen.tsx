@@ -16,6 +16,10 @@ import {deviceApi, DeviceSummary, childLoginPasswordApi} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {useAuthStore} from '../store/authStore';
 import {plog} from '../services/pairingLog';
+import {
+  isAdditionalDevicePairing,
+  shouldDismissPairingCodeFromStatus,
+} from '../services/pairingDetection';
 import {getApiErrorMessage} from '../utils/apiError';
 import {
   isRevokedStatus,
@@ -100,10 +104,12 @@ export function DeviceListScreen({navigation}: Props) {
   const lastPairedDevice = useRealtimeStore(s => s.lastPairedDevice);
   const pendingPairingCode = useRealtimeStore(s => s.pendingPairingCode);
   const codeExpiresAt = useRealtimeStore(s => s.codeExpiresAt);
+  const pairingBaselineIds = useRealtimeStore(s => s.pairingBaselineIds);
   const wsConnected = useRealtimeStore(s => s.wsConnected);
   const setPendingPairingCode = useRealtimeStore(s => s.setPendingPairingCode);
   const clearPendingPairingCode = useRealtimeStore(s => s.clearPendingPairingCode);
   const presenceNowMs = usePresenceClock(15_000);
+  const addingAnotherDevice = isAdditionalDevicePairing(pairingBaselineIds?.size ?? 0);
 
   const load = useCallback(async () => {
     try {
@@ -145,12 +151,18 @@ export function DeviceListScreen({navigation}: Props) {
           .getPairingCodeStatus(code)
           .then(({data}) => {
             const status = data.data;
-            if (status?.used && status.deviceId) {
+            if (!shouldDismissPairingCodeFromStatus(status)) {
+              return;
+            }
+            if (status?.used) {
               plog('focus detected pairing via code status', status);
               useRealtimeStore.getState().notifyPairingComplete({
-                deviceId: status.deviceId,
+                deviceId: status.deviceId != null ? String(status.deviceId) : 'unknown',
                 deviceName: status.deviceName?.trim() || 'Child device',
               });
+            } else {
+              plog('focus clearing expired pairing code', status);
+              useRealtimeStore.getState().clearPendingPairingCode();
             }
           })
           .catch(err => plog('focus pairing status error', String(err)));
@@ -273,8 +285,9 @@ export function DeviceListScreen({navigation}: Props) {
                 <Text style={styles.pairingLabel}>Active pairing code</Text>
                 <CodeDisplay code={pendingPairingCode} />
                 <Text style={styles.pairingHint}>
-                  Children link with your family handle + family password from Settings. Use this
-                  setup code if recovery is needed. One use only — expires in 15 minutes
+                  {addingAnotherDevice
+                    ? 'Enter this code on the child phone to add another device or re-link. Existing paired phones stay connected until a new pair succeeds. One use — expires in 15 minutes'
+                    : 'Enter this code on the child phone after family login and permissions. One use only — expires in 15 minutes'}
                   {codeExpiresAt
                     ? ` (until ${new Date(codeExpiresAt).toLocaleTimeString()})`
                     : ''}
@@ -282,7 +295,11 @@ export function DeviceListScreen({navigation}: Props) {
                 </Text>
                 <View style={styles.waitingRow}>
                   <ActivityIndicator size="small" color="#2563eb" />
-                  <Text style={styles.waitingText}>Waiting for child device…</Text>
+                  <Text style={styles.waitingText}>
+                    {addingAnotherDevice
+                      ? 'Waiting for child to enter this code…'
+                      : 'Waiting for child device…'}
+                  </Text>
                 </View>
                 <Pressable onPress={clearPendingPairingCode}>
                   <Text style={styles.cancelCode}>Cancel code</Text>

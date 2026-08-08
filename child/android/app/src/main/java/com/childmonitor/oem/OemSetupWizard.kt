@@ -72,12 +72,12 @@ object OemSetupWizard {
             list.add(
                 Step(
                     id = "battery_saver",
-                    title = "Set Battery saver to No restrictions",
-                    description = "MIUI limits background camera, mic, and screen capture separately from autostart.",
+                    title = "Turn off battery optimisation",
+                    description = "HyperOS may not show “No restrictions” on App info — use Battery optimisation instead.",
                     instructions = listOf(
-                        "Tap Open settings → find $appLabel.",
-                        "Open Battery saver (or Battery).",
-                        "Select No restrictions.",
+                        "Tap Open settings — opens Battery optimisation.",
+                        "Tap All apps (or More if needed).",
+                        "Find $appLabel → set to Not optimised.",
                         "Return here and tap I've done this.",
                     ),
                     autoVerifiable = false,
@@ -186,7 +186,18 @@ object OemSetupWizard {
             "autostart" -> OemCompatibilityManager.buildGuidance(appContext)
                 .autostartIntent?.let { launch(appContext, it) }
                 ?: openAppDetails(appContext)
-            "battery_saver" -> openAppDetails(appContext)
+            "battery_saver" -> {
+                // HyperOS 3: Battery optimisation list (Not optimised), not App info Power row.
+                try {
+                    val intent = OemCompatibilityManager.buildBatteryOptimizationIntent(appContext).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    appContext.startActivity(intent)
+                } catch (e: Exception) {
+                    Log.w(TAG, "battery_saver open failed", e)
+                    openAppDetails(appContext)
+                }
+            }
             "recents_lock" -> {
                 Log.i(TAG, "recents_lock is manual-only")
             }
@@ -213,8 +224,7 @@ object OemSetupWizard {
 
     private fun openBatteryExemption(context: Context) {
         try {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:${context.packageName}")
+            val intent = OemCompatibilityManager.buildBatteryOptimizationIntent(context).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)

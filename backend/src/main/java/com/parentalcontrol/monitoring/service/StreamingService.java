@@ -396,12 +396,19 @@ public class StreamingService {
     fcmWakeService.wakeDevice(device, "STREAM_FAILED", Map.of("sessionId", sessionId.toString()));
   }
 
-  /** End stale sessions of the same stream type when parent starts a new stream. */
+  /**
+   * End any pending/active stream for this device when parent starts a new one so only one
+   * viewer (app or web) owns the live session. Notify the parent so the previous client
+   * tears down its WebRTC viewer.
+   */
   private void endStalePendingSessions(UUID deviceId, String streamType) {
+    Device device = deviceAccessService.requireOwnedDevice(deviceId);
+    Optional<UUID> parentUserId =
+        parentProfileRepository.findUserIdByProfileId(device.getParentProfileId());
+
     for (ScreenSessionStatus status :
         List.of(ScreenSessionStatus.PENDING, ScreenSessionStatus.ACTIVE)) {
-      screenSessionRepository.findByDeviceIdAndStatusOrderByStartedAtDesc(deviceId, status).stream()
-          .filter(session -> streamType.equalsIgnoreCase(session.getStreamType()))
+      screenSessionRepository.findByDeviceIdAndStatusOrderByStartedAtDesc(deviceId, status)
           .forEach(
               session -> {
                 session.setStatus(ScreenSessionStatus.ENDED);
@@ -410,6 +417,16 @@ public class StreamingService {
                 signalingCleanupScheduler.purgeRoom(session.getSignalingRoomId());
                 realtimeEventService.publishDeviceStreamStop(
                     deviceId, session.getId(), session.getSignalingRoomId());
+                parentUserId.ifPresent(
+                    userId ->
+                        realtimeEventService.publishStreamingState(
+                            userId,
+                            deviceId,
+                            session.getSignalingRoomId(),
+                            "ENDED",
+                            session.getStreamType() != null
+                                ? session.getStreamType()
+                                : streamType));
               });
     }
   }

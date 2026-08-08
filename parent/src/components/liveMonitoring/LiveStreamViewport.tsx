@@ -50,9 +50,9 @@ type Props = {
   stopping: boolean;
   topInset: number;
   bottomInset: number;
-  /** Whether the incoming audio track is muted on the parent side (camera streams only) */
+  /** Whether the incoming audio track is muted on the parent side */
   audioMuted?: boolean;
-  /** Called when the parent presses the mute/unmute audio button in camera view */
+  /** Called when the parent presses the mute/unmute audio button */
   onToggleAudioMute?: () => void;
   recording?: boolean;
   recordingSupported?: boolean;
@@ -343,8 +343,8 @@ export function LiveStreamViewport({
           pipVisible={pipVisible}
           isFullscreen={isFullscreen}
           bottomInset={bottomInset}
-          audioMuted={streamType === 'CAMERA' ? audioMuted : undefined}
-          onToggleAudioMute={streamType === 'CAMERA' ? onToggleAudioMute : undefined}
+          audioMuted={streamType !== 'AUDIO' ? audioMuted : undefined}
+          onToggleAudioMute={streamType !== 'AUDIO' ? onToggleAudioMute : undefined}
           recording={recording}
           recordingSupported={recordingSupported}
           onToggleRecording={onToggleRecording}

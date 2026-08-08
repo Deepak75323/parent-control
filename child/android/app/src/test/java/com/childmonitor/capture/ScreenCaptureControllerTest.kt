@@ -96,4 +96,27 @@ class ScreenCaptureControllerTest {
         ScreenCaptureController.onFreshConsentSaved()
         assertFalse(ScreenCaptureController.hasWarmVirtualDisplaySession())
     }
+
+    @Test
+    fun canCreateVirtualDisplay_falseWhenSpentWithoutWarmDisplay() {
+        ScreenCaptureController.seedSpentProjectionWithoutWarmDisplayForTests()
+        assertFalse(ScreenCaptureController.canCreateVirtualDisplayOnCurrentProjection())
+        assertFalse(ScreenCaptureController.hasWarmVirtualDisplaySession())
+    }
+
+    @Test
+    fun canCreateVirtualDisplay_trueAfterFreshConsentClearsSpentState() {
+        ScreenCaptureController.seedSpentProjectionWithoutWarmDisplayForTests()
+        ScreenCaptureController.onFreshConsentSaved()
+        assertTrue(ScreenCaptureController.canCreateVirtualDisplayOnCurrentProjection())
+    }
+
+    @Test
+    fun detachCaptureSurface_stillAllowsWarmReuseNotSecondCreate() {
+        ScreenCaptureController.seedWarmVirtualDisplaySessionForTests()
+        ScreenCaptureController.detachCaptureSurface()
+        // Create flag stays true (one-shot used) but warm session remains for reattach.
+        assertFalse(ScreenCaptureController.canCreateVirtualDisplayOnCurrentProjection())
+        assertTrue(ScreenCaptureController.hasWarmVirtualDisplaySession())
+    }
 }

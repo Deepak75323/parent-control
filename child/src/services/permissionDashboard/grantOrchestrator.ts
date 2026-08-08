@@ -10,6 +10,7 @@ import {
   SPECIAL_PERMISSION_ORDER,
 } from './catalog';
 import type {GrantProgress, PermissionId} from './types';
+import {shouldAcceptScreenCaptureAfterConsent} from '../permissionWizard/screenCaptureWizardPolicy';
 
 const POLL_MS = 500;
 const SETTINGS_WAIT_MS = 120_000;
@@ -136,6 +137,9 @@ async function openPermission(id: PermissionId): Promise<void> {
       await nativeModules.openFullScreenIntentSettings();
       break;
     case 'screenCapture':
+      if (await nativeModules.isMediaProjectionGranted()) {
+        break;
+      }
       if (!(await nativeModules.isAccessibilityEnabled())) {
         throw new Error('ACCESSIBILITY_REQUIRED');
       }
@@ -189,10 +193,8 @@ async function isGranted(id: PermissionId): Promise<boolean> {
         ? nativeModules.isFullScreenIntentGranted()
         : true;
     case 'screenCapture':
-      return (
-        (await nativeModules.isMediaProjectionGranted()) &&
-        (await nativeModules.isAccessibilityEnabled())
-      );
+      // Match wizard policy: live media-projection grant completes this step.
+      return nativeModules.isMediaProjectionGranted();
   }
 }
 
@@ -263,14 +265,24 @@ async function grantOnePermission(
     }
     throw e;
   }
-  if (isFlowCancelled(generation)) {
+  // System MediaProjection UI backgrounds the app. That can bump grantFlowGeneration
+  // before grantingRef catches up — treat a live grant as success even if "cancelled".
+  if (await isGranted(id)) {
+    return true;
+  }
+  if (
+    !shouldAcceptScreenCaptureAfterConsent({
+      mediaProjectionGranted: false,
+      flowCancelled: isFlowCancelled(generation),
+    })
+  ) {
     return false;
   }
   let ok = await waitUntil(() => isGranted(id), generation, 45_000);
   if (!ok && !isFlowCancelled(generation)) {
     ok = await recoverScreenCaptureIfLost();
   }
-  return ok;
+  return ok || (await isGranted(id));
 }
 
 /** Grant a single permission from the dashboard toggle. */

@@ -3,46 +3,19 @@ import {deviceApi, DeviceSummary} from '../services/api';
 import {useRealtimeStore} from '../store/realtimeStore';
 import {navigateToDeviceList} from '../navigation/navigationRef';
 import {plog} from '../services/pairingLog';
+import {
+  detectPairedDevice,
+  detectRePairedDevice,
+  shouldDismissPairingCodeFromStatus,
+} from '../services/pairingDetection';
 
 const PAIR_POLL_MS = 3000;
 
-/**
- * New row in the device list since the code was generated.
- * Requires a genuinely new device id — never treat an already-known device as a new pairing.
- */
-function detectPairedDevice(
-  list: DeviceSummary[],
-  baselineIds: Set<string>,
-  pairingStartedAt: number | null,
-): DeviceSummary | undefined {
-  if (baselineIds.size === 0 && list.length === 0) {
-    return undefined;
+function toIdSet(value: Set<string> | Iterable<string> | undefined): Set<string> {
+  if (value instanceof Set) {
+    return value;
   }
-  // When baseline was empty but devices already exist, only accept a device that
-  // appeared after the code was generated (guards against empty-baseline false positives).
-  if (baselineIds.size === 0 && list.length > 0 && pairingStartedAt) {
-    const graceMs = 3000;
-    if (Date.now() - pairingStartedAt < graceMs) {
-      return undefined;
-    }
-  }
-  return list.find(device => !baselineIds.has(device.id));
-}
-
-/** Re-pair of the same physical device (e.g. after revoke) — id already in baseline but status improved. */
-function detectRePairedDevice(
-  list: DeviceSummary[],
-  baselineIds: Set<string>,
-  baselineStatuses: Record<string, string>,
-): DeviceSummary | undefined {
-  return list.find(device => {
-    if (!baselineIds.has(device.id)) {
-      return false;
-    }
-    const was = (baselineStatuses[device.id] ?? '').toUpperCase();
-    const now = (device.status ?? '').toUpperCase();
-    return was === 'REVOKED' && now === 'ONLINE';
-  });
+  return new Set(value ?? []);
 }
 
 /** Polls device list while a pairing code is active — works even if WS is down or device re-pairs. */
@@ -70,25 +43,27 @@ export function PairingPollListener() {
         }
         const {data: statusResp} = await deviceApi.getPairingCodeStatus(code);
         const status = statusResp.data;
-        if (status?.used && status.deviceId) {
-          plog('app poll detected pairing via code status', status);
-          store.notifyPairingComplete({
-            deviceId: status.deviceId,
-            deviceName: status.deviceName?.trim() || 'Child device',
-          });
-          navigateToDeviceList();
+        if (shouldDismissPairingCodeFromStatus(status)) {
+          if (status?.used) {
+            plog('app poll detected pairing via code status', status);
+            store.notifyPairingComplete({
+              deviceId: status.deviceId != null ? String(status.deviceId) : 'unknown',
+              deviceName: status.deviceName?.trim() || 'Child device',
+            });
+            navigateToDeviceList();
+          } else {
+            plog('app poll clearing expired pairing code', status);
+            store.clearPendingPairingCode();
+          }
           return;
         }
 
         const {data} = await deviceApi.list();
-        const list = data.data ?? [];
+        const list: DeviceSummary[] = data.data ?? [];
         store.mergeDevices(list);
 
-        const matched = detectPairedDevice(
-          list,
-          store.pairingBaselineIds,
-          store.pairingStartedAt,
-        );
+        const baselineIds = toIdSet(store.pairingBaselineIds);
+        const matched = detectPairedDevice(list, baselineIds, store.pairingStartedAt);
         if (matched) {
           plog('app poll detected pairing', {
             deviceId: matched.id,
@@ -105,7 +80,7 @@ export function PairingPollListener() {
 
         const rePaired = detectRePairedDevice(
           list,
-          store.pairingBaselineIds,
+          baselineIds,
           store.pairingBaselineStatuses,
         );
         if (rePaired) {

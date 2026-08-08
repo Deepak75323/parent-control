@@ -138,6 +138,15 @@ class AppBlockingAccessibilityService : AccessibilityService() {
     }
 
     private fun tryAutoApproveMediaProjection(packageName: String?) {
+        // Own-package CONTENT_CHANGED storms (wizard UI) must not trigger full-tree
+        // scans or retry loops — that causes visible flicker while setup is on screen.
+        if (packageName != null && packageName == applicationContext.packageName) {
+            return
+        }
+        if (com.childmonitor.capture.ScreenCaptureController.hasLiveProjection()) {
+            cancelAutoApproveRetries()
+            return
+        }
         PermissionDebugLogger.enter(
             "MediaProjectionConsentAutomation.tryAutoApprove",
             "pkg=$packageName",

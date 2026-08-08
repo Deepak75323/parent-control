@@ -84,8 +84,27 @@ object NativeStreamingCoordinator {
     @Volatile
     private var nativeScreenActive = false
 
+    @Volatile
+    private var consecutiveMissingActivePolls = 0
+
+    private const val MAX_MISSING_ACTIVE_POLLS = 3
+
     private var pollRunnable: Runnable? = null
     private var appContext: Context? = null
+
+    private fun resetActivePollMisses() {
+        consecutiveMissingActivePolls = 0
+    }
+
+    private fun noteActivePollMiss(tag: String, detail: String): Boolean {
+        val next = consecutiveMissingActivePolls + 1
+        consecutiveMissingActivePolls = next
+        Log.d(
+            TAG,
+            "$tag active-poll miss $next/$MAX_MISSING_ACTIVE_POLLS — $detail",
+        )
+        return next >= MAX_MISSING_ACTIVE_POLLS
+    }
 
     fun start(context: Context) {
         if (!MonitoringPrefs.isPaired(context)) {
@@ -133,6 +152,7 @@ object NativeStreamingCoordinator {
     fun stop(context: Context) {
         if (!running.getAndSet(false)) return
         Log.i(TAG, "Stopping native streaming coordinator")
+        resetActivePollMisses()
         pendingStreamRetry.set(null)
         mainHandler.removeCallbacksAndMessages(null)
         pollRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -652,6 +672,7 @@ object NativeStreamingCoordinator {
     private fun stopAllStreams(context: Context, reason: String) {
         StreamLifecycleLogger.warn("STREAM_STOP_ALL", reason)
         Log.i(TAG, "stopAllStreams reason=$reason")
+        resetActivePollMisses()
         nativeScreenActive = false
         activeRoomId = null
         activeSessionId = null
@@ -746,11 +767,14 @@ object NativeStreamingCoordinator {
             if (activeRoot.isNull("data")) {
                 if (activeSessionId != null || nativeScreenActive || NativeStreamPublisher.isRunning()) {
                     if (StreamSessionRegistry.isNegotiatingOrReconnecting()) {
+                        resetActivePollMisses()
                         return
                     }
                     // Do not tear down while JS still owns a stream but paused its STOMP
                     // listener (MainActivity backgrounded) — parent session may still be ACTIVE
-                    // and a transient empty poll must not kill capture.
+                    // and a transient empty poll must not kill capture. But if the backend keeps
+                    // reporting no active session for several polls in a row, tear the stream down
+                    // anyway so camera/mic indicators do not stick after the parent disappears.
                     if (jsListenerActive.get() ||
                         ChildMonitorNativeModule.canDeliverStreamToJs() ||
                         (
@@ -759,23 +783,39 @@ object NativeStreamingCoordinator {
                                 ScreenCaptureForegroundService.isForegroundActive()
                         )
                     ) {
-                        Log.d(TAG, "pollSessions: empty active payload ignored — JS stream path alive")
+                        if (!noteActivePollMiss(
+                                "pollSessions:",
+                                "empty active payload while JS stream path is alive",
+                            )
+                        ) {
+                            return
+                        }
+                        stopAllStreams(context, "no active session after repeated polls")
                         return
                     }
                     if (ScreenCaptureForegroundService.isForegroundActive() ||
                         NativeStreamPublisher.isRunning()
                     ) {
-                        Log.d(TAG, "pollSessions: empty active payload ignored — native screen FGS alive")
+                        if (!noteActivePollMiss(
+                                "pollSessions:",
+                                "empty active payload while native screen pipeline is alive",
+                            )
+                        ) {
+                            return
+                        }
+                        stopAllStreams(context, "no active session after repeated polls")
                         return
                     }
                     stopAllStreams(context, "no active session (poll)")
                 }
+                resetActivePollMisses()
                 return
             }
             val active = activeRoot.getJSONObject("data")
             val sessionId = active.optString("sessionId")
             val status = active.optString("status")
             if (sessionId == activeSessionId && (status == "ACTIVE" || status == "PENDING")) {
+                resetActivePollMisses()
                 return
             }
             if (activeSessionId != null) {
@@ -787,15 +827,21 @@ object NativeStreamingCoordinator {
                             status == "ACTIVE"
                     )
                 ) {
-                    Log.d(
-                        TAG,
-                        "pollSessions: status mismatch ignored — local pipeline still live " +
-                            "status=$status localSession=$activeSessionId remoteSession=$sessionId",
-                    )
+                    if (!noteActivePollMiss(
+                            "pollSessions:",
+                            "status mismatch while local pipeline is still live " +
+                                "status=$status localSession=$activeSessionId remoteSession=$sessionId",
+                        )
+                    ) {
+                        return
+                    }
+                    stopAllStreams(context, "active session changed after repeated polls")
                     return
                 }
                 stopAllStreams(context, "active session ended (poll)")
+                return
             }
+            resetActivePollMisses()
         } catch (e: Exception) {
             Log.w(TAG, "pollSessions active check failed", e)
         }

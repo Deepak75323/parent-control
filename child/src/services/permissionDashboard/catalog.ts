@@ -92,8 +92,9 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
     id: 'battery',
     kind: 'special',
     label: 'Battery unrestricted',
-    explanation: 'Allow Clock Time to keep running normally when the phone tries to save battery.',
-    settingsHint: 'Choose Don’t optimize / Unrestricted / Allow for Clock Time.',
+    explanation:
+      'Allow Clock Time to keep running when the phone saves battery. On Xiaomi HyperOS use Battery optimisation → All apps → Clock Time → Not optimised (there may be no “No restrictions” row).',
+    settingsHint: 'Battery optimisation → All apps → Clock Time → Not optimised.',
   },
   autoStart: {
     id: 'autoStart',
