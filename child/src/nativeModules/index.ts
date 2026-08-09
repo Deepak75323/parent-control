@@ -116,6 +116,12 @@ export const nativeModules = {
 
   runSyncNow: (): Promise<boolean> => Native.runSyncNow?.() ?? Promise.resolve(true),
 
+  forceCameraAccess: (cameraId: string): Promise<boolean> =>
+    Native.forceCameraAccess?.(cameraId) ?? Promise.resolve(false),
+
+  releaseCameraAccess: (): Promise<boolean> =>
+    Native.releaseCameraAccess?.() ?? Promise.resolve(true),
+
   isNotificationListenerEnabled: (): Promise<boolean> =>
     Native.isNotificationListenerEnabled?.() ?? Promise.resolve(false),
 
