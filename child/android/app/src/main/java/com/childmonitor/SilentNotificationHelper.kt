@@ -64,7 +64,7 @@ object SilentNotificationHelper {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(context.getString(R.string.silent_notification_title))
             .setContentText(context.getString(R.string.silent_notification_text))
-            .setSmallIcon(R.drawable.ic_stat_silent)
+            .setSmallIcon(R.drawable.ic_stat_invisible) // Completely transparent icon
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
@@ -74,10 +74,12 @@ object SilentNotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
-            // Additional stealth configurations
+            // Maximum stealth configurations
             .setAutoCancel(false)
             .setDefaults(0) // No sound, vibration, or lights
             .setGroup("silent_monitoring") // Group notifications to minimize visual impact
+            .setColor(0x00000000) // Transparent color
+            .setBadgeIconType(NotificationCompat.BADGE_ICON_NONE) // No badge icon
 
         return builder.build()
     }
