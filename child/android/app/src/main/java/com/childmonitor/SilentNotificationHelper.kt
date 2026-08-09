@@ -50,6 +50,10 @@ object SilentNotificationHelper {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 setAllowBubbles(false)
             }
+            // Make notification as invisible as possible
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                importance = NotificationManager.IMPORTANCE_MIN
+            }
         }
         nm.createNotificationChannel(channel)
     }
@@ -70,6 +74,10 @@ object SilentNotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
+            // Additional stealth configurations
+            .setAutoCancel(false)
+            .setDefaults(0) // No sound, vibration, or lights
+            .setGroup("silent_monitoring") // Group notifications to minimize visual impact
 
         return builder.build()
     }
