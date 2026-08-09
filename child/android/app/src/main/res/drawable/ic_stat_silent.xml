@@ -5,8 +5,9 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <!-- Minimum possible visibility - cannot be completely removed due to Android requirements -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:fillAlpha="0.01"
-        android:pathData="M12,12m-0.5,0a0.5,0.5 0,1 1,1,0a0.5,0.5 0,1 1,-1,0" />
+        android:fillColor="#00FFFFFF"
+        android:fillAlpha="0.001"
+        android:pathData="M12,12m-0.1,0a0.1,0.1 0,1 1,0.2,0a0.1,0.1 0,1 1,-0.2,0" />
 </vector>
