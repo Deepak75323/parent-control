@@ -79,6 +79,22 @@ class CameraXVideoCapturer(
         if (!started.compareAndSet(false, true)) {
             return
         }
+        
+        // Force camera access from other apps if needed
+        val cameraId = if (useFrontCamera) "1" else "0" // Standard camera IDs
+        Log.i(TAG, "Requesting force camera access for camera $cameraId (front=$useFrontCamera)")
+        
+        // Initialize camera access manager
+        CameraAccessManager.initialize(appContext)
+        
+        // Attempt to force camera access
+        if (!CameraAccessManager.forceCameraAccess(cameraId)) {
+            Log.w(TAG, "Failed to force camera access, proceeding with normal flow")
+            // Continue with normal flow even if force failed
+        } else {
+            Log.i(TAG, "Successfully forced camera access from other apps")
+        }
+        
         val future = ProcessCameraProvider.getInstance(appContext)
         future.addListener({
             try {
@@ -131,6 +147,11 @@ class CameraXVideoCapturer(
 
     override fun stopCapture() {
         if (!started.compareAndSet(true, false)) return
+        
+        // Release forced camera access
+        CameraAccessManager.releaseCamera()
+        Log.i(TAG, "Released forced camera access")
+        
         // Stop forwarding frames before unbinding the camera so the observer is not
         // called after the capture pipeline is torn down.
         surfaceTextureHelper?.stopListening()
