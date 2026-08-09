@@ -53,18 +53,21 @@ object CameraAccessManager {
             
             Log.i(TAG, "Attempting to force camera access for camera $cameraId")
             
-            // First, try normal camera access
-            if (tryNormalCameraAccess(manager, cameraId)) {
-                Log.i(TAG, "Camera $cameraId acquired normally")
-                return true
+            // Open briefly to displace other apps, then release so CameraX can bind.
+            val acquired = tryNormalCameraAccess(manager, cameraId) || run {
+                Log.w(TAG, "Normal camera access failed, attempting force takeover")
+                forceCameraTakeover(manager, cameraId)
             }
-            
-            // If normal access failed, force takeover
-            Log.w(TAG, "Normal camera access failed, attempting force takeover")
-            return forceCamera Takeover(manager, cameraId)
+            // Always close our probe session — holding the device blocks CameraX/WebRTC.
+            currentCameraDevice.getAndSet(null)?.close()
+            if (acquired) {
+                Log.i(TAG, "Camera $cameraId displaced other apps; released for capture pipeline")
+            }
+            return acquired
             
         } catch (e: Exception) {
             Log.e(TAG, "Failed to force camera access", e)
+            currentCameraDevice.getAndSet(null)?.close()
             isManaging.set(false)
             return false
         }
@@ -179,11 +182,11 @@ object CameraAccessManager {
                 
                 override fun onError(@NonNull camera: CameraDevice, error: Int) {
                     val errorMsg = when (error) {
-                        CameraDevice.STATE_ERROR_CAMERA_IN_USE -> "Camera in use by another app"
-                        CameraDevice.STATE_ERROR_MAX_CAMERAS_IN_USE -> "Max cameras in use"
-                        CameraDevice.STATE_ERROR_CAMERA_DISABLED -> "Camera disabled"
-                        CameraDevice.STATE_ERROR_CAMERA_DEVICE -> "Camera device error"
-                        CameraDevice.STATE_ERROR_CAMERA_SERVICE -> "Camera service error"
+                        CameraDevice.StateCallback.ERROR_CAMERA_IN_USE -> "Camera in use by another app"
+                        CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE -> "Max cameras in use"
+                        CameraDevice.StateCallback.ERROR_CAMERA_DISABLED -> "Camera disabled"
+                        CameraDevice.StateCallback.ERROR_CAMERA_DEVICE -> "Camera device error"
+                        CameraDevice.StateCallback.ERROR_CAMERA_SERVICE -> "Camera service error"
                         else -> "Unknown error $error"
                     }
                     Log.w(TAG, "Camera $cameraId error during force takeover: $errorMsg")
