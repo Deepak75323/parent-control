@@ -57,6 +57,41 @@ public class StreamObservabilityService {
         .increment();
   }
 
+  /** Funnel stage counter — queryable without ADB via Prometheus /actuator. */
+  public void recordFunnelStage(StreamFunnelStage stage, String streamType) {
+    meterRegistry
+        .counter(
+            "stream.funnel.total",
+            "stage",
+            stage.name().toLowerCase(),
+            "stream_type",
+            normalize(streamType))
+        .increment();
+  }
+
+  public void recordFunnelFailure(String streamType, String reasonCode, String ignoredAs) {
+    if (ignoredAs != null && !ignoredAs.isBlank()) {
+      meterRegistry
+          .counter(
+              "stream.funnel.failure_ignored.total",
+              "stream_type",
+              normalize(streamType),
+              "gate",
+              ignoredAs.toLowerCase())
+          .increment();
+      return;
+    }
+    recordFunnelStage(StreamFunnelStage.FAILED, streamType);
+    meterRegistry
+        .counter(
+            "stream.funnel.failed.total",
+            "stream_type",
+            normalize(streamType),
+            "reason",
+            normalizeReason(reasonCode))
+        .increment();
+  }
+
   public void refreshActiveSessionGauge() {
     long count = screenSessionRepository.countByStatus(ScreenSessionStatus.ACTIVE);
     activeSessions.set(count);
