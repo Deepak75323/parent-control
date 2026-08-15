@@ -29,6 +29,11 @@ import {
   classifyOfferPostFailure,
   isStreamingSessionEndedError,
 } from './signalingOfferErrors';
+import {
+  nextConnectToken,
+  isCurrentToken,
+  invalidateAllConnectTokens,
+} from './connectInvocationToken';
 
 export type SignalingPayload = {
   id?: string;
@@ -655,10 +660,30 @@ export async function connectChildStream(
   let lastError: Error | null = null;
   // Fresh budget per connect call — never inherit exhaustion from a prior session.
   connectionAttempts = attemptsAtConnectEntry(connectionAttempts);
+  // Claim an invocation token for this connect. If the user rapidly stops/starts
+  // (or a newer session arrives), stopActiveStream → disconnectStream(true) or
+  // the next connectChildStream call invalidates our token; the checks below
+  // let this zombie invocation bail silently instead of retrying against a dead
+  // session and clobbering module state (pc / activeMediaStream) shared with
+  // the newly-active session.
+  const myToken = nextConnectToken();
 
   while (connectionAttempts < MAX_CONNECTION_ATTEMPTS) {
+    if (!isCurrentToken(myToken)) {
+      slog('FLOW', 'connectChildStream superseded before attempt — bailing', {
+        sessionId,
+        roomId,
+      });
+      return;
+    }
     try {
-      await connectChildStreamImpl(roomId, streamType, sessionId, cameraFacing);
+      await connectChildStreamImpl(
+        roomId,
+        streamType,
+        sessionId,
+        cameraFacing,
+        myToken,
+      );
       // Success - exit retry loop
       const elapsedMs = Date.now() - startTime;
       slog('FLOW', 'connectChildStream SUCCESS', {
@@ -680,7 +705,18 @@ export async function connectChildStream(
         streamType,
         sessionId
       });
-      
+
+      // If we've been superseded (parent stopped, or a newer session claimed
+      // the connect slot), do NOT retry — retrying would re-acquire the camera
+      // and POST offers for a dead session, corrupting the live session's state.
+      if (!isCurrentToken(myToken)) {
+        slog('FLOW', 'connectChildStream superseded after failure — bailing', {
+          sessionId,
+          roomId,
+        });
+        return;
+      }
+
       // If this was the last attempt, don't wait - just throw
       if (currentAttempt >= MAX_CONNECTION_ATTEMPTS) {
         slog('FLOW', 'connectChildStream exhausted all attempts', {
@@ -697,8 +733,18 @@ export async function connectChildStream(
         nextAttempt: currentAttempt + 1,
         roomId
       });
-      
+
       await new Promise(resolve => setTimeout(resolve, delayMs));
+
+      // Re-check after the backoff — a stop or newer session during the sleep
+      // must abort us before we touch shared module state again.
+      if (!isCurrentToken(myToken)) {
+        slog('FLOW', 'connectChildStream superseded during backoff — bailing', {
+          sessionId,
+          roomId,
+        });
+        return;
+      }
     }
   }
   
@@ -718,6 +764,7 @@ async function connectChildStreamImpl(
   streamType: string,
   sessionId: string,
   cameraFacing?: string,
+  invocationToken?: number,
 ): Promise<void> {
   if (isStreamingSession(roomId, sessionId)) {
     slog('PC', 'already streaming session — skip', {roomId, sessionId});
@@ -725,6 +772,15 @@ async function connectChildStreamImpl(
   }
   if (connecting) {
     slog('PC', 'connect already in progress — skip duplicate', {roomId, sessionId});
+    return;
+  }
+
+  // Superseded (rapid stop or newer session) — bail before touching shared state.
+  if (invocationToken !== undefined && !isCurrentToken(invocationToken)) {
+    slog('FLOW', 'connectChildStreamImpl superseded before start — bailing', {
+      roomId,
+      sessionId,
+    });
     return;
   }
 
@@ -903,6 +959,30 @@ async function connectChildStreamImpl(
       tracks: stream.getTracks().map(t => ({kind: t.kind, id: t.id, readyState: t.readyState})),
     });
 
+    // If a stop or newer session happened while we were acquiring the camera,
+    // bail here — release the tracks we just grabbed instead of clobbering the
+    // module-level pc/activeMediaStream that the live session now owns.
+    if (invocationToken !== undefined && !isCurrentToken(invocationToken)) {
+      slog('FLOW', 'connectChildStreamImpl superseded after media acquire — releasing', {
+        roomId,
+        sessionId,
+      });
+      try {
+        stream.getTracks().forEach(t => stopTrackSafely(t, 'superseded-media'));
+      } catch (releaseErr) {
+        slog('FLOW', 'superseded media release failed', String(releaseErr));
+      }
+      if (streamType === 'CAMERA') {
+        await nativeModules.stopHiddenCameraStream().catch(() => undefined);
+        await nativeModules.releaseCameraAccess().catch(() => undefined);
+      } else if (streamType === 'AUDIO') {
+        await nativeModules.stopHiddenAudioStream().catch(() => undefined);
+      } else {
+        await nativeModules.stopHiddenScreenStream().catch(() => undefined);
+      }
+      return;
+    }
+
     activeMediaStream = stream;
     
     // Create peer connection with improved error handling
@@ -1005,7 +1085,18 @@ async function connectChildStreamImpl(
       slog('SDP', 'Failed to set local description', {error: String(localDescError), roomId, sessionId});
       throw new Error(`Failed to set local description: ${String(localDescError)}`);
     }
-    
+
+    // Superseded during offer creation / setLocalDescription — do not POST an
+    // offer for a session the parent already ended. Waiting 15s for an answer
+    // that will never come would delay the live session's negotiation.
+    if (invocationToken !== undefined && !isCurrentToken(invocationToken)) {
+      slog('FLOW', 'connectChildStreamImpl superseded before offer POST — bailing', {
+        roomId,
+        sessionId,
+      });
+      return;
+    }
+
     try {
       await Promise.race([
         postChildOffer(roomId, sessionId, offer, 'connect'),
@@ -1154,6 +1245,15 @@ export async function disconnectStream(clearConnecting = true): Promise<void> {
     flowLog('CAMERA_FLOW', 'STREAM_STOPPED', {room: activeRoomId, sessionId: activeSessionId});
   }
   slog('FLOW', 'disconnectStream', {room: activeRoomId, clearConnecting});
+  // External stops (stopActiveStream → disconnectStream()) must abort any
+  // in-flight connectChildStream so its retry loop and its remaining awaits
+  // do not stomp on a subsequent session's shared module state. Internal
+  // teardown at the top of connectChildStreamImpl uses clearConnecting=false;
+  // that path already runs *before* the new invocation touches state, so we
+  // must not invalidate its freshly-claimed token here.
+  if (clearConnecting) {
+    invalidateAllConnectTokens();
+  }
   detachIceRecovery?.();
   detachIceRecovery = null;
   detachNetworkQualityMonitor?.();
