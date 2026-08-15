@@ -34,6 +34,7 @@ import {
   getSessionSnapshot,
   syncFromNativeSnapshot,
 } from './streamSessionOwner';
+import {isStreamingSessionEndedError} from './signalingOfferErrors';
 
 /** Silent background poll — backup if WebSocket push is missed. */
 const POLL_MS = 3000;
@@ -370,7 +371,11 @@ async function startStream(pending: PendingSession): Promise<void> {
       markCaptureDeclined(pending.sessionId);
     }
     await dumpStreamDiagnostics('startStream catch');
-    void deviceApi.reportStreamFailure(pending.sessionId, String(err)).catch(() => undefined);
+    if (!isStreamingSessionEndedError(err)) {
+      void deviceApi.reportStreamFailure(pending.sessionId, String(err)).catch(() => undefined);
+    } else {
+      slog('STREAM', 'start aborted — session already ended by parent', pending.sessionId);
+    }
     slog('STREAM', 'start failed', String(err));
     throw err;
   } finally {
