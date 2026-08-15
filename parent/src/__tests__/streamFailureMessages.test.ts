@@ -42,4 +42,16 @@ describe('streamFailureMessage', () => {
   it('explains NO_CAPTURE_FRAMES', () => {
     expect(streamFailureMessage('NO_CAPTURE_FRAMES')).toContain('no screen picture');
   });
+
+  it('explains child did not answer (no offer)', () => {
+    expect(streamFailureMessage('CHILD_NO_OFFER')).toMatch(/didn.t answer/i);
+  });
+
+  it('explains signaling rejected', () => {
+    expect(streamFailureMessage('SIGNALING_REJECTED')).toMatch(/Reconnect/i);
+  });
+
+  it('explains classified ICE_FAILED', () => {
+    expect(streamFailureMessage('ICE_FAILED')).toContain('Connection failed');
+  });
 });
