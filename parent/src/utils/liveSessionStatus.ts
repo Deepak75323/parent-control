@@ -19,31 +19,45 @@ export function liveSessionUiState(opts: {
   return {isLive, isFailed, isPending, isReconnecting};
 }
 
+function connectingLabel(
+  streamType: LiveStreamType,
+  captureMode?: string | null,
+): string {
+  if (streamType === 'AUDIO') return 'Connecting mic…';
+  if (streamType === 'CAMERA') return 'Connecting camera…';
+  if (streamType === 'SCREEN' && captureMode === 'RN_DISPLAY_MEDIA') {
+    return 'Starting screen sharing…';
+  }
+  return 'Connecting…';
+}
+
 export function sessionStatusLabel(
   streamType: LiveStreamType,
   connecting: boolean,
   iceState: string | null,
   hasStream: boolean,
   captureMode?: string | null,
+  wasEverLive?: boolean,
 ): string {
   const ice = (iceState ?? '').toLowerCase();
   if (hasStream && (ice === 'connected' || ice === 'completed')) {
     return 'Live';
   }
-  if (ice === 'disconnected' || ice === 'checking' || connecting) {
-    if (ice === 'disconnected' || ice === 'checking') {
-      // Covers Wi‑Fi↔cellular and full offline — ICE can't tell them apart.
-      return 'Connection lost · Reconnecting…';
-    }
-    if (streamType === 'AUDIO') return 'Connecting mic…';
-    if (streamType === 'CAMERA') return 'Connecting camera…';
-    if (streamType === 'SCREEN' && captureMode === 'RN_DISPLAY_MEDIA') {
-      return 'Starting screen sharing…';
-    }
-    return 'Connecting…';
+  // Real mid-session drop (Wi‑Fi↔cellular / brief offline). Not first-connect ICE.
+  if (ice === 'disconnected') {
+    return 'Connection lost · Reconnecting…';
   }
   if (ice === 'failed') {
     return 'Child unreachable · Connection lost';
+  }
+  // ICE "checking" is the normal first-connect handshake OR a mid-session restart.
+  // Only call it Reconnecting if we've actually been live in this session.
+  if (ice === 'checking') {
+    if (wasEverLive) return 'Reconnecting…';
+    return connectingLabel(streamType, captureMode);
+  }
+  if (connecting || ice === 'new') {
+    return connectingLabel(streamType, captureMode);
   }
   if (streamType === 'AUDIO') return 'Waiting for audio…';
   if (streamType === 'CAMERA') return 'Waiting for camera…';
