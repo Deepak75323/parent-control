@@ -64,6 +64,21 @@ export function streamFailureMessage(reason?: string | null): string {
       );
     case 'CAPTURE_BUSY':
       return 'Live view is already running on the child phone. Stop it, then try again.';
+    case 'CHILD_NO_OFFER':
+      return (
+        'The child phone didn’t answer in time. Open Clock on the child device, keep it unlocked, ' +
+        'then tap Reconnect.'
+      );
+    case 'SIGNALING_REJECTED':
+      return (
+        'Couldn’t finish connecting to the child phone. Tap Reconnect. ' +
+        'If it keeps failing, open Clock on the child device and try again.'
+      );
+    case 'ICE_FAILED':
+    case 'CONNECTION_FAILED':
+      return (
+        'Connection failed between the phones. Check Wi‑Fi or mobile data on both devices, then tap Reconnect.'
+      );
     default:
       if (reason?.startsWith('FGS_TIMEOUT_')) {
         return (
