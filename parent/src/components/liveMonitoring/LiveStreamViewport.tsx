@@ -268,7 +268,13 @@ export function LiveStreamViewport({
             <RemoteRtcView
               stream={primaryStream}
               style={StyleSheet.absoluteFillObject}
-              objectFit="contain"
+              // Camera: fill the whole parent screen on rotate (cover). Screen share keeps
+              // contain so remote-control taps map to the real device pixels.
+              objectFit={
+                streamType === 'CAMERA' || isFullscreen || !remoteControlEnabled
+                  ? 'cover'
+                  : 'contain'
+              }
             />
           </View>
         ) : !primaryStream || !isLive ? (

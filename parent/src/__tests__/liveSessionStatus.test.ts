@@ -37,7 +37,29 @@ describe('liveSessionUiState', () => {
 });
 
 describe('sessionStatusLabel', () => {
-  it('shows reconnecting copy on disconnected', () => {
+  it('shows connecting camera during first-connect ICE checking', () => {
+    // ICE "checking" is the normal handshake — not a drop.
+    expect(sessionStatusLabel('CAMERA', true, 'checking', false)).toBe(
+      'Connecting camera…',
+    );
+  });
+
+  it('keeps connecting copy when stream arrives before ICE connected (never live yet)', () => {
+    // ontrack can fire while ICE is still checking on first connect;
+    // connecting is already false but we've never been live, so this is NOT a reconnect.
+    expect(
+      sessionStatusLabel('CAMERA', false, 'checking', true, undefined, false),
+    ).toBe('Connecting camera…');
+  });
+
+  it('shows reconnecting only on ICE checking after we were live', () => {
+    // Mid-session ICE restart: was live, ICE went back to checking.
+    expect(
+      sessionStatusLabel('CAMERA', false, 'checking', true, undefined, true),
+    ).toBe('Reconnecting…');
+  });
+
+  it('shows connection lost only on ICE disconnected', () => {
     expect(sessionStatusLabel('CAMERA', false, 'disconnected', false)).toBe(
       'Connection lost · Reconnecting…',
     );
