@@ -79,6 +79,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   const [connecting, setConnecting] = useState(false);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [iceState, setIceState] = useState<string | null>(null);
+  const [wasEverLive, setWasEverLive] = useState(false);
   const [streamType, setStreamType] = useState<StreamType>(initialStream ?? 'CAMERA');
   const [pinUnlocked, setPinUnlocked] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -159,6 +160,13 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   useEffect(() => {
     if (remoteStream) setConnecting(false);
     if (iceState === 'failed' || iceState === 'disconnected') setConnecting(false);
+    // Only "was live" if we actually saw a media stream while ICE was up — a
+    // pre-ontrack 'connected' blip would otherwise flag a fresh session as a reconnect.
+    if (remoteStream && (iceState === 'connected' || iceState === 'completed')) {
+      setWasEverLive(true);
+    } else if (iceState === null) {
+      setWasEverLive(false);
+    }
   }, [remoteStream, iceState]);
 
   useEffect(() => {
@@ -596,8 +604,9 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     streamType,
     connecting,
     iceState,
-    isLive,
+    !!remoteStream,
     session?.captureMode,
+    wasEverLive,
   );
   const effectiveAudioMuted = !isLive || audioMuted;
 
