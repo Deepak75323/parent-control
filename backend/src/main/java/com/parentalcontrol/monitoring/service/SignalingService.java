@@ -14,6 +14,7 @@ import com.parentalcontrol.monitoring.domain.SignalingMessageType;
 import com.parentalcontrol.monitoring.domain.SignalingSenderRole;
 import com.parentalcontrol.monitoring.dto.SignalingMessageRequest;
 import com.parentalcontrol.monitoring.dto.SignalingMessageResponse;
+import com.parentalcontrol.observability.StreamFunnelStage;
 import com.parentalcontrol.observability.StreamObservabilityService;
 import com.parentalcontrol.observability.StreamState;
 import com.parentalcontrol.observability.StreamTraceLogger;
@@ -22,6 +23,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -58,8 +60,32 @@ public class SignalingService {
     validateRoomAccess(roomId, senderRole);
     requireSessionId(request.getSessionId());
     validateSessionMatchesRoom(request.getSessionId(), roomId);
-    validateSessionForRoom(
-        request.getSessionId(), roomId, senderRole, request.getMessageType(), request.getPayload());
+    validateSessionForRoom(request.getSessionId(), roomId, senderRole);
+
+    Optional<SignalingMessage> duplicate =
+        findRecentDuplicate(roomId, request.getMessageType(), request.getPayload());
+    if (duplicate.isPresent()) {
+      SignalingMessage existing = duplicate.get();
+      StreamTraceLogger.info(
+          "Backend",
+          "SIGNALING",
+          "postMessage",
+          "duplicate signaling treated as idempotent success",
+          Map.of(
+              "roomId",
+              roomId,
+              "messageType",
+              request.getMessageType(),
+              "id",
+              existing.getId()));
+      return SignalingMessageResponse.builder()
+          .id(existing.getId())
+          .roomId(existing.getRoomId())
+          .messageType(existing.getMessageType())
+          .payload(existing.getPayload())
+          .senderRole(existing.getSenderRole())
+          .build();
+    }
 
     SignalingMessage entity =
         SignalingMessage.builder()
@@ -98,6 +124,12 @@ public class SignalingService {
           StreamState.LOCAL_DESCRIPTION_SET,
           "postMessage",
           Map.of("roomId", roomId, "sessionId", request.getSessionId()));
+      screenSessionRepository
+          .findById(request.getSessionId())
+          .ifPresent(
+              s ->
+                  streamObservabilityService.recordFunnelStage(
+                      StreamFunnelStage.CHILD_OFFER, s.getStreamType()));
       markSessionActive(request.getSessionId(), roomId);
     }
     if (SignalingSenderRole.PARENT.matches(senderRole)
@@ -107,6 +139,16 @@ public class SignalingService {
           StreamState.REMOTE_DESCRIPTION_SET,
           "postMessage",
           Map.of("roomId", roomId, "sessionId", request.getSessionId()));
+      screenSessionRepository
+          .findById(request.getSessionId())
+          .ifPresent(
+              s -> {
+                streamObservabilityService.recordFunnelStage(
+                    StreamFunnelStage.PARENT_ANSWER, s.getStreamType());
+                // Signaling handshake complete — ICE may still fail after this.
+                streamObservabilityService.recordFunnelStage(
+                    StreamFunnelStage.CONNECTED, s.getStreamType());
+              });
     }
     if (SignalingMessageType.ICE.matches(request.getMessageType())) {
       StreamTraceLogger.transitionState(
@@ -164,8 +206,7 @@ public class SignalingService {
     }
   }
 
-  private void validateSessionForRoom(
-      UUID sessionId, String roomId, String senderRole, String messageType, String payload) {
+  private void validateSessionForRoom(UUID sessionId, String roomId, String senderRole) {
     UUID roomDeviceId = extractDeviceIdFromRoom(roomId);
     ScreenSession session =
         screenSessionRepository
@@ -189,7 +230,6 @@ public class SignalingService {
         throw new BusinessException(ErrorCode.FORBIDDEN);
       }
     }
-    rejectDuplicateSignalingPayload(roomId, messageType, payload);
   }
 
   private void requireSessionId(UUID sessionId) {
@@ -221,27 +261,31 @@ public class SignalingService {
     }
   }
 
-  /** Reject identical SDP payloads replayed within a short window (offer/answer only). */
-  private void rejectDuplicateSignalingPayload(String roomId, String messageType, String payload) {
+  /**
+   * Identical SDP/ICE payloads replayed within a short window are treated as
+   * idempotent success (return existing) instead of HTTP 400 — child retries and
+   * double-fires must not fail an otherwise healthy session.
+   */
+  private Optional<SignalingMessage> findRecentDuplicate(
+      String roomId, String messageType, String payload) {
     if (roomId == null || payload == null || payload.isBlank()) {
-      return;
+      return Optional.empty();
     }
     if (!SignalingMessageType.isKnown(messageType)) {
-      return;
+      return Optional.empty();
     }
-    Instant cutoff = Instant.now().minusSeconds(120);
-    boolean duplicate =
-        signalingMessageRepository.findTop50ByRoomIdOrderByCreatedAtDesc(roomId).stream()
-            .anyMatch(
-                m ->
-                    messageType.equals(m.getMessageType())
-                        && payload.equals(m.getPayload())
-                        && m.getCreatedAt() != null
-                        && m.getCreatedAt().isAfter(cutoff));
-    if (duplicate) {
-      throw new BusinessException(
-          ErrorCode.VALIDATION_ERROR, MessageConstants.DUPLICATE_SIGNALING_MESSAGE_REJECTED);
-    }
+    Instant now = Instant.now();
+    return signalingMessageRepository.findTop50ByRoomIdOrderByCreatedAtDesc(roomId).stream()
+        .filter(
+            m ->
+                SignalingDuplicatePolicy.isRecentDuplicate(
+                    messageType,
+                    payload,
+                    m.getMessageType(),
+                    m.getPayload(),
+                    m.getCreatedAt(),
+                    now))
+        .findFirst();
   }
 
   private UUID extractDeviceIdFromRoom(String roomId) {

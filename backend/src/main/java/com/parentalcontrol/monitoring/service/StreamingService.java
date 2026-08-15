@@ -19,6 +19,7 @@ import com.parentalcontrol.monitoring.dto.ScreenShareSessionResponse;
 import com.parentalcontrol.monitoring.dto.StartScreenShareRequest;
 import com.parentalcontrol.monitoring.dto.StartStreamRequest;
 import com.parentalcontrol.observability.CorrelationContext;
+import com.parentalcontrol.observability.StreamFunnelStage;
 import com.parentalcontrol.observability.StreamObservabilityService;
 import com.parentalcontrol.observability.StreamState;
 import com.parentalcontrol.observability.StreamTraceLogger;
@@ -139,6 +140,7 @@ public class StreamingService {
 
     CorrelationContext.setSessionId(session.getId());
     streamObservabilityService.recordStreamStart(streamType);
+    streamObservabilityService.recordFunnelStage(StreamFunnelStage.REQUEST_SENT, streamType);
 
     String roomId = streamType.toLowerCase() + "_" + device.getId() + "_" + session.getId();
     session.setSignalingRoomId(roomId);
@@ -342,11 +344,6 @@ public class StreamingService {
 
   @Transactional
   public void reportStreamFailure(UUID sessionId, String reason) {
-    StreamTraceLogger.transitionState(
-        "Backend",
-        StreamState.FAILED,
-        "reportStreamFailure",
-        Map.of("sessionId", sessionId, "reason", reason != null ? reason : "unknown"));
     ScreenSession session =
         screenSessionRepository
             .findById(sessionId)
@@ -361,10 +358,46 @@ public class StreamingService {
         || session.getStatus() == ScreenSessionStatus.FAILED) {
       return;
     }
+
+    Instant newerLive =
+        findNewerLiveSessionStartedAt(device.getId(), session.getId(), session.getStartedAt());
+    StreamFailureGatePolicy.Decision gate =
+        StreamFailureGatePolicy.decide(
+            Instant.now(),
+            session.getStartedAt(),
+            session.getStatus(),
+            reason,
+            newerLive);
+    if (gate != StreamFailureGatePolicy.Decision.ACCEPT) {
+      StreamTraceLogger.info(
+          "Backend",
+          "GATE",
+          "reportStreamFailure",
+          "ignored failure report",
+          Map.of(
+              "sessionId",
+              sessionId,
+              "gate",
+              gate.name(),
+              "reason",
+              reason != null ? reason : "unknown"));
+      streamObservabilityService.recordFunnelFailure(
+          session.getStreamType(), reason, gate.name());
+      return;
+    }
+
+    String reasonCode = StreamFailureReasonClassifier.classify(reason, session.getStatus());
+    StreamTraceLogger.transitionState(
+        "Backend",
+        StreamState.FAILED,
+        "reportStreamFailure",
+        Map.of("sessionId", sessionId, "reason", reasonCode, "rawReason", reason != null ? reason : "unknown"));
+
     session.setStatus(ScreenSessionStatus.FAILED);
     session.setEndedAt(Instant.now());
     screenSessionRepository.save(session);
-    streamObservabilityService.recordStreamFailure(session.getStreamType(), reason);
+    streamObservabilityService.recordStreamFailure(session.getStreamType(), reasonCode);
+    streamObservabilityService.recordFunnelFailure(session.getStreamType(), reasonCode, null);
 
     screenCaptureAuditLogDao
         .findFirstBySessionIdAndEndedAtIsNull(sessionId)
@@ -384,16 +417,43 @@ public class StreamingService {
                     session.getSignalingRoomId(),
                     "FAILED",
                     session.getStreamType(),
-                    reason));
+                    reasonCode));
 
     auditService.log(
         AuditActionConstants.STREAM_FAILED,
         "session:" + sessionId,
         device.getId(),
         Map.of(
-            "reason", reason != null ? reason : "unknown", "roomId", session.getSignalingRoomId()));
+            "reason", reasonCode,
+            "rawReason", reason != null ? reason : "unknown",
+            "roomId", session.getSignalingRoomId()));
     signalingCleanupScheduler.purgeRoom(session.getSignalingRoomId());
     fcmWakeService.wakeDevice(device, "STREAM_FAILED", Map.of("sessionId", sessionId.toString()));
+  }
+
+  /**
+   * StartedAt of a newer PENDING/ACTIVE session on the same device, if any — used to ignore
+   * late failure reports for an older session after the parent started a new one.
+   */
+  private Instant findNewerLiveSessionStartedAt(
+      UUID deviceId, UUID sessionId, Instant sessionStartedAt) {
+    Instant newest = null;
+    for (ScreenSessionStatus status :
+        List.of(ScreenSessionStatus.PENDING, ScreenSessionStatus.ACTIVE)) {
+      for (ScreenSession other :
+          screenSessionRepository.findByDeviceIdAndStatusOrderByStartedAtDesc(deviceId, status)) {
+        if (other.getId().equals(sessionId) || other.getStartedAt() == null) {
+          continue;
+        }
+        if (sessionStartedAt != null && !other.getStartedAt().isAfter(sessionStartedAt)) {
+          continue;
+        }
+        if (newest == null || other.getStartedAt().isAfter(newest)) {
+          newest = other.getStartedAt();
+        }
+      }
+    }
+    return newest;
   }
 
   /**
