@@ -23,6 +23,12 @@ import {
   setSessionPhase,
 } from './streamSessionOwner';
 import {attachIceRecovery} from './iceRecovery';
+import {attemptsAtConnectEntry} from './connectionAttemptBudget';
+import {
+  StreamingSessionEndedError,
+  classifyOfferPostFailure,
+  isStreamingSessionEndedError,
+} from './signalingOfferErrors';
 
 export type SignalingPayload = {
   id?: string;
@@ -377,13 +383,40 @@ async function waitForRemoteAnswer(roomId: string, timeoutMs = 90000): Promise<b
   return ok;
 }
 
+async function postChildOffer(
+  roomId: string,
+  sessionId: string,
+  offer: RTCSessionDescriptionInit,
+  label: string,
+): Promise<void> {
+  try {
+    await signalingApi.post(roomId, 'offer', JSON.stringify(offer), sessionId);
+  } catch (signalingError) {
+    const kind = classifyOfferPostFailure(signalingError);
+    if (kind === 'duplicate_ok') {
+      slog('SDP', `${label}: duplicate offer treated as success`, {roomId, sessionId});
+      return;
+    }
+    if (kind === 'session_ended') {
+      slog('SDP', `${label}: session already ended — abort quietly`, {roomId, sessionId});
+      throw new StreamingSessionEndedError();
+    }
+    slog('SDP', `${label}: Failed to send offer via signaling`, {
+      error: String(signalingError),
+      roomId,
+      sessionId,
+    });
+    throw new Error(`Failed to send offer: ${String(signalingError)}`);
+  }
+}
+
 async function renegotiateChildOffer(): Promise<void> {
   if (!pc || !activeRoomId || !activeSessionId) return;
   setSessionPhase('RECONNECTING');
   void nativeModules.logStreamLifecycle('ICE_RENEGOTIATE', activeSessionId);
   const offer = await pc.createOffer({iceRestart: true});
   await pc.setLocalDescription(offer);
-  await signalingApi.post(activeRoomId, 'offer', JSON.stringify(offer), activeSessionId);
+  await postChildOffer(activeRoomId, activeSessionId, offer, 'ice-restart');
   slog('ICE', 'ice-restart offer sent', {roomId: activeRoomId});
 }
 
@@ -415,16 +448,23 @@ function attachConnectionHandlers(peer: RTCPeerConnection): void {
         finalConnectionState: peer.connectionState,
       });
 
-      if (activeSessionId) {
+      // Parent may already have stopped — don't report failure for a dead session.
+      const sessionAlreadyEnded =
+        reason === 'SESSION_ALREADY_ENDED' || reason.includes('SESSION_ALREADY_ENDED');
+      if (activeSessionId && !sessionAlreadyEnded) {
         deviceApi.reportStreamFailure(activeSessionId, reason).catch(() => undefined);
       }
 
       try {
-        streamStateTransition('FAILED', 'ICE_RECOVERY_EXHAUSTED', {
-          reason,
-          iceState: peer.iceConnectionState,
-          connectionState: peer.connectionState,
-        });
+        streamStateTransition(
+          sessionAlreadyEnded ? 'STOPPED' : 'FAILED',
+          sessionAlreadyEnded ? 'SESSION_ALREADY_ENDED' : 'ICE_RECOVERY_EXHAUSTED',
+          {
+            reason,
+            iceState: peer.iceConnectionState,
+            connectionState: peer.connectionState,
+          },
+        );
       } catch (cleanupError) {
         slog('PC', 'Cleanup after ICE failure error', String(cleanupError));
       }
@@ -613,7 +653,9 @@ export async function connectChildStream(
 ): Promise<void> {
   const startTime = Date.now();
   let lastError: Error | null = null;
-  
+  // Fresh budget per connect call — never inherit exhaustion from a prior session.
+  connectionAttempts = attemptsAtConnectEntry(connectionAttempts);
+
   while (connectionAttempts < MAX_CONNECTION_ATTEMPTS) {
     try {
       await connectChildStreamImpl(roomId, streamType, sessionId, cameraFacing);
@@ -966,14 +1008,28 @@ async function connectChildStreamImpl(
     
     try {
       await Promise.race([
-        signalingApi.post(roomId, 'offer', JSON.stringify(offer), sessionId),
-        new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('Signaling API timeout')), 15000)
-        )
+        postChildOffer(roomId, sessionId, offer, 'connect'),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Signaling API timeout')), 15000),
+        ),
       ]);
       slog('SDP', 'offer sent', roomId);
     } catch (signalingError) {
-      slog('SDP', 'Failed to send offer via signaling', {error: String(signalingError), roomId, sessionId});
+      if (isStreamingSessionEndedError(signalingError)) {
+        throw signalingError;
+      }
+      // postChildOffer already wraps hard failures; timeout lands here.
+      if (
+        signalingError instanceof Error &&
+        signalingError.message.startsWith('Failed to send offer:')
+      ) {
+        throw signalingError;
+      }
+      slog('SDP', 'Failed to send offer via signaling', {
+        error: String(signalingError),
+        roomId,
+        sessionId,
+      });
       throw new Error(`Failed to send offer: ${String(signalingError)}`);
     }
     if (streamType === 'CAMERA') {
