@@ -7,6 +7,7 @@
  */
 import {RTCPeerConnection} from 'react-native-webrtc';
 import {slog} from './flowLogger';
+import {isStreamingSessionEndedError} from './signalingOfferErrors';
 
 export type IceRecoveryCallbacks = {
   /** Send createOffer({iceRestart:true}) + signaling. */
@@ -66,6 +67,11 @@ export function attachIceRecovery(
     } catch (err) {
       slog('ICE', 'iceRestart offer failed', String(err));
       callbacks.reportEvent('ice_restart_error', {error: String(err), attempt: recoveryAttempts});
+      if (isStreamingSessionEndedError(err)) {
+        // Parent already stopped — do not keep recovering against a dead session.
+        callbacks.onFatal('SESSION_ALREADY_ENDED');
+        return;
+      }
     } finally {
       iceRestartInFlight = false;
     }
@@ -80,19 +86,29 @@ export function attachIceRecovery(
           state: after,
           attempt: recoveryAttempts,
         });
-        void callbacks.onRenegotiate().then(() => {
-          schedule(ICE_RESTART_WAIT_MS, gen, () => {
-            const finalState = peer.iceConnectionState ?? 'unknown';
-            if (finalState === 'connected' || finalState === 'completed') {
+        void callbacks
+          .onRenegotiate()
+          .then(() => {
+            schedule(ICE_RESTART_WAIT_MS, gen, () => {
+              const finalState = peer.iceConnectionState ?? 'unknown';
+              if (finalState === 'connected' || finalState === 'completed') {
+                return;
+              }
+              callbacks.reportEvent('ice_recovery_failed', {
+                state: finalState,
+                attempt: recoveryAttempts,
+              });
+              callbacks.onFatal(`ICE_FINAL_FAILURE_${finalState}`);
+            });
+          })
+          .catch(err => {
+            slog('ICE', 'ice renegotiate failed', String(err));
+            if (isStreamingSessionEndedError(err)) {
+              callbacks.onFatal('SESSION_ALREADY_ENDED');
               return;
             }
-            callbacks.reportEvent('ice_recovery_failed', {
-              state: finalState,
-              attempt: recoveryAttempts,
-            });
-            callbacks.onFatal(`ICE_FINAL_FAILURE_${finalState}`);
+            callbacks.onFatal(`ICE_RENEGOTIATE_FAILED`);
           });
-        });
         return;
       }
       callbacks.reportEvent('ice_recovery_failed', {
