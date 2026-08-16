@@ -29,22 +29,18 @@ object StreamFgsPreparer {
     @JvmStatic
     fun ensureAllReadyAsync(context: Context) {
         if (!MonitoringPrefs.isPaired(context)) return
-        if (MonitoringPlatform.useBurstFgs()) {
-            if (!MonitoringForegroundService.isBurstActive()) {
-                Log.i(TAG, "Skipping FGS pre-warm — no active monitoring burst (Android 15+)")
-                return
-            }
-        }
         if (!preparingAll.compareAndSet(false, true)) return
         Thread {
             try {
+                // Always pre-warm camera/audio FGS — user-initiated streams don't need monitoring burst.
+                // This ensures camera works even when monitoring service is in burst mode and inactive.
                 ensureKindReady(context, StreamKind.CAMERA)
                 ensureKindReady(context, StreamKind.AUDIO)
-                // Pre-warm screen FGS when the monitoring service is already running.
-                // Doing so eliminates the need for StreamBootstrapActivity (and the MIUI
-                // BAL problem) for screen streams.  Gate on ScreenFgsStartupGate so we
-                // only attempt this after the app has had a chance to fully start.
-                if (ScreenFgsStartupGate.canStartScreenFgs() &&
+                
+                // Only gate screen FGS on monitoring burst state — screen capture is background monitoring.
+                if (MonitoringPlatform.useBurstFgs() && !MonitoringForegroundService.isBurstActive()) {
+                    Log.i(TAG, "Skipping screen FGS pre-warm — no active monitoring burst (Android 15+)")
+                } else if (ScreenFgsStartupGate.canStartScreenFgs() &&
                     MediaProjectionConsentHelper.hasConsent(context) &&
                     MediaProjectionSessionKeeper.ensureReady(context)
                 ) {
