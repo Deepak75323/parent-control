@@ -26,9 +26,10 @@ import {nativeModules} from '../../nativeModules';
 import {
   nextViewerRotateDeg,
   nextPinchScale,
-  nudgePinchScale,
+  nudgeViewerZoomPercent,
   rnViewerVideoRotateStyle,
-  viewerRotateFitScale,
+  androidViewerVideoLayout,
+  VIEWER_ZOOM_STEP_PERCENT,
   type ViewerRotateDeg,
 } from '../../utils/viewerVideoRotate';
 
@@ -169,8 +170,7 @@ export function LiveStreamViewport({
   const pinchStartDistRef = useRef(0);
   const primaryRtcRef = useRef<View>(null);
 
-  // Android SurfaceView ignores RN style transforms — apply on the native surface.
-  useEffect(() => {
+  const applyAndroidViewerTransform = useCallback(() => {
     if (Platform.OS !== 'android' || !isLive || streamType === 'AUDIO') {
       return;
     }
@@ -178,28 +178,40 @@ export function LiveStreamViewport({
     if (tag == null) {
       return;
     }
-    const fit = viewerRotateFitScale(viewRotate, viewportSize.width, viewportSize.height);
-    const scale = fit * pinchScale;
-    nativeModules.applyViewerVideoTransform(tag, viewRotate, scale).catch(() => undefined);
-  }, [viewRotate, pinchScale, viewportSize.width, viewportSize.height, isLive, streamType, primaryStream]);
+    // Zoom is layout-based on Android; native only rotates the SurfaceViewRenderer.
+    nativeModules.applyViewerVideoTransform(tag, viewRotate, 1).catch(() => undefined);
+  }, [isLive, streamType, viewRotate]);
+
+  // Android SurfaceView ignores RN transforms — apply rotation natively (Fabric-safe).
+  useEffect(() => {
+    applyAndroidViewerTransform();
+    const timers = [100, 300, 600].map(ms =>
+      setTimeout(applyAndroidViewerTransform, ms),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [applyAndroidViewerTransform, pinchScale, viewportSize.width, viewportSize.height, primaryStream]);
 
   const zoomPanResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: evt =>
-          !remoteControlEnabled && isLive && streamType !== 'AUDIO' && evt.nativeEvent.touches.length >= 2,
-        onMoveShouldSetPanResponder: evt =>
-          !remoteControlEnabled && isLive && streamType !== 'AUDIO' && evt.nativeEvent.touches.length >= 2,
+        // Capture the overlay on first finger so the second finger can start a pinch.
+        onStartShouldSetPanResponder: () =>
+          !remoteControlEnabled && isLive && streamType !== 'AUDIO',
+        onMoveShouldSetPanResponder: () =>
+          !remoteControlEnabled && isLive && streamType !== 'AUDIO',
+        onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
         onPanResponderGrant: evt => {
           const touches = evt.nativeEvent.touches;
-          if (touches.length < 2) {
-            return;
+          if (touches.length >= 2) {
+            pinchStartScaleRef.current = pinchScaleRef.current;
+            pinchStartDistRef.current = Math.hypot(
+              touches[0].pageX - touches[1].pageX,
+              touches[0].pageY - touches[1].pageY,
+            );
+          } else {
+            pinchStartDistRef.current = 0;
           }
-          pinchStartScaleRef.current = pinchScaleRef.current;
-          pinchStartDistRef.current = Math.hypot(
-            touches[0].pageX - touches[1].pageX,
-            touches[0].pageY - touches[1].pageY,
-          );
         },
         onPanResponderMove: evt => {
           const touches = evt.nativeEvent.touches;
@@ -210,6 +222,11 @@ export function LiveStreamViewport({
             touches[0].pageX - touches[1].pageX,
             touches[0].pageY - touches[1].pageY,
           );
+          if (pinchStartDistRef.current <= 0) {
+            pinchStartScaleRef.current = pinchScaleRef.current;
+            pinchStartDistRef.current = dist;
+            return;
+          }
           setPinchScale(
             nextPinchScale(pinchStartScaleRef.current, pinchStartDistRef.current, dist),
           );
@@ -356,31 +373,32 @@ export function LiveStreamViewport({
           </View>
         ) : null}
         {primaryStream && streamType !== 'AUDIO' && isLive ? (
-          <View style={styles.primaryVideo}>
+          <View style={styles.primaryVideo} collapsable={false}>
             {/*
-              Android RTCView uses SurfaceView: parent View transforms are ignored.
-              Apply rotate/zoom on RTCView itself and keep zOrder=0 so the surface
-              stays in the view hierarchy (media-overlay / on-top break transforms).
-              A transparent overlay captures pinch so SurfaceView does not steal it.
+              Android: zoom via larger RTCView layout (parent-only, no child change).
+              Rotation via native SurfaceViewRenderer transform (Fabric UIManager).
             */}
             <RemoteRtcView
               ref={primaryRtcRef}
               stream={primaryStream}
               style={[
-                StyleSheet.absoluteFillObject,
-                // iOS honors style transforms; Android uses native applyViewerVideoTransform.
-                Platform.OS === 'ios'
-                  ? rnViewerVideoRotateStyle(
+                Platform.OS === 'android'
+                  ? androidViewerVideoLayout(
                       viewRotate,
                       viewportSize.width,
                       viewportSize.height,
                       pinchScale,
                     )
-                  : null,
+                  : rnViewerVideoRotateStyle(
+                      viewRotate,
+                      viewportSize.width,
+                      viewportSize.height,
+                      pinchScale,
+                    ),
               ]}
               objectFit={
                 viewRotate !== 0 || pinchScale > 1
-                  ? 'contain'
+                  ? 'cover'
                   : streamType === 'CAMERA' || isFullscreen || !remoteControlEnabled
                     ? 'cover'
                     : 'contain'
@@ -389,6 +407,7 @@ export function LiveStreamViewport({
             />
             <View
               style={styles.gestureOverlay}
+              pointerEvents="auto"
               {...(remoteControlEnabled ? remotePanResponder.panHandlers : zoomPanResponder.panHandlers)}
             />
           </View>
@@ -475,8 +494,12 @@ export function LiveStreamViewport({
           onResetViewRotate={() => setViewRotate(0)}
           showViewZoom={isLive && streamType !== 'AUDIO' && !remoteControlEnabled}
           viewZoomScale={pinchScale}
-          onZoomIn={() => setPinchScale(s => nudgePinchScale(s, 1.25))}
-          onZoomOut={() => setPinchScale(s => nudgePinchScale(s, 0.8))}
+          onZoomIn={() =>
+            setPinchScale(s => nudgeViewerZoomPercent(s, VIEWER_ZOOM_STEP_PERCENT))
+          }
+          onZoomOut={() =>
+            setPinchScale(s => nudgeViewerZoomPercent(s, -VIEWER_ZOOM_STEP_PERCENT))
+          }
           onResetViewZoom={() => setPinchScale(1)}
         />
       ) : isFullscreen ? (

@@ -5,6 +5,36 @@ export type ViewerRotateDeg = 0 | 90 | 180 | 270;
 
 export const MIN_VIEWER_PINCH = 1;
 export const MAX_VIEWER_PINCH = 4;
+export const MIN_VIEWER_ZOOM_PERCENT = 100;
+export const MAX_VIEWER_ZOOM_PERCENT = 400;
+/** Button step and display granularity for viewer zoom. */
+export const VIEWER_ZOOM_STEP_PERCENT = 10;
+
+export function scaleToViewerZoomPercent(scale: number): number {
+  const clamped = clampViewerPinchScale(scale);
+  return Math.round(clamped * 100);
+}
+
+export function viewerZoomPercentToScale(percent: number): number {
+  if (!Number.isFinite(percent)) {
+    return MIN_VIEWER_PINCH;
+  }
+  const clamped = Math.min(
+    MAX_VIEWER_ZOOM_PERCENT,
+    Math.max(MIN_VIEWER_ZOOM_PERCENT, Math.round(percent)),
+  );
+  return clamped / 100;
+}
+
+/** e.g. 100% at 1×, 150% at 1.5× */
+export function formatViewerZoomLabel(scale: number): string {
+  return `${scaleToViewerZoomPercent(scale)}%`;
+}
+
+/** Step zoom by ±10% (or other step) for +/- buttons. */
+export function nudgeViewerZoomPercent(currentScale: number, deltaPercent: number): number {
+  return viewerZoomPercentToScale(scaleToViewerZoomPercent(currentScale) + deltaPercent);
+}
 
 export function nextViewerRotateDeg(current: ViewerRotateDeg): ViewerRotateDeg {
   return ((current + 90) % 360) as ViewerRotateDeg;
@@ -51,6 +81,31 @@ export function nudgePinchScale(current: number, factor: number): number {
   return clampViewerPinchScale(current * factor);
 }
 
+/** Layout box for Android viewer zoom (parent-side only; child camera unchanged). */
+export function androidViewerVideoLayout(
+  degrees: ViewerRotateDeg,
+  containerW: number,
+  containerH: number,
+  pinchScale = 1,
+): ViewStyle {
+  const pinch = clampViewerPinchScale(pinchScale);
+  const w = Math.max(1, containerW);
+  const h = Math.max(1, containerH);
+
+  // Android rotation is applied natively on the SurfaceViewRenderer (see native module).
+  // Because rotation is not done via RN `transform` here, we must NOT swap W/H for 90°/270°.
+  // Otherwise the rotated video appears shifted/diagonal.
+  const boxW = w * pinch;
+  const boxH = h * pinch;
+  return {
+    position: 'absolute',
+    width: boxW,
+    height: boxH,
+    left: (w - boxW) / 2,
+    top: (h - boxH) / 2,
+  };
+}
+
 /**
  * Rotate in place and letterbox 90°/270°. Optional pinch scale is multiplied on top
  * so zoom is a separate gesture from rotate.
@@ -64,19 +119,19 @@ export function rnViewerVideoRotateStyle(
   const pinch = clampViewerPinchScale(pinchScale);
   const fit = viewerRotateFitScale(degrees, containerW, containerH);
   const scale = fit * pinch;
-  const transform: NonNullable<ViewStyle['transform']> = [];
-  if (degrees !== 0) {
-    transform.push({rotate: `${degrees}deg`});
-  }
-  if (scale !== 1) {
-    transform.push({scale});
-  }
+  const transform: NonNullable<ViewStyle['transform']> | undefined =
+    degrees !== 0 || scale !== 1
+      ? ([
+          ...(degrees !== 0 ? [{rotate: `${degrees}deg`}] : []),
+          ...(scale !== 1 ? [{scale}] : []),
+        ] as unknown as NonNullable<ViewStyle['transform']>)
+      : undefined;
   return {
     position: 'absolute',
     left: 0,
     top: 0,
     right: 0,
     bottom: 0,
-    ...(transform.length > 0 ? {transform} : {}),
+    ...(transform ? {transform} : {}),
   };
 }
