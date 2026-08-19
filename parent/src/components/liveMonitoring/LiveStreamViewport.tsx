@@ -397,11 +397,9 @@ export function LiveStreamViewport({
                     ),
               ]}
               objectFit={
-                viewRotate !== 0 || pinchScale > 1
+                pinchScale > 1 || streamType === 'CAMERA' || isFullscreen || !remoteControlEnabled
                   ? 'cover'
-                  : streamType === 'CAMERA' || isFullscreen || !remoteControlEnabled
-                    ? 'cover'
-                    : 'contain'
+                  : 'contain'
               }
               zOrder={0}
             />
