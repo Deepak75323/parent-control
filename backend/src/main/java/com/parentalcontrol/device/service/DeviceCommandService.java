@@ -98,8 +98,7 @@ public class DeviceCommandService {
             .findById(deviceId)
             .orElseThrow(
                 () ->
-                    new BusinessException(
-                        ErrorCode.NOT_FOUND, MessageConstants.DEVICE_NOT_FOUND));
+                    new BusinessException(ErrorCode.NOT_FOUND, MessageConstants.DEVICE_NOT_FOUND));
     DeviceCommand command =
         deviceCommandRepository.save(
             DeviceCommand.builder()
@@ -112,7 +111,11 @@ public class DeviceCommandService {
     commandObservabilityService.recordSent(type);
     applicationEventPublisher.publishEvent(
         new DeviceCommandCreatedEvent(device.getId(), command.getId(), type.name()));
-    log.info("Enqueued system command type={} deviceId={} commandId={}", type, deviceId, command.getId());
+    log.info(
+        "Enqueued system command type={} deviceId={} commandId={}",
+        type,
+        deviceId,
+        command.getId());
   }
 
   @Transactional

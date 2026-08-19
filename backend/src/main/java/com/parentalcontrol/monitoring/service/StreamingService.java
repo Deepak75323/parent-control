@@ -103,10 +103,10 @@ public class StreamingService {
 
     Device device = deviceAccessService.requireOwnedDevice(deviceId);
     deviceAccessService.requireMonitoringActive(device);
-    
+
     // Check if device is online before starting stream session
     assertDeviceOnline(device, streamType);
-    
+
     StreamTraceLogger.info(
         "Backend",
         "LOOKUP",
@@ -117,7 +117,8 @@ public class StreamingService {
             device.getId(),
             "fcmTokenPresent",
             device.getFcmToken() != null && !device.getFcmToken().isBlank(),
-            "deviceStatus", device.getStatus().name()));
+            "deviceStatus",
+            device.getStatus().name()));
     featureGateService.requireLiveStreaming(device.getParentProfileId());
     assertStreamingAllowed(device.getId(), streamType);
     assertScreenCaptureAvailable(device, streamType);
@@ -373,11 +374,7 @@ public class StreamingService {
         findNewerLiveSessionStartedAt(device.getId(), session.getId(), session.getStartedAt());
     StreamFailureGatePolicy.Decision gate =
         StreamFailureGatePolicy.decide(
-            Instant.now(),
-            session.getStartedAt(),
-            session.getStatus(),
-            reason,
-            newerLive);
+            Instant.now(), session.getStartedAt(), session.getStatus(), reason, newerLive);
     if (gate != StreamFailureGatePolicy.Decision.ACCEPT) {
       StreamTraceLogger.info(
           "Backend",
@@ -391,8 +388,7 @@ public class StreamingService {
               gate.name(),
               "reason",
               reason != null ? reason : "unknown"));
-      streamObservabilityService.recordFunnelFailure(
-          session.getStreamType(), reason, gate.name());
+      streamObservabilityService.recordFunnelFailure(session.getStreamType(), reason, gate.name());
       return;
     }
 
@@ -401,7 +397,13 @@ public class StreamingService {
         "Backend",
         StreamState.FAILED,
         "reportStreamFailure",
-        Map.of("sessionId", sessionId, "reason", reasonCode, "rawReason", reason != null ? reason : "unknown"));
+        Map.of(
+            "sessionId",
+            sessionId,
+            "reason",
+            reasonCode,
+            "rawReason",
+            reason != null ? reason : "unknown"));
 
     session.setStatus(ScreenSessionStatus.FAILED);
     session.setEndedAt(Instant.now());
@@ -434,16 +436,19 @@ public class StreamingService {
         "session:" + sessionId,
         device.getId(),
         Map.of(
-            "reason", reasonCode,
-            "rawReason", reason != null ? reason : "unknown",
-            "roomId", session.getSignalingRoomId()));
+            "reason",
+            reasonCode,
+            "rawReason",
+            reason != null ? reason : "unknown",
+            "roomId",
+            session.getSignalingRoomId()));
     signalingCleanupScheduler.purgeRoom(session.getSignalingRoomId());
     fcmWakeService.wakeDevice(device, "STREAM_FAILED", Map.of("sessionId", sessionId.toString()));
   }
 
   /**
-   * StartedAt of a newer PENDING/ACTIVE session on the same device, if any — used to ignore
-   * late failure reports for an older session after the parent started a new one.
+   * StartedAt of a newer PENDING/ACTIVE session on the same device, if any — used to ignore late
+   * failure reports for an older session after the parent started a new one.
    */
   private Instant findNewerLiveSessionStartedAt(
       UUID deviceId, UUID sessionId, Instant sessionStartedAt) {
@@ -467,14 +472,14 @@ public class StreamingService {
   }
 
   /**
-   * End any pending/active stream for this device when parent starts a new one so only one
-   * viewer (app or web) owns the live session. Notify parents with STREAMING_STATE ENDED so
-   * the previous client tears down its WebRTC viewer.
+   * End any pending/active stream for this device when parent starts a new one so only one viewer
+   * (app or web) owns the live session. Notify parents with STREAMING_STATE ENDED so the previous
+   * client tears down its WebRTC viewer.
    *
    * <p>Do <strong>not</strong> publish device stream-stop here. A hard stop races the new
-   * stream-request (afterCommit): the child tears down camera/screen FGS, then fails to
-   * re-acquire from background — web releases and the taking-over app never goes live.
-   * The new stream-request / session poll preempts the old publisher on the child instead.
+   * stream-request (afterCommit): the child tears down camera/screen FGS, then fails to re-acquire
+   * from background — web releases and the taking-over app never goes live. The new stream-request
+   * / session poll preempts the old publisher on the child instead.
    */
   private void endStalePendingSessions(UUID deviceId, String streamType) {
     Device device = deviceAccessService.requireOwnedDevice(deviceId);
@@ -483,7 +488,8 @@ public class StreamingService {
 
     for (ScreenSessionStatus status :
         List.of(ScreenSessionStatus.PENDING, ScreenSessionStatus.ACTIVE)) {
-      screenSessionRepository.findByDeviceIdAndStatusOrderByStartedAtDesc(deviceId, status)
+      screenSessionRepository
+          .findByDeviceIdAndStatusOrderByStartedAtDesc(deviceId, status)
           .forEach(
               session -> {
                 session.setStatus(ScreenSessionStatus.ENDED);
@@ -599,21 +605,23 @@ public class StreamingService {
   }
 
   /**
-   * Validates that the child device is online before starting a streaming session.
-   * Prevents creating sessions that will fail due to device being offline.
+   * Validates that the child device is online before starting a streaming session. Prevents
+   * creating sessions that will fail due to device being offline.
    */
   private void assertDeviceOnline(Device device, String streamType) {
     if (device.getStatus() == DeviceStatus.OFFLINE) {
-      String streamName = switch (streamType) {
-        case AppConstants.STREAM_TYPE_SCREEN -> "screen sharing";
-        case AppConstants.STREAM_TYPE_CAMERA -> "camera view";  
-        case AppConstants.STREAM_TYPE_AUDIO -> "listening";
-        default -> "streaming";
-      };
+      String streamName =
+          switch (streamType) {
+            case AppConstants.STREAM_TYPE_SCREEN -> "screen sharing";
+            case AppConstants.STREAM_TYPE_CAMERA -> "camera view";
+            case AppConstants.STREAM_TYPE_AUDIO -> "listening";
+            default -> "streaming";
+          };
       throw new BusinessException(
-          ErrorCode.DEVICE_OFFLINE, 
-          "Child device is offline. Please switch on the child device network connection and try " + streamName + " again."
-      );
+          ErrorCode.DEVICE_OFFLINE,
+          "Child device is offline. Please switch on the child device network connection and try "
+              + streamName
+              + " again.");
     }
   }
 }

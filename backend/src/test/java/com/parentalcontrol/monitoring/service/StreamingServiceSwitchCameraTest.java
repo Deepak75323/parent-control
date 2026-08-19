@@ -67,8 +67,7 @@ class StreamingServiceSwitchCameraTest {
 
     streamingService.switchCamera(sessionId);
 
-    verify(realtimeEventService)
-        .publishDeviceStreamControl(deviceId, sessionId, "SWITCH_CAMERA");
+    verify(realtimeEventService).publishDeviceStreamControl(deviceId, sessionId, "SWITCH_CAMERA");
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, String>> payload = ArgumentCaptor.forClass(Map.class);
     verify(fcmWakeService).wakeDevice(eq(device), eq("SWITCH_CAMERA"), payload.capture());
@@ -93,7 +92,8 @@ class StreamingServiceSwitchCameraTest {
         .isInstanceOf(BusinessException.class)
         .extracting(e -> ((BusinessException) e).getErrorCode())
         .isEqualTo(ErrorCode.VALIDATION_ERROR);
-    verify(fcmWakeService, never()).wakeDevice(eq(device), eq("SWITCH_CAMERA"), org.mockito.ArgumentMatchers.anyMap());
+    verify(fcmWakeService, never())
+        .wakeDevice(eq(device), eq("SWITCH_CAMERA"), org.mockito.ArgumentMatchers.anyMap());
   }
 
   private static ScreenSession activeCameraSession(UUID sessionId, UUID deviceId) {

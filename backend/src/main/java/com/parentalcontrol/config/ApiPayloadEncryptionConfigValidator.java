@@ -30,8 +30,7 @@ public class ApiPayloadEncryptionConfigValidator {
     }
     int ivLen = iv.getBytes(StandardCharsets.UTF_8).length;
     if (ivLen != 16) {
-      throw new IllegalStateException(
-          "API_PAYLOAD_ENCRYPTION_IV must be exactly 16 UTF-8 bytes");
+      throw new IllegalStateException("API_PAYLOAD_ENCRYPTION_IV must be exactly 16 UTF-8 bytes");
     }
   }
 }

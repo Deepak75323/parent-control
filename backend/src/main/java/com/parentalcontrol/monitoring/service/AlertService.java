@@ -170,9 +170,7 @@ public class AlertService {
             + failureCount
             + " failed parent-password unlock attempt(s) while offline. "
             + "If this wasn’t you, change the parent password in Settings.",
-        Map.of(
-            "deviceId", device.getId().toString(),
-            "failureCount", failureCount));
+        Map.of("deviceId", device.getId().toString(), "failureCount", failureCount));
   }
 
   @Transactional

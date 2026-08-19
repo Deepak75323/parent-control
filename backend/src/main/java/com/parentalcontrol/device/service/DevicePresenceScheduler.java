@@ -39,13 +39,15 @@ public class DevicePresenceScheduler {
     for (Device device : stale) {
       device.setStatus(DeviceStatus.OFFLINE);
       deviceRepository.save(device);
-      
+
       // Clean up any active streaming sessions for this offline device
       streamingSessionCleanupService.cleanupSessionsForOfflineDevice(device.getId());
-      
+
       realtimeEventService.publishDeviceStatus(device);
-      log.info("Marked device {} OFFLINE — lastSeenAt={}, cleaned up streaming sessions", 
-          device.getId(), device.getLastSeenAt());
+      log.info(
+          "Marked device {} OFFLINE — lastSeenAt={}, cleaned up streaming sessions",
+          device.getId(),
+          device.getLastSeenAt());
     }
   }
 }

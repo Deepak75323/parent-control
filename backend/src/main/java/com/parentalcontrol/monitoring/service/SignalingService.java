@@ -72,12 +72,7 @@ public class SignalingService {
           "postMessage",
           "duplicate signaling treated as idempotent success",
           Map.of(
-              "roomId",
-              roomId,
-              "messageType",
-              request.getMessageType(),
-              "id",
-              existing.getId()));
+              "roomId", roomId, "messageType", request.getMessageType(), "id", existing.getId()));
       return SignalingMessageResponse.builder()
           .id(existing.getId())
           .roomId(existing.getRoomId())
@@ -262,9 +257,9 @@ public class SignalingService {
   }
 
   /**
-   * Identical SDP/ICE payloads replayed within a short window are treated as
-   * idempotent success (return existing) instead of HTTP 400 — child retries and
-   * double-fires must not fail an otherwise healthy session.
+   * Identical SDP/ICE payloads replayed within a short window are treated as idempotent success
+   * (return existing) instead of HTTP 400 — child retries and double-fires must not fail an
+   * otherwise healthy session.
    */
   private Optional<SignalingMessage> findRecentDuplicate(
       String roomId, String messageType, String payload) {
