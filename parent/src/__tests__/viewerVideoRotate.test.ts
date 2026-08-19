@@ -2,6 +2,7 @@ import {
   clampViewerPinchScale,
   nextPinchScale,
   nextViewerRotateDeg,
+  nudgePinchScale,
   prevViewerRotateDeg,
   rnViewerVideoRotateStyle,
   viewerRotateFitScale,
@@ -36,5 +37,12 @@ describe('viewerVideoRotate (parent)', () => {
     expect(nextPinchScale(1, 100, 200)).toBe(2);
     const style = rnViewerVideoRotateStyle(0, 360, 700, 2);
     expect(style.transform).toEqual([{scale: 2}]);
+  });
+
+  it('nudges zoom with buttons and clamps at limits', () => {
+    expect(nudgePinchScale(1, 1.25)).toBe(1.25);
+    expect(nudgePinchScale(1.25, 0.8)).toBe(1);
+    expect(nudgePinchScale(4, 1.25)).toBe(4);
+    expect(nudgePinchScale(1, 0.5)).toBe(1);
   });
 });

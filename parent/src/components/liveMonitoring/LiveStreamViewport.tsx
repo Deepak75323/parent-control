@@ -9,6 +9,7 @@ import {
   LayoutChangeEvent,
   Platform,
   Pressable,
+  findNodeHandle,
 } from 'react-native';
 import {RTCView, MediaStream} from 'react-native-webrtc';
 import {
@@ -21,10 +22,13 @@ import {StreamTopBar} from './StreamTopBar';
 import {StreamControlBar} from './StreamControlBar';
 import {flowLog} from '../../services/streamDebug';
 import {mapContainTouchToNorm, videoAspectFromStream} from './remoteControlCoords';
+import {nativeModules} from '../../nativeModules';
 import {
   nextViewerRotateDeg,
   nextPinchScale,
+  nudgePinchScale,
   rnViewerVideoRotateStyle,
+  viewerRotateFitScale,
   type ViewerRotateDeg,
 } from '../../utils/viewerVideoRotate';
 
@@ -65,38 +69,45 @@ type Props = {
   onToggleRecording?: () => void;
 };
 
-const RemoteRtcView = React.memo(function RemoteRtcView({
-  stream,
-  style,
-  objectFit,
-  zOrder,
-}: {
-  stream: MediaStream;
-  style: object;
-  objectFit: 'contain' | 'cover';
-  zOrder?: number;
-}) {
-  useEffect(() => {
-    const video = stream.getVideoTracks()[0];
-    flowLog('WEBRTC_FLOW', 'RTCVIEW_STREAM_ATTACHED', {
-      streamURL: stream.toURL(),
-      trackId: video?.id,
-      enabled: video?.enabled,
-      readyState: video?.readyState,
-      muted: video?.muted,
-    });
-  }, [stream]);
+const RemoteRtcView = React.memo(
+  React.forwardRef(function RemoteRtcView(
+    {
+      stream,
+      style,
+      objectFit,
+      zOrder,
+    }: {
+      stream: MediaStream;
+      style: object | object[];
+      objectFit: 'contain' | 'cover';
+      zOrder?: number;
+    },
+    ref: React.Ref<View>,
+  ) {
+    useEffect(() => {
+      const video = stream.getVideoTracks()[0];
+      flowLog('WEBRTC_FLOW', 'RTCVIEW_STREAM_ATTACHED', {
+        streamURL: stream.toURL(),
+        trackId: video?.id,
+        enabled: video?.enabled,
+        readyState: video?.readyState,
+        muted: video?.muted,
+      });
+    }, [stream]);
 
-  return (
-    <RTCView
-      streamURL={stream.toURL()}
-      style={style}
-      objectFit={objectFit}
-      mirror={false}
-      zOrder={zOrder}
-    />
-  );
-});
+    return (
+      <RTCView
+        // @ts-expect-error RTCView accepts ref for findNodeHandle on Android
+        ref={ref}
+        streamURL={stream.toURL()}
+        style={style}
+        objectFit={objectFit}
+        mirror={false}
+        zOrder={zOrder}
+      />
+    );
+  }),
+);
 
 export function LiveStreamViewport({
   deviceName,
@@ -156,6 +167,21 @@ export function LiveStreamViewport({
   pinchScaleRef.current = pinchScale;
   const pinchStartScaleRef = useRef(1);
   const pinchStartDistRef = useRef(0);
+  const primaryRtcRef = useRef<View>(null);
+
+  // Android SurfaceView ignores RN style transforms — apply on the native surface.
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !isLive || streamType === 'AUDIO') {
+      return;
+    }
+    const tag = findNodeHandle(primaryRtcRef.current);
+    if (tag == null) {
+      return;
+    }
+    const fit = viewerRotateFitScale(viewRotate, viewportSize.width, viewportSize.height);
+    const scale = fit * pinchScale;
+    nativeModules.applyViewerVideoTransform(tag, viewRotate, scale).catch(() => undefined);
+  }, [viewRotate, pinchScale, viewportSize.width, viewportSize.height, isLive, streamType, primaryStream]);
 
   const zoomPanResponder = useMemo(
     () =>
@@ -330,28 +356,41 @@ export function LiveStreamViewport({
           </View>
         ) : null}
         {primaryStream && streamType !== 'AUDIO' && isLive ? (
-          <View
-            style={styles.primaryVideo}
-            {...(remoteControlEnabled ? remotePanResponder.panHandlers : zoomPanResponder.panHandlers)}>
+          <View style={styles.primaryVideo}>
+            {/*
+              Android RTCView uses SurfaceView: parent View transforms are ignored.
+              Apply rotate/zoom on RTCView itself and keep zOrder=0 so the surface
+              stays in the view hierarchy (media-overlay / on-top break transforms).
+              A transparent overlay captures pinch so SurfaceView does not steal it.
+            */}
+            <RemoteRtcView
+              ref={primaryRtcRef}
+              stream={primaryStream}
+              style={[
+                StyleSheet.absoluteFillObject,
+                // iOS honors style transforms; Android uses native applyViewerVideoTransform.
+                Platform.OS === 'ios'
+                  ? rnViewerVideoRotateStyle(
+                      viewRotate,
+                      viewportSize.width,
+                      viewportSize.height,
+                      pinchScale,
+                    )
+                  : null,
+              ]}
+              objectFit={
+                viewRotate !== 0 || pinchScale > 1
+                  ? 'contain'
+                  : streamType === 'CAMERA' || isFullscreen || !remoteControlEnabled
+                    ? 'cover'
+                    : 'contain'
+              }
+              zOrder={0}
+            />
             <View
-              style={rnViewerVideoRotateStyle(
-                viewRotate,
-                viewportSize.width,
-                viewportSize.height,
-                pinchScale,
-              )}>
-              <RemoteRtcView
-                stream={primaryStream}
-                style={StyleSheet.absoluteFillObject}
-                objectFit={
-                  viewRotate !== 0 || pinchScale > 1
-                    ? 'contain'
-                    : streamType === 'CAMERA' || isFullscreen || !remoteControlEnabled
-                      ? 'cover'
-                      : 'contain'
-                }
-              />
-            </View>
+              style={styles.gestureOverlay}
+              {...(remoteControlEnabled ? remotePanResponder.panHandlers : zoomPanResponder.panHandlers)}
+            />
           </View>
         ) : !primaryStream || !isLive ? (
           <View style={styles.placeholder}>
@@ -434,6 +473,11 @@ export function LiveStreamViewport({
           viewRotateDeg={viewRotate}
           onRotateView={() => setViewRotate(d => nextViewerRotateDeg(d))}
           onResetViewRotate={() => setViewRotate(0)}
+          showViewZoom={isLive && streamType !== 'AUDIO' && !remoteControlEnabled}
+          viewZoomScale={pinchScale}
+          onZoomIn={() => setPinchScale(s => nudgePinchScale(s, 1.25))}
+          onZoomOut={() => setPinchScale(s => nudgePinchScale(s, 0.8))}
+          onResetViewZoom={() => setPinchScale(1)}
         />
       ) : isFullscreen ? (
         <View style={[styles.fullscreenExit, {top: topInset + 8}]}>
@@ -462,6 +506,11 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     overflow: 'hidden',
+  },
+  gestureOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
+    backgroundColor: 'transparent',
   },
   audioSink: {
     width: 1,
