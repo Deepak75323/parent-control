@@ -12,15 +12,9 @@ class ParentOfflinePinHasherTest {
     var material = ParentOfflinePinHasher.create("SecretPass1");
     assertTrue(
         ParentOfflinePinHasher.matches(
-            "SecretPass1",
-            material.saltBase64(),
-            material.hashBase64(),
-            material.iterations()));
+            "SecretPass1", material.saltBase64(), material.hashBase64(), material.iterations()));
     assertFalse(
         ParentOfflinePinHasher.matches(
-            "wrong",
-            material.saltBase64(),
-            material.hashBase64(),
-            material.iterations()));
+            "wrong", material.saltBase64(), material.hashBase64(), material.iterations()));
   }
 }

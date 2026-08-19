@@ -6,8 +6,8 @@ import java.time.Instant;
 import java.util.Locale;
 
 /**
- * Gates child {@code reportStreamFailure} so a premature / stale report cannot
- * poison a live session (Oracle: FAILED ~200ms after REQUEST with "max attempts").
+ * Gates child {@code reportStreamFailure} so a premature / stale report cannot poison a live
+ * session (Oracle: FAILED ~200ms after REQUEST with "max attempts").
  */
 public final class StreamFailureGatePolicy {
 
@@ -48,8 +48,8 @@ public final class StreamFailureGatePolicy {
   }
 
   /**
-   * Permission / FGS / consent failures should fail fast; WebRTC negotiation failures need a
-   * fair window while PENDING (before child offer).
+   * Permission / FGS / consent failures should fail fast; WebRTC negotiation failures need a fair
+   * window while PENDING (before child offer).
    */
   public static boolean isImmediateHardFailure(String reason) {
     if (reason == null || reason.isBlank()) {

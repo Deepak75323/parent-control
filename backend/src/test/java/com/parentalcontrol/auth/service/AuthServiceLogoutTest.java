@@ -27,8 +27,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * Logout must revoke only the presented refresh token so parent app and web can stay signed in
- * on the same account at the same time.
+ * Logout must revoke only the presented refresh token so parent app and web can stay signed in on
+ * the same account at the same time.
  */
 @ExtendWith(MockitoExtension.class)
 class AuthServiceLogoutTest {

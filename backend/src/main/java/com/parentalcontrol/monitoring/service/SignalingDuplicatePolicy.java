@@ -4,8 +4,8 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Idempotent signaling: identical offer/answer/ICE payloads within a short window
- * must not fail the session with HTTP 400 (child retries / double-fire).
+ * Idempotent signaling: identical offer/answer/ICE payloads within a short window must not fail the
+ * session with HTTP 400 (child retries / double-fire).
  */
 public final class SignalingDuplicatePolicy {
 
