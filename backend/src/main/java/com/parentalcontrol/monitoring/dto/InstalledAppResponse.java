@@ -13,7 +13,9 @@ public class InstalledAppResponse {
   private String packageName;
   private String appLabel;
   private String appCategory;
+
   /** Optional small PNG as base64 (no data-URL prefix). */
   private String iconBase64;
+
   private Instant syncedAt;
 }

@@ -43,8 +43,7 @@ public class AirtelAesPayloadCrypto {
     try {
       Cipher cipher = Cipher.getInstance(TRANSFORMATION);
       cipher.init(Cipher.DECRYPT_MODE, keySpec(), ivSpec());
-      byte[] decrypted =
-          cipher.doFinal(Base64.getDecoder().decode(ciphertextBase64.trim()));
+      byte[] decrypted = cipher.doFinal(Base64.getDecoder().decode(ciphertextBase64.trim()));
       String text = new String(decrypted, StandardCharsets.UTF_8);
       // Match Airtel admin-ui: trim PKCS padding residue to last JSON object close.
       int lastBrace = text.lastIndexOf('}');

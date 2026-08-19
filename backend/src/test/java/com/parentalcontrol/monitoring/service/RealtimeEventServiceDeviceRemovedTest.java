@@ -39,8 +39,10 @@ class RealtimeEventServiceDeviceRemovedTest {
         .convertAndSendToUser(
             eq(previousUserId.toString()), eq("/queue/device-removed"), eventCaptor.capture());
     Map<String, String> event = eventCaptor.getValue();
-    org.assertj.core.api.Assertions.assertThat(event.get("eventType")).isEqualTo("DEVICE_REASSIGNED");
-    org.assertj.core.api.Assertions.assertThat(event.get("deviceId")).isEqualTo(deviceId.toString());
+    org.assertj.core.api.Assertions.assertThat(event.get("eventType"))
+        .isEqualTo("DEVICE_REASSIGNED");
+    org.assertj.core.api.Assertions.assertThat(event.get("deviceId"))
+        .isEqualTo(deviceId.toString());
     org.assertj.core.api.Assertions.assertThat(event.get("deviceName")).isEqualTo("Kid Phone");
     org.assertj.core.api.Assertions.assertThat(event.get("status")).isEqualTo("REMOVED");
   }
