@@ -5,6 +5,7 @@ const Native = NativeModules.ParentNative ?? {};
 export type ParentNativeModule = {
   mapsAvailable?: boolean;
   setViewerAudioMode?: (enabled: boolean) => Promise<void>;
+  authenticateBiometric?: () => Promise<string>;
   isStreamRecordingSupported?: () => boolean;
   startStreamRecording?: (
     streamType: string,

@@ -39,4 +39,14 @@ describe('shouldReleaseViewerOnStreamingEnded', () => {
       shouldReleaseViewerOnStreamingEnded({status: 'ENDED', roomId: 'screen_abc'}, null),
     ).toBe(false);
   });
+
+  it('does not release while the local client is starting (takeover)', () => {
+    expect(
+      shouldReleaseViewerOnStreamingEnded(
+        {status: 'ENDED', roomId: 'screen_abc'},
+        'screen_abc',
+        true,
+      ),
+    ).toBe(false);
+  });
 });

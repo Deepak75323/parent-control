@@ -327,7 +327,7 @@ public class StreamingService {
             .orElseThrow(
                 () ->
                     new BusinessException(ErrorCode.NOT_FOUND, MessageConstants.SESSION_NOT_FOUND));
-    deviceAccessService.requireOwnedDevice(session.getDeviceId());
+    Device device = deviceAccessService.requireOwnedDevice(session.getDeviceId());
     if (!AppConstants.STREAM_TYPE_CAMERA.equalsIgnoreCase(session.getStreamType())) {
       throw new BusinessException(
           ErrorCode.VALIDATION_ERROR,
@@ -340,6 +340,16 @@ public class StreamingService {
     }
     realtimeEventService.publishDeviceStreamControl(
         session.getDeviceId(), session.getId(), "SWITCH_CAMERA");
+    Map<String, String> wakeData = new HashMap<>();
+    wakeData.put("sessionId", session.getId().toString());
+    wakeData.put("command", "SWITCH_CAMERA");
+    fcmWakeService.wakeDevice(device, "SWITCH_CAMERA", wakeData);
+    StreamTraceLogger.info(
+        "Backend",
+        "NOTIFY",
+        "switchCamera",
+        "SWITCH_CAMERA STOMP + FCM wake requested",
+        Map.of("sessionId", sessionId, "deviceId", session.getDeviceId()));
   }
 
   @Transactional
@@ -458,8 +468,13 @@ public class StreamingService {
 
   /**
    * End any pending/active stream for this device when parent starts a new one so only one
-   * viewer (app or web) owns the live session. Notify the parent so the previous client
-   * tears down its WebRTC viewer.
+   * viewer (app or web) owns the live session. Notify parents with STREAMING_STATE ENDED so
+   * the previous client tears down its WebRTC viewer.
+   *
+   * <p>Do <strong>not</strong> publish device stream-stop here. A hard stop races the new
+   * stream-request (afterCommit): the child tears down camera/screen FGS, then fails to
+   * re-acquire from background — web releases and the taking-over app never goes live.
+   * The new stream-request / session poll preempts the old publisher on the child instead.
    */
   private void endStalePendingSessions(UUID deviceId, String streamType) {
     Device device = deviceAccessService.requireOwnedDevice(deviceId);
@@ -475,8 +490,6 @@ public class StreamingService {
                 session.setEndedAt(Instant.now());
                 screenSessionRepository.save(session);
                 signalingCleanupScheduler.purgeRoom(session.getSignalingRoomId());
-                realtimeEventService.publishDeviceStreamStop(
-                    deviceId, session.getId(), session.getSignalingRoomId());
                 parentUserId.ifPresent(
                     userId ->
                         realtimeEventService.publishStreamingState(

@@ -10,8 +10,10 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import androidx.fragment.app.FragmentActivity
 import com.parentscaffold.BuildConfig
 import com.parentscaffold.capture.StreamRecorder
+import com.parentscaffold.security.ParentBiometricAuth
 import com.parentscaffold.security.ParentSecureAuthStore
 
 class ParentNativeModule(private val reactContext: ReactApplicationContext) :
@@ -52,6 +54,20 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("SECURE_AUTH_CLEAR", e)
+        }
+    }
+
+    @ReactMethod
+    fun authenticateBiometric(promise: Promise) {
+        val activity = currentActivity as? FragmentActivity
+        if (activity == null) {
+            promise.resolve("unavailable")
+            return
+        }
+        try {
+            ParentBiometricAuth.authenticate(activity, promise)
+        } catch (e: Exception) {
+            promise.reject("BIOMETRIC", e)
         }
     }
 

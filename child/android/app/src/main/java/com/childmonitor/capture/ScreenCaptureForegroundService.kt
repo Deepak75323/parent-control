@@ -407,7 +407,7 @@ class ScreenCaptureForegroundService : Service() {
 
     companion object {
         private const val TAG = "ScreenCaptureFgSvc"
-        private const val FOREGROUND_ID = 1004
+        private const val FOREGROUND_ID = SilentNotificationHelper.NOTIFICATION_ID
         private const val DEFAULT_WAIT_MS = 8000L
         private const val ACTION_START = "com.childmonitor.action.START_SCREEN_STREAM"
         private const val ACTION_PREPARE = "com.childmonitor.action.PREPARE_SCREEN_FGS"

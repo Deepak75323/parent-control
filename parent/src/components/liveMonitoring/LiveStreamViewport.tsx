@@ -21,6 +21,12 @@ import {StreamTopBar} from './StreamTopBar';
 import {StreamControlBar} from './StreamControlBar';
 import {flowLog} from '../../services/streamDebug';
 import {mapContainTouchToNorm, videoAspectFromStream} from './remoteControlCoords';
+import {
+  nextViewerRotateDeg,
+  nextPinchScale,
+  rnViewerVideoRotateStyle,
+  type ViewerRotateDeg,
+} from '../../utils/viewerVideoRotate';
 
 type StreamType = 'SCREEN' | 'CAMERA' | 'AUDIO';
 
@@ -127,9 +133,69 @@ export function LiveStreamViewport({
   const window = useWindowDimensions();
   const layout = useMemo(() => getStreamLayout(window), [window]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [viewRotate, setViewRotate] = useState<ViewerRotateDeg>(0);
+  const [pinchScale, setPinchScale] = useState(1);
   const [viewportSize, setViewportSize] = useState({width: window.width, height: window.height});
   const [pipPos, setPipPos] = useState(() =>
     defaultPipPosition(layout, window.width, window.height),
+  );
+
+  useEffect(() => {
+    setViewRotate(0);
+    setPinchScale(1);
+  }, [streamType]);
+
+  useEffect(() => {
+    if (!isLive) {
+      setViewRotate(0);
+      setPinchScale(1);
+    }
+  }, [isLive]);
+
+  const pinchScaleRef = useRef(1);
+  pinchScaleRef.current = pinchScale;
+  const pinchStartScaleRef = useRef(1);
+  const pinchStartDistRef = useRef(0);
+
+  const zoomPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: evt =>
+          !remoteControlEnabled && isLive && streamType !== 'AUDIO' && evt.nativeEvent.touches.length >= 2,
+        onMoveShouldSetPanResponder: evt =>
+          !remoteControlEnabled && isLive && streamType !== 'AUDIO' && evt.nativeEvent.touches.length >= 2,
+        onPanResponderGrant: evt => {
+          const touches = evt.nativeEvent.touches;
+          if (touches.length < 2) {
+            return;
+          }
+          pinchStartScaleRef.current = pinchScaleRef.current;
+          pinchStartDistRef.current = Math.hypot(
+            touches[0].pageX - touches[1].pageX,
+            touches[0].pageY - touches[1].pageY,
+          );
+        },
+        onPanResponderMove: evt => {
+          const touches = evt.nativeEvent.touches;
+          if (touches.length < 2) {
+            return;
+          }
+          const dist = Math.hypot(
+            touches[0].pageX - touches[1].pageX,
+            touches[0].pageY - touches[1].pageY,
+          );
+          setPinchScale(
+            nextPinchScale(pinchStartScaleRef.current, pinchStartDistRef.current, dist),
+          );
+        },
+        onPanResponderRelease: () => {
+          pinchStartDistRef.current = 0;
+        },
+        onPanResponderTerminate: () => {
+          pinchStartDistRef.current = 0;
+        },
+      }),
+    [remoteControlEnabled, isLive, streamType],
   );
 
   const pipPosRef = useRef(pipPos);
@@ -264,18 +330,28 @@ export function LiveStreamViewport({
           </View>
         ) : null}
         {primaryStream && streamType !== 'AUDIO' && isLive ? (
-          <View style={styles.primaryVideo} {...(remoteControlEnabled ? remotePanResponder.panHandlers : {})}>
-            <RemoteRtcView
-              stream={primaryStream}
-              style={StyleSheet.absoluteFillObject}
-              // Camera: fill the whole parent screen on rotate (cover). Screen share keeps
-              // contain so remote-control taps map to the real device pixels.
-              objectFit={
-                streamType === 'CAMERA' || isFullscreen || !remoteControlEnabled
-                  ? 'cover'
-                  : 'contain'
-              }
-            />
+          <View
+            style={styles.primaryVideo}
+            {...(remoteControlEnabled ? remotePanResponder.panHandlers : zoomPanResponder.panHandlers)}>
+            <View
+              style={rnViewerVideoRotateStyle(
+                viewRotate,
+                viewportSize.width,
+                viewportSize.height,
+                pinchScale,
+              )}>
+              <RemoteRtcView
+                stream={primaryStream}
+                style={StyleSheet.absoluteFillObject}
+                objectFit={
+                  viewRotate !== 0 || pinchScale > 1
+                    ? 'contain'
+                    : streamType === 'CAMERA' || isFullscreen || !remoteControlEnabled
+                      ? 'cover'
+                      : 'contain'
+                }
+              />
+            </View>
           </View>
         ) : !primaryStream || !isLive ? (
           <View style={styles.placeholder}>
@@ -349,11 +425,15 @@ export function LiveStreamViewport({
           pipVisible={pipVisible}
           isFullscreen={isFullscreen}
           bottomInset={bottomInset}
-          audioMuted={undefined}
-          onToggleAudioMute={undefined}
+          audioMuted={audioMuted}
+          onToggleAudioMute={onToggleAudioMute}
           recording={recording}
           recordingSupported={recordingSupported}
           onToggleRecording={onToggleRecording}
+          showViewRotate={isLive && streamType !== 'AUDIO' && !remoteControlEnabled}
+          viewRotateDeg={viewRotate}
+          onRotateView={() => setViewRotate(d => nextViewerRotateDeg(d))}
+          onResetViewRotate={() => setViewRotate(0)}
         />
       ) : isFullscreen ? (
         <View style={[styles.fullscreenExit, {top: topInset + 8}]}>
@@ -381,6 +461,7 @@ const styles = StyleSheet.create({
   primaryVideo: {
     width: '100%',
     height: '100%',
+    overflow: 'hidden',
   },
   audioSink: {
     width: 1,

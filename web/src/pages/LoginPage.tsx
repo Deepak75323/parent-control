@@ -50,7 +50,13 @@ export function LoginPage() {
     <div className="auth-page">
       <form className="auth-card" onSubmit={e => void onSubmit(e)}>
         <div className="auth-brand">
-          <img src="/app-logo.png" alt="" className="auth-logo" width={64} height={64} />
+          <img
+            src={`${import.meta.env.BASE_URL}app-logo.png`}
+            alt=""
+            className="auth-logo"
+            width={64}
+            height={64}
+          />
           <h1>Parent Control</h1>
           <p className="muted">Sign in to your parent account</p>
         </div>
