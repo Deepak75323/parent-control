@@ -188,6 +188,39 @@ object FcmWakeHandler {
                     PcpFlowLogger.log(PcpFlowLogger.Category.FCM, "dispatchWithWakeLock", "STREAM_REQUEST FCM dispatch complete")
                 }
             }
+            "SWITCH_CAMERA", "STREAM_CONTROL" -> {
+                val app = context.applicationContext
+                val sessionId = data["sessionId"] ?: ""
+                val command = data["command"].orEmpty().ifBlank { "SWITCH_CAMERA" }
+                if (!FcmStreamControlActions.isSwitchCamera(action, command)) {
+                    Log.w(TAG, "Ignoring STREAM_CONTROL FCM — command=$command")
+                    return
+                }
+                PcpFlowLogger.log(
+                    PcpFlowLogger.Category.FCM,
+                    "dispatchWithWakeLock",
+                    "SWITCH_CAMERA received via FCM",
+                    "session=$sessionId command=$command",
+                )
+                val latch = CountDownLatch(1)
+                Thread {
+                    try {
+                        NativeStreamingCoordinator.start(app)
+                        MonitoringBurstEngine.runCycle(app, startCoordinator = true)
+                        NativeStreamingCoordinator.handleStreamControlFromWake(
+                            app,
+                            sessionId,
+                            command,
+                        )
+                    } finally {
+                        latch.countDown()
+                    }
+                }.start()
+                val finished = latch.await(WAKE_WORK_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                if (!finished) {
+                    Log.w(TAG, "FCM SWITCH_CAMERA work timed out after ${WAKE_WORK_TIMEOUT_MS}ms")
+                }
+            }
             "HEARTBEAT_NUDGE" -> {
                 // Backend proactively wakes devices that have gone quiet longer than its nudge
                 // threshold but not yet past the offline cutoff (see HeartbeatNudgeScheduler on

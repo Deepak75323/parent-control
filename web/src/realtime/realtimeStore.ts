@@ -26,7 +26,7 @@ interface RealtimeState {
   prependAlert: (alert: AlertItem) => void;
   prependNotification: (item: NotificationItem) => void;
   setLiveLocation: (deviceId: string, point: LocationPoint) => void;
-  setStreamingState: (event: StreamingStateLive) => void;
+  setStreamingState: (event: StreamingStateLive | undefined) => void;
   reset: () => void;
 }
 

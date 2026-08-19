@@ -3,6 +3,7 @@ package com.childmonitor.capture
 import android.content.Context
 import android.os.Looper
 import android.util.Log
+import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
@@ -17,6 +18,7 @@ import org.webrtc.VideoSink
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * CameraX-backed [VideoCapturer] for hidden parental camera streams.
@@ -25,6 +27,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Implements [VideoSink] so it can be registered as the SurfaceTextureHelper listener.
  * Without calling [SurfaceTextureHelper.startListening], frames written by CameraX to the
  * surface texture are never forwarded to the WebRTC observer — resulting in a blank stream.
+ *
+ * Orientation: listens to physical tilt and updates CameraX target rotation so the parent
+ * feed stays upright when the child rotates the phone.
  */
 class CameraXVideoCapturer(
     private val appContext: Context,
@@ -47,10 +52,13 @@ class CameraXVideoCapturer(
     private val firstFrameLogged = AtomicBoolean(false)
     /** Serialize facing rebinds — overlapping unbind/bind left Flip stuck after one click. */
     private val facingSwitchInFlight = AtomicBoolean(false)
+    private val appliedSurfaceRotation = AtomicInteger(Surface.ROTATION_0)
 
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
     private var capturerObserver: CapturerObserver? = null
     private var cameraProvider: ProcessCameraProvider? = null
+    private var previewUseCase: Preview? = null
+    private var orientationListener: OrientationEventListener? = null
 
     private var captureWidth = 1280
     private var captureHeight = 720
@@ -79,32 +87,26 @@ class CameraXVideoCapturer(
         if (!started.compareAndSet(false, true)) {
             return
         }
-        
-        // Force camera access from other apps if needed
-        val cameraId = if (useFrontCamera) "1" else "0" // Standard camera IDs
+
+        val cameraId = if (useFrontCamera) "1" else "0"
         Log.i(TAG, "Requesting force camera access for camera $cameraId (front=$useFrontCamera)")
-        
-        // Initialize camera access manager
+
         CameraAccessManager.initialize(appContext)
-        
-        // Attempt to force camera access
+
         if (!CameraAccessManager.forceCameraAccess(cameraId)) {
             Log.w(TAG, "Failed to force camera access, proceeding with normal flow")
-            // Continue with normal flow even if force failed
         } else {
             Log.i(TAG, "Successfully forced camera access from other apps")
         }
-        
+
         val future = ProcessCameraProvider.getInstance(appContext)
         future.addListener({
             try {
                 lifecycleOwner.markStarted()
                 cameraProvider = future.get()
                 bindPreview(helper)
-                // Register as VideoSink so every frame CameraX writes to the surface texture
-                // is forwarded to the WebRTC capturerObserver. Without this call, frames are
-                // captured by the hardware but never reach the encoder — stream is blank.
                 helper.startListening(this@CameraXVideoCapturer)
+                startOrientationTracking(helper)
                 Log.i(TAG, "CameraX capture started, startListening registered front=$useFrontCamera ${width}x$height")
                 observer.onCapturerStarted(true)
             } catch (e: Exception) {
@@ -119,19 +121,18 @@ class CameraXVideoCapturer(
     private fun bindPreview(helper: SurfaceTextureHelper) {
         val provider = cameraProvider ?: return
         provider.unbindAll()
+        val initialRotation = Surface.ROTATION_0
         val preview = Preview.Builder()
             .setTargetResolution(android.util.Size(captureWidth, captureHeight))
+            .setTargetRotation(initialRotation)
             .build()
         preview.setSurfaceProvider { request ->
             val w = request.resolution.width
             val h = request.resolution.height
             val texture = helper.surfaceTexture
             texture.setDefaultBufferSize(w, h)
-            // SurfaceTextureHelper drops every frame with "Texture size has not been set"
-            // unless setTextureSize() is called before the first onTextureFrameAvailable
-            // callback. This is distinct from SurfaceTexture.setDefaultBufferSize().
             helper.setTextureSize(w, h)
-            Log.i(TAG, "SurfaceTextureHelper texture size set ${w}x$h")
+            Log.i(TAG, "SurfaceTextureHelper texture size set ${w}x$h cameraXRotation=$initialRotation")
             val surface = Surface(texture)
             request.provideSurface(surface, ContextCompat.getMainExecutor(appContext)) {
                 surface.release()
@@ -143,21 +144,76 @@ class CameraXVideoCapturer(
             CameraSelector.DEFAULT_BACK_CAMERA
         }
         provider.bindToLifecycle(lifecycleOwner, selector, preview)
+        previewUseCase = preview
+        // Keep CameraX buffer in a stable target rotation. Dynamic CameraX
+        // setTargetRotation on some OEMs (e.g. MIUI) rescales into a fixed
+        // 1280×720 buffer → sideways + stretched video in browser viewers.
+        // WebRTC frame rotation / CVO carries upright orientation to parents.
+        helper.setFrameRotation(
+            CameraOrientationHelper.webrtcFrameRotationDegrees(appliedSurfaceRotation.get()),
+        )
+    }
+
+    private fun startOrientationTracking(helper: SurfaceTextureHelper) {
+        stopOrientationTracking()
+        val listener =
+            object : OrientationEventListener(appContext) {
+                override fun onOrientationChanged(orientation: Int) {
+                    val surfaceRotation =
+                        CameraOrientationHelper.surfaceRotationOrNull(orientation) ?: return
+                    applyDeviceRotation(surfaceRotation, helper)
+                }
+            }
+        if (listener.canDetectOrientation()) {
+            listener.enable()
+            orientationListener = listener
+            Log.i(TAG, "Orientation tracking enabled for upright parent video")
+        } else {
+            Log.w(TAG, "Orientation sensor unavailable — camera rotation stays fixed")
+        }
+    }
+
+    private fun stopOrientationTracking() {
+        orientationListener?.disable()
+        orientationListener = null
+    }
+
+    /**
+     * Publish device tilt via WebRTC frame rotation so web + app viewers stay upright
+     * without CameraX re-scaling the capture buffer (which skews aspect ratio).
+     */
+    private fun applyDeviceRotation(surfaceRotation: Int, helper: SurfaceTextureHelper) {
+        if (appliedSurfaceRotation.getAndSet(surfaceRotation) == surfaceRotation) return
+        val degrees = CameraOrientationHelper.webrtcFrameRotationDegrees(surfaceRotation)
+        val apply = {
+            try {
+                previewUseCase?.setTargetRotation(Surface.ROTATION_0)
+                helper.setFrameRotation(degrees)
+                Log.i(
+                    TAG,
+                    "Applied WebRTC frameRotation=$degrees (device surface=$surfaceRotation)",
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to apply device rotation $surfaceRotation", e)
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            apply()
+        } else {
+            ContextCompat.getMainExecutor(appContext).execute(Runnable { apply() })
+        }
     }
 
     override fun stopCapture() {
         if (!started.compareAndSet(true, false)) return
-        
-        // Release forced camera access
+
         CameraAccessManager.releaseCamera()
         Log.i(TAG, "Released forced camera access")
-        
-        // Stop forwarding frames before unbinding the camera so the observer is not
-        // called after the capture pipeline is torn down.
+
+        stopOrientationTracking()
         surfaceTextureHelper?.stopListening()
         Log.i(TAG, "CameraX stopCapture — stopListening called")
-        // Unbind must finish before the next facing opens. Async unbind raced with the
-        // following createCameraStream and left flip-back (back→front) unable to bind.
+        previewUseCase = null
         val latch = CountDownLatch(1)
         val future = ProcessCameraProvider.getInstance(appContext)
         future.addListener({
@@ -183,14 +239,13 @@ class CameraXVideoCapturer(
         }
     }
 
-    /**
-     * VideoSink callback — receives every frame from [SurfaceTextureHelper] and forwards it to
-     * the WebRTC [CapturerObserver]. This is the bridge that makes the camera stream visible on
-     * the parent side.
-     */
     override fun onFrame(frame: VideoFrame) {
         if (firstFrameLogged.compareAndSet(false, true)) {
-            Log.i(TAG, "FIRST_CAMERA_FRAME ${frame.rotatedWidth}x${frame.rotatedHeight} ts=${frame.timestampNs}")
+            Log.i(
+                TAG,
+                "FIRST_CAMERA_FRAME ${frame.rotatedWidth}x${frame.rotatedHeight} " +
+                    "rot=${frame.rotation} deviceSurface=${appliedSurfaceRotation.get()} ts=${frame.timestampNs}",
+            )
         }
         capturerObserver?.onFrameCaptured(frame)
     }
@@ -218,17 +273,13 @@ class CameraXVideoCapturer(
         cameraProvider = null
         surfaceTextureHelper = null
         capturerObserver = null
+        previewUseCase = null
     }
 
     override fun isScreencast(): Boolean = false
 
-    /** True when the capturer is bound (or will bind) to the front / user camera. */
     fun isFrontFacing(): Boolean = useFrontCamera
 
-    /**
-     * Switch to an absolute facing. Prefer this over toggle — toggle + controller state
-     * desync made Flip work front→back once and then no-op on reverse.
-     */
     fun setFacing(wantFront: Boolean, handler: CameraVideoCapturer.CameraSwitchHandler?) {
         if (wantFront == useFrontCamera) {
             Log.i(TAG, "setFacing no-op already front=$useFrontCamera")
@@ -257,7 +308,6 @@ class CameraXVideoCapturer(
             return
         }
         val mainExecutor = ContextCompat.getMainExecutor(appContext)
-        // Safety: never leave Flip permanently locked if a callback is dropped.
         mainExecutor.execute {
             android.os.Handler(Looper.getMainLooper()).postDelayed({
                 if (facingSwitchInFlight.get()) {
@@ -270,8 +320,6 @@ class CameraXVideoCapturer(
         future.addListener({
             try {
                 val provider = future.get()
-                // Unbind first, then delay before bind — Xiaomi HAL often rejects
-                // immediate back→front rebind in the same frame (Flip stuck on 2nd click).
                 provider.unbindAll()
                 Log.i(TAG, "setFacing unbound — scheduling rebind front=$wantFront")
                 android.os.Handler(Looper.getMainLooper()).postDelayed({

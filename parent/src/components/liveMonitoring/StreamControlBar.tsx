@@ -25,6 +25,11 @@ type Props = {
   recording?: boolean;
   recordingSupported?: boolean;
   onToggleRecording?: () => void;
+  /** Viewer-only rotation (does not move child camera). */
+  showViewRotate?: boolean;
+  viewRotateDeg?: number;
+  onRotateView?: () => void;
+  onResetViewRotate?: () => void;
 };
 
 export function StreamControlBar({
@@ -50,6 +55,10 @@ export function StreamControlBar({
   recording,
   recordingSupported,
   onToggleRecording,
+  showViewRotate,
+  viewRotateDeg = 0,
+  onRotateView,
+  onResetViewRotate,
 }: Props) {
   return (
     <View style={[styles.bar, {paddingBottom: bottomInset + 10}]}>
@@ -91,6 +100,16 @@ export function StreamControlBar({
         {showSwitchCamera && onSwitchCamera ? (
           <Pressable style={styles.secondaryBtn} onPress={onSwitchCamera}>
             <Text style={styles.secondaryBtnText}>Flip</Text>
+          </Pressable>
+        ) : null}
+        {showViewRotate && onRotateView ? (
+          <Pressable style={styles.secondaryBtn} onPress={onRotateView}>
+            <Text style={styles.secondaryBtnText}>Rotate {viewRotateDeg}°</Text>
+          </Pressable>
+        ) : null}
+        {showViewRotate && viewRotateDeg !== 0 && onResetViewRotate ? (
+          <Pressable style={styles.secondaryBtn} onPress={onResetViewRotate}>
+            <Text style={styles.secondaryBtnText}>Reset</Text>
           </Pressable>
         ) : null}
         {onToggleAudioMute ? (
@@ -145,6 +164,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
+    flexWrap: 'wrap',
     gap: 8,
   },
   secondaryBtn: {

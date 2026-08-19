@@ -145,7 +145,7 @@ export function AppShell() {
     <div className="dc-app">
       <aside className="dc-rail" aria-label="Workspaces">
         <Link to="/devices" className="dc-rail-pill active" title="Parent Control">
-          <img src="/app-logo.png" alt="" width={48} height={48} />
+          <img src={`${import.meta.env.BASE_URL}app-logo.png`} alt="" width={48} height={48} />
         </Link>
         <div className="dc-rail-sep" />
         <div className="dc-rail-pill muted" title="Family">

@@ -63,7 +63,7 @@ interface RealtimeState {
   setLiveLocation: (deviceId: string, point: LocationPoint) => void;
   prependAlert: (alert: AlertItem) => void;
   setLastPolicyUpdate: (version: string) => void;
-  setStreamingState: (state: StreamingStateLive) => void;
+  setStreamingState: (state: StreamingStateLive | undefined) => void;
   mergeDevices: (devices: DeviceSummary[]) => void;
   reset: () => void;
 }

@@ -111,7 +111,7 @@ class CameraStreamForegroundService : Service() {
 
     companion object {
         private const val TAG = "CameraStreamFgSvc"
-        private const val NOTIFICATION_ID = 1002
+        private const val NOTIFICATION_ID = SilentNotificationHelper.NOTIFICATION_ID
         private const val DEFAULT_WAIT_MS = 8000L
 
         @Volatile

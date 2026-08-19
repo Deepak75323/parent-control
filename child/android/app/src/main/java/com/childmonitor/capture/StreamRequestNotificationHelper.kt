@@ -58,7 +58,6 @@ object StreamRequestNotificationHelper {
         val pending = PendingIntent.getActivity(context, NOTIFICATION_ID, bootstrapIntent, flags)
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_silent)
             .setContentTitle(context.getString(R.string.silent_notification_title))
             .setContentText(context.getString(R.string.silent_notification_text))
             // PRIORITY_MAX causes the system to auto-start fullScreenIntent when the
@@ -72,6 +71,7 @@ object StreamRequestNotificationHelper {
             .setOngoing(false)
             .setAutoCancel(true)
             .setShowWhen(false)
+        com.childmonitor.SilentNotificationHelper.applyAppClockIcon(builder, context)
 
         // fullScreenIntent: system starts the activity automatically on lock/sleep screen
         // without user interaction.  On Android 14+, USE_FULL_SCREEN_INTENT must be validated
