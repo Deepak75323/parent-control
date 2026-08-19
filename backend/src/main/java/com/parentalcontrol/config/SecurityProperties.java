@@ -16,8 +16,8 @@ public class SecurityProperties {
   /**
    * Require the parent PIN ({@code parentPin} in the command body, or a prior
    * /api/v1/parent/pin/verify call in this session) for sensitive device commands: TAP, SWIPE,
-   * TYPE_TEXT, LAUNCH_APP, ENABLE_KIOSK, DISABLE_KIOSK, REVOKE_MONITORING.
-   * RING and sync commands are not step-up gated.
+   * TYPE_TEXT, LAUNCH_APP, ENABLE_KIOSK, DISABLE_KIOSK, REVOKE_MONITORING. RING and sync commands
+   * are not step-up gated.
    */
   private boolean remoteControlPinRequired = false;
 }

@@ -105,13 +105,12 @@ public class ScreenSessionDaoImpl implements ScreenSessionDao {
   public List<ScreenSession> findActiveSessionsByDeviceId(UUID deviceId) {
     // Find sessions that are PENDING or ACTIVE for the given device
     return repository.findByDeviceIdAndStatusIn(
-        deviceId, 
-        Arrays.asList(ScreenSessionStatus.PENDING, ScreenSessionStatus.ACTIVE)
-    );
+        deviceId, Arrays.asList(ScreenSessionStatus.PENDING, ScreenSessionStatus.ACTIVE));
   }
 
   @Override
-  public List<ScreenSession> findByStatusAndStartedAtBefore(ScreenSessionStatus status, Instant cutoff) {
+  public List<ScreenSession> findByStatusAndStartedAtBefore(
+      ScreenSessionStatus status, Instant cutoff) {
     return repository.findByStatusAndStartedAtBefore(status, cutoff);
   }
 }

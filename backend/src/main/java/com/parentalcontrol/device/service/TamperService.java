@@ -163,8 +163,7 @@ public class TamperService {
         && !request.getPin().isBlank()) {
       parentPinService.ensureOfflineVerifier(user, request.getPin().trim());
       // Reload after possible backfill
-      User refreshed =
-          userRepository.findById(user.getId()).orElse(user);
+      User refreshed = userRepository.findById(user.getId()).orElse(user);
       offlinePin = offlineCredential(refreshed);
     }
     return TamperVerifyResponse.builder()

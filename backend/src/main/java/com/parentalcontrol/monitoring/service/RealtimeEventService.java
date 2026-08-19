@@ -45,8 +45,8 @@ public class RealtimeEventService {
   }
 
   /**
-   * Notify the previous parent that a physical device was re-assigned to another family.
-   * Parent apps should drop the device from their list without waiting for a manual refresh.
+   * Notify the previous parent that a physical device was re-assigned to another family. Parent
+   * apps should drop the device from their list without waiting for a manual refresh.
    */
   public void publishDeviceRemovedFromParent(
       UUID previousParentProfileId, UUID deviceId, String deviceName) {

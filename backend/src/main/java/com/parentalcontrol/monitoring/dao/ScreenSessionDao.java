@@ -50,14 +50,14 @@ public interface ScreenSessionDao {
   long countByStatus(ScreenSessionStatus status);
 
   /**
-   * Find all active (PENDING or ACTIVE) streaming sessions for a specific device.
-   * Used for cleanup when device goes offline.
+   * Find all active (PENDING or ACTIVE) streaming sessions for a specific device. Used for cleanup
+   * when device goes offline.
    */
   List<ScreenSession> findActiveSessionsByDeviceId(UUID deviceId);
 
   /**
-   * Find sessions by status that were started before the given timestamp.
-   * Used for cleaning up stale pending sessions.
+   * Find sessions by status that were started before the given timestamp. Used for cleaning up
+   * stale pending sessions.
    */
   List<ScreenSession> findByStatusAndStartedAtBefore(ScreenSessionStatus status, Instant cutoff);
 }

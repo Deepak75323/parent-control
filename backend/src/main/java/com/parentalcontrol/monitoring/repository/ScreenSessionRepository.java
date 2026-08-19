@@ -24,7 +24,8 @@ public interface ScreenSessionRepository extends JpaRepository<ScreenSession, UU
 
   long countByStatus(ScreenSessionStatus status);
 
-  List<ScreenSession> findByDeviceIdAndStatusIn(UUID deviceId, Collection<ScreenSessionStatus> statuses);
+  List<ScreenSession> findByDeviceIdAndStatusIn(
+      UUID deviceId, Collection<ScreenSessionStatus> statuses);
 
   List<ScreenSession> findByStatusAndStartedAtBefore(ScreenSessionStatus status, Instant cutoff);
 }

@@ -365,8 +365,8 @@ public class DeviceService {
    *
    * <p>Fires a high-priority {@code HEARTBEAT_NUDGE} data message so the child app posts a fresh
    * heartbeat without waiting for its 5-minute alarm or the 2-minute nudge sweep. This is the
-   * mechanism the parent UI uses to remove the "device offline" gate when the parent taps live
-   * view moments after the child reconnects.
+   * mechanism the parent UI uses to remove the "device offline" gate when the parent taps live view
+   * moments after the child reconnects.
    *
    * <p>Returns the current status/{@code lastSeenAt} so the caller can poll for freshness. FCM
    * dispatch is best-effort — {@link FcmWakeService} logs (and swallows) transport errors so a
@@ -375,7 +375,8 @@ public class DeviceService {
   @Transactional(readOnly = true)
   public DeviceWakeResponse wakeDevice(UUID deviceId) {
     Device device = getOwnedDevice(deviceId);
-    String tokenPresent = device.getFcmToken() != null && !device.getFcmToken().isBlank() ? "yes" : "no";
+    String tokenPresent =
+        device.getFcmToken() != null && !device.getFcmToken().isBlank() ? "yes" : "no";
     log.info(
         "PARENT_WAKE_REQUEST deviceId={} status={} lastSeenAt={} fcmToken={}",
         device.getId(),
@@ -510,15 +511,16 @@ public class DeviceService {
     if (device.isMediaProjectionGranted()) {
       deviceHealthObservabilityService.recordMediaProjectionState(true);
     }
-    
+
     // Publish device status update - this will notify parent in real-time
     realtimeEventService.publishDeviceStatus(device);
-    
+
     // If device was offline and is now online, log the recovery
     if (wasOffline) {
-      log.info("Device {} came back ONLINE — lastSeenAt={}", device.getId(), device.getLastSeenAt());
+      log.info(
+          "Device {} came back ONLINE — lastSeenAt={}", device.getId(), device.getLastSeenAt());
     }
-    
+
     monitoringKafkaPublisher.heartbeat(device.getId());
     alertService.checkLowBattery(device, device.getBatteryLevel());
     if (request.getOfflineUnlockFailures() != null && request.getOfflineUnlockFailures() > 0) {

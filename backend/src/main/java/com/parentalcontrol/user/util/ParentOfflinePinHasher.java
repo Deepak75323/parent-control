@@ -1,6 +1,5 @@
 package com.parentalcontrol.user.util;
 
-import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Arrays;
@@ -37,7 +36,11 @@ public final class ParentOfflinePinHasher {
   }
 
   public static boolean matches(String pin, String saltBase64, String hashBase64, int iterations) {
-    if (pin == null || pin.isBlank() || saltBase64 == null || hashBase64 == null || iterations < 1) {
+    if (pin == null
+        || pin.isBlank()
+        || saltBase64 == null
+        || hashBase64 == null
+        || iterations < 1) {
       return false;
     }
     try {
@@ -52,8 +55,7 @@ public final class ParentOfflinePinHasher {
 
   private static byte[] derive(String pin, byte[] salt, int iterations)
       throws GeneralSecurityException {
-    PBEKeySpec spec =
-        new PBEKeySpec(pin.toCharArray(), salt, iterations, KEY_BITS);
+    PBEKeySpec spec = new PBEKeySpec(pin.toCharArray(), salt, iterations, KEY_BITS);
     SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
     try {
       return factory.generateSecret(spec).getEncoded();

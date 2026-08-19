@@ -8,8 +8,8 @@ import org.springframework.stereotype.Component;
 /**
  * Airtel-compatible AES-CBC wire encryption for JSON API request/response bodies.
  *
- * <p>Key and IV must come from env ({@code API_PAYLOAD_ENCRYPTION_KEY} /
- * {@code API_PAYLOAD_ENCRYPTION_IV}) — never commit real values.
+ * <p>Key and IV must come from env ({@code API_PAYLOAD_ENCRYPTION_KEY} / {@code
+ * API_PAYLOAD_ENCRYPTION_IV}) — never commit real values.
  */
 @Getter
 @Setter

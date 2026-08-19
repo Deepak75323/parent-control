@@ -34,8 +34,7 @@ public interface DeviceRepository extends JpaRepository<Device, UUID> {
       "SELECT COUNT(d) FROM Device d WHERE d.parentProfileId = :parentProfileId"
           + " AND d.deletedAt IS NULL AND d.status <> :revoked")
   long countNonRevokedByParentProfileId(
-      @Param("parentProfileId") UUID parentProfileId,
-      @Param("revoked") DeviceStatus revoked);
+      @Param("parentProfileId") UUID parentProfileId, @Param("revoked") DeviceStatus revoked);
 
   List<Device> findByStatusAndLastSeenAtBefore(DeviceStatus status, Instant cutoff);
 }
