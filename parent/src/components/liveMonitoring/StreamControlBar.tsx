@@ -25,6 +25,17 @@ type Props = {
   recording?: boolean;
   recordingSupported?: boolean;
   onToggleRecording?: () => void;
+  /** Viewer-only rotation (does not move child camera). */
+  showViewRotate?: boolean;
+  viewRotateDeg?: number;
+  onRotateView?: () => void;
+  onResetViewRotate?: () => void;
+  /** Viewer-only zoom (pinch or +/- buttons). */
+  showViewZoom?: boolean;
+  viewZoomScale?: number;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onResetViewZoom?: () => void;
 };
 
 export function StreamControlBar({
@@ -50,6 +61,15 @@ export function StreamControlBar({
   recording,
   recordingSupported,
   onToggleRecording,
+  showViewRotate,
+  viewRotateDeg = 0,
+  onRotateView,
+  onResetViewRotate,
+  showViewZoom,
+  viewZoomScale = 1,
+  onZoomIn,
+  onZoomOut,
+  onResetViewZoom,
 }: Props) {
   return (
     <View style={[styles.bar, {paddingBottom: bottomInset + 10}]}>
@@ -91,6 +111,34 @@ export function StreamControlBar({
         {showSwitchCamera && onSwitchCamera ? (
           <Pressable style={styles.secondaryBtn} onPress={onSwitchCamera}>
             <Text style={styles.secondaryBtnText}>Flip</Text>
+          </Pressable>
+        ) : null}
+        {showViewRotate && onRotateView ? (
+          <Pressable style={styles.secondaryBtn} onPress={onRotateView}>
+            <Text style={styles.secondaryBtnText}>Rotate {viewRotateDeg}°</Text>
+          </Pressable>
+        ) : null}
+        {showViewZoom && onZoomOut ? (
+          <Pressable style={styles.secondaryBtn} onPress={onZoomOut}>
+            <Text style={styles.secondaryBtnText}>Zoom −</Text>
+          </Pressable>
+        ) : null}
+        {showViewZoom && onZoomIn ? (
+          <Pressable style={styles.secondaryBtn} onPress={onZoomIn}>
+            <Text style={styles.secondaryBtnText}>
+              Zoom +{viewZoomScale > 1 ? ` ${viewZoomScale.toFixed(1)}×` : ''}
+            </Text>
+          </Pressable>
+        ) : null}
+        {(showViewRotate && viewRotateDeg !== 0 && onResetViewRotate) ||
+        (showViewZoom && viewZoomScale > 1 && onResetViewZoom) ? (
+          <Pressable
+            style={styles.secondaryBtn}
+            onPress={() => {
+              onResetViewRotate?.();
+              onResetViewZoom?.();
+            }}>
+            <Text style={styles.secondaryBtnText}>Reset view</Text>
           </Pressable>
         ) : null}
         {onToggleAudioMute ? (
@@ -145,6 +193,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
+    flexWrap: 'wrap',
     gap: 8,
   },
   secondaryBtn: {

@@ -5,6 +5,12 @@ const Native = NativeModules.ParentNative ?? {};
 export type ParentNativeModule = {
   mapsAvailable?: boolean;
   setViewerAudioMode?: (enabled: boolean) => Promise<void>;
+  authenticateBiometric?: () => Promise<string>;
+  applyViewerVideoTransform?: (
+    reactTag: number,
+    rotationDeg: number,
+    scale: number,
+  ) => Promise<void>;
   isStreamRecordingSupported?: () => boolean;
   startStreamRecording?: (
     streamType: string,
@@ -27,4 +33,11 @@ export const nativeModules = {
   isAndroid: Platform.OS === 'android',
   setViewerAudioMode: (enabled: boolean): Promise<void> =>
     Native.setViewerAudioMode?.(enabled) ?? Promise.resolve(),
+  applyViewerVideoTransform: (
+    reactTag: number,
+    rotationDeg: number,
+    scale: number,
+  ): Promise<void> =>
+    Native.applyViewerVideoTransform?.(reactTag, rotationDeg, scale) ??
+    Promise.resolve(),
 };
