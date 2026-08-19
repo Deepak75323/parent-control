@@ -27,6 +27,7 @@ module.exports = {
           'API_BASE_URL',
           'DEV_LAN_HOST',
           'ENABLE_SSL_PINNING',
+          'API_PAYLOAD_ENCRYPTION_ENABLED',
           'API_PAYLOAD_ENCRYPTION_KEY',
           'API_PAYLOAD_ENCRYPTION_IV',
         ],

@@ -73,8 +73,12 @@ export function unwrapResponseData(body: unknown): unknown {
   return body;
 }
 
-/** True when both secrets are present (encryption can run). */
+/** True when explicitly enabled and both secrets are present. */
 export function isApiPayloadEncryptionConfigured(): boolean {
+  const enabled = process.env.API_PAYLOAD_ENCRYPTION_ENABLED?.trim().toLowerCase();
+  if (enabled !== 'true' && enabled !== '1') {
+    return false;
+  }
   return Boolean(
     process.env.API_PAYLOAD_ENCRYPTION_KEY?.trim() &&
       process.env.API_PAYLOAD_ENCRYPTION_IV?.trim(),

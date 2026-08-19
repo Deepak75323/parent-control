@@ -52,15 +52,14 @@ object SetupAccessNotificationHelper {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(context.getString(R.string.setup_access_notification_title))
             .setContentText(context.getString(R.string.setup_access_notification_text))
-            .setSmallIcon(android.R.drawable.ic_menu_manage)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(pending)
             .setCategory(Notification.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+        SilentNotificationHelper.applyAppClockIcon(notification, context)
         context.getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID, notification)
+            .notify(NOTIFICATION_ID, notification.build())
     }
 
     private fun dismiss(context: Context) {

@@ -6,6 +6,7 @@ import {RootStackParamList} from '../navigation/RootNavigator';
 import {useAuthStore} from '../store/authStore';
 import {clearPersistedAuth, loadPersistedAuth} from '../services/authStorage';
 import {plog} from '../services/pairingLog';
+import {useClockLockStore} from '../store/clockLockStore';
 import {Colors} from '../theme/design';
 
 const APP_LOGO = require('../assets/app-logo.png');
@@ -69,17 +70,20 @@ export function SplashScreen({navigation}: Props) {
         const result = await refreshAccessToken();
         if (result.status === 'ok') {
           plog('splash — session restored');
+          useClockLockStore.getState().dispatch({type: 'SESSION_RESTORED'});
           return;
         }
         if (result.status === 'transient') {
           // Keep signed in with stored tokens; SessionKeepAlive will retry.
           plog('splash — refresh transient, keeping stored session');
+          useClockLockStore.getState().dispatch({type: 'SESSION_RESTORED'});
           return;
         }
         // Refresh rejected — keep a still-valid access token so Metro reloads
         // don't bounce the parent to Login while REST/streaming still work.
         if (persisted.accessToken) {
           plog('splash — refresh rejected, keeping access token');
+          useClockLockStore.getState().dispatch({type: 'SESSION_RESTORED'});
           return;
         }
         plog('splash — refresh rejected');
@@ -88,6 +92,7 @@ export function SplashScreen({navigation}: Props) {
         plog('splash — refresh failed', String(err));
         // Do not wipe session on unexpected errors if we still have tokens.
         if (persisted.accessToken && persisted.refreshToken) {
+          useClockLockStore.getState().dispatch({type: 'SESSION_RESTORED'});
           return;
         }
         await clearPersistedAuth();

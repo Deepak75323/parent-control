@@ -184,7 +184,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     if (streamingState.deviceId && streamingState.deviceId !== deviceId) return;
     const activeRoom =
       session?.signalingRoomId ?? getSessionSnapshot().roomId ?? undefined;
-    if (!shouldReleaseViewerOnStreamingEnded(streamingState, activeRoom)) return;
+    if (!shouldReleaseViewerOnStreamingEnded(streamingState, activeRoom, loading || connecting))
+      return;
 
     slog('UI', 'stream taken over by another client — releasing viewer', {
       roomId: streamingState.roomId,
@@ -202,7 +203,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
       'Live view moved',
       'This stream is now open on another parent device or the web portal.',
     );
-  }, [streamingState, deviceId, session?.signalingRoomId]);
+  }, [streamingState, deviceId, session?.signalingRoomId, loading, connecting]);
 
   const needsPinForScreen = silentScreenCapable && !pinUnlocked;
   const screenShareCapable = isScreenShareCapable({
@@ -240,6 +241,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         appAlert('Password required', 'Enter your parent password to start screen sharing.');
         return;
       }
+      // Drop stale ENDED/FAILED from a previous client's session so takeover is not aborted.
+      useRealtimeStore.getState().setStreamingState(undefined);
       setLoading(true);
       setStartError(null);
       slogReset();
@@ -459,9 +462,12 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
 
   const switchCamera = useCallback(async () => {
     if (!session) return;
+    slog('UI', 'flip camera clicked', {sessionId: session.sessionId});
     try {
       await monitoringApi.switchCamera(session.sessionId);
-    } catch {
+      slog('UI', 'flip camera requested');
+    } catch (err) {
+      slog('UI', 'flip camera failed', String(err));
       appAlert('Error', 'Couldn’t switch camera. Please try again.');
     }
   }, [session]);
