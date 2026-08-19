@@ -201,7 +201,7 @@ export function LoginScreen({navigation}: Props) {
             <View style={s.heroIconWrap}>
               <Image source={APP_LOGO} style={s.heroIconImage} resizeMode="cover" />
             </View>
-            <Text style={s.heroTitle}>Parent Control</Text>
+            <Text style={s.heroTitle}>Clock</Text>
             <Text style={s.heroSub}>Monitor with care and consent</Text>
           </Animated.View>
 

@@ -45,7 +45,7 @@ export function SupportScreen({navigation}: Props) {
         '---',
         `Correlation ID: ${correlationId}`,
         `API: ${config.apiBaseUrl}`,
-        'App: Parent Control (Android)',
+        'App: Clock (Android)',
       ].join('\n'),
     );
     const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;

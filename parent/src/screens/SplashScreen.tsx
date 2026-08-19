@@ -118,7 +118,7 @@ export function SplashScreen({navigation}: Props) {
 
       {/* Text */}
       <Animated.View style={[s.textWrap, {opacity: textOpacity}]}>
-        <Text style={s.appName}>Parent Control</Text>
+        <Text style={s.appName}>Clock</Text>
         <Text style={s.tagline}>Monitor with care and consent</Text>
         <Text style={s.status}>{status}</Text>
       </Animated.View>
