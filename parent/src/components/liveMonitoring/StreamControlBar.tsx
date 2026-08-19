@@ -1,6 +1,7 @@
 import React from 'react';
 import {View, Text, StyleSheet, Pressable, ActivityIndicator} from 'react-native';
 import {STREAM_COLORS} from './layout';
+import {formatViewerZoomLabel} from '../../utils/viewerVideoRotate';
 
 type Props = {
   onStop: () => void;
@@ -120,14 +121,19 @@ export function StreamControlBar({
         ) : null}
         {showViewZoom && onZoomOut ? (
           <Pressable style={styles.secondaryBtn} onPress={onZoomOut}>
-            <Text style={styles.secondaryBtnText}>Zoom −</Text>
+            <Text style={styles.secondaryBtnText}>−10%</Text>
           </Pressable>
+        ) : null}
+        {showViewZoom ? (
+          <View style={styles.zoomLabel}>
+            <Text style={styles.zoomLabelText}>
+              {formatViewerZoomLabel(viewZoomScale)}
+            </Text>
+          </View>
         ) : null}
         {showViewZoom && onZoomIn ? (
           <Pressable style={styles.secondaryBtn} onPress={onZoomIn}>
-            <Text style={styles.secondaryBtnText}>
-              Zoom +{viewZoomScale > 1 ? ` ${viewZoomScale.toFixed(1)}×` : ''}
-            </Text>
+            <Text style={styles.secondaryBtnText}>+10%</Text>
           </Pressable>
         ) : null}
         {(showViewRotate && viewRotateDeg !== 0 && onResetViewRotate) ||
@@ -206,6 +212,20 @@ const styles = StyleSheet.create({
     color: STREAM_COLORS.text,
     fontSize: 13,
     fontWeight: '600',
+  },
+  zoomLabel: {
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    minWidth: 56,
+    alignItems: 'center',
+  },
+  zoomLabelText: {
+    color: STREAM_COLORS.text,
+    fontSize: 13,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   remoteActiveBtn: {
     backgroundColor: 'rgba(56, 189, 248, 0.35)',
