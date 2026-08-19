@@ -67,6 +67,7 @@ describe('viewerVideoRotate (parent)', () => {
     expect(zoomed.width).toBe(800);
     expect(zoomed.height).toBe(1600);
     expect(zoomed.left).toBe(-200);
+
     const rotated = androidViewerVideoLayout(90, 400, 800, 1);
     expect(rotated.width).toBe(400);
     expect(rotated.height).toBe(800);

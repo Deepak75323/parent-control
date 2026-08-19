@@ -6,6 +6,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.AudioManager.OnAudioFocusChangeListener
 import android.os.Build
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import com.facebook.react.bridge.Promise
@@ -19,6 +20,9 @@ import com.parentscaffold.BuildConfig
 import com.parentscaffold.capture.StreamRecorder
 import com.parentscaffold.security.ParentBiometricAuth
 import com.parentscaffold.security.ParentSecureAuthStore
+import org.webrtc.VideoFrame
+import org.webrtc.VideoSink
+import org.webrtc.VideoTrack
 
 class ParentNativeModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -27,6 +31,33 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
 
     private val pendingTransforms = mutableMapOf<Int, ViewerTransform>()
     private val layoutListeners = mutableMapOf<Int, View.OnLayoutChangeListener>()
+    private val rotatingSinks = mutableMapOf<Int, RotatingVideoSink>()
+
+    /**
+     * SurfaceView.setRotation is ignored on many emulator GPUs. Adding extra rotation
+     * to each WebRTC [VideoFrame] tilts the actual pixels (parent-only).
+     */
+    private class RotatingVideoSink(
+        private val delegate: VideoSink,
+    ) : VideoSink {
+        @Volatile
+        var extraRotationDeg: Int = 0
+
+        override fun onFrame(frame: VideoFrame) {
+            val extra = extraRotationDeg
+            if (extra == 0) {
+                delegate.onFrame(frame)
+                return
+            }
+            val rotated =
+                VideoFrame(
+                    frame.buffer,
+                    (frame.rotation + extra) % 360,
+                    frame.timestampNs,
+                )
+            delegate.onFrame(rotated)
+        }
+    }
 
     private var audioFocusRequest: AudioFocusRequest? = null
 
@@ -38,9 +69,8 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
         hashMapOf("mapsAvailable" to BuildConfig.GOOGLE_MAPS_API_KEY.isNotBlank())
 
     /**
-     * Android RTCView uses SurfaceViewRenderer (a SurfaceView), which ignores parent RN transforms.
-     * Viewer zoom is handled in JS layout; native applies rotation on the renderer only.
-     * Uses Fabric UIManager (new architecture) — UIManagerModule.resolveView does not work there.
+     * Viewer-only rotate/zoom. Zoom is JS layout. Rotation is extra VideoFrame rotation
+     * (SurfaceView View.rotation does not tilt pixels on emulator / many devices).
      */
     @ReactMethod
     fun applyViewerVideoTransform(reactTag: Int, rotationDeg: Double, scale: Double, promise: Promise) {
@@ -60,10 +90,10 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
                     promise.reject("NO_VIEW", "No view for reactTag=$reactTag")
                     return@runOnUiThread
                 }
-                applyViewerTransform(host, rot, sc)
+                applyViewerTransform(reactTag, host, rot, sc)
                 ensureLayoutListener(reactTag, host)
                 if (host.width == 0 || host.height == 0) {
-                    host.post { applyViewerTransform(host, rot, sc) }
+                    host.post { applyViewerTransform(reactTag, host, rot, sc) }
                 }
                 promise.resolve(null)
             } catch (e: Exception) {
@@ -79,40 +109,57 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
         val listener =
             View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                 val pending = pendingTransforms[reactTag] ?: return@OnLayoutChangeListener
-                applyViewerTransform(host, pending.rotation, pending.scale)
+                applyViewerTransform(reactTag, host, pending.rotation, pending.scale)
             }
         host.addOnLayoutChangeListener(listener)
         layoutListeners[reactTag] = listener
     }
 
-    /** WebRTC's inner SurfaceViewRenderer — the only view that can rotate the video pixels. */
-    private fun findSurfaceViewRenderer(root: View): View? {
-        if (root.javaClass.name.endsWith("SurfaceViewRenderer")) {
+    private fun findWebRTCView(root: View): View? {
+        if (root.javaClass.name.endsWith("WebRTCView")) {
             return root
         }
         if (root is ViewGroup) {
             for (i in 0 until root.childCount) {
-                findSurfaceViewRenderer(root.getChildAt(i))?.let { return it }
+                findWebRTCView(root.getChildAt(i))?.let { return it }
             }
         }
         return null
     }
 
-    private fun applyViewerTransform(host: View, rotation: Float, scale: Float) {
-        val target = findSurfaceViewRenderer(host) ?: host
-        // Reset host so we never double-apply (old code rotated WebRTCView + child).
+    private fun applyViewerTransform(reactTag: Int, host: View, rotation: Float, scale: Float) {
+        // Clear leftover View transforms from earlier attempts (those skew SurfaceView).
         host.rotation = 0f
         host.scaleX = 1f
         host.scaleY = 1f
-        val w = target.width.toFloat()
-        val h = target.height.toFloat()
-        if (w > 0f && h > 0f) {
-            target.pivotX = w / 2f
-            target.pivotY = h / 2f
+        val webrtcView = findWebRTCView(host) ?: host
+        webrtcView.rotation = 0f
+        webrtcView.scaleX = 1f
+        webrtcView.scaleY = 1f
+        installFrameRotation(reactTag, webrtcView, Math.round(rotation))
+    }
+
+    private fun installFrameRotation(reactTag: Int, webrtcView: View, extraRotation: Int) {
+        try {
+            val rendererField = webrtcView.javaClass.getDeclaredField("surfaceViewRenderer")
+            rendererField.isAccessible = true
+            val renderer = rendererField.get(webrtcView) as? VideoSink ?: return
+
+            val trackField = webrtcView.javaClass.getDeclaredField("videoTrack")
+            trackField.isAccessible = true
+            val track = trackField.get(webrtcView) as? VideoTrack ?: return
+
+            val sink =
+                rotatingSinks.getOrPut(reactTag) {
+                    RotatingVideoSink(renderer)
+                }
+            sink.extraRotationDeg = extraRotation
+            track.removeSink(renderer)
+            track.removeSink(sink)
+            track.addSink(sink)
+        } catch (e: Exception) {
+            Log.w("ParentNative", "installFrameRotation failed", e)
         }
-        target.rotation = rotation
-        target.scaleX = scale
-        target.scaleY = scale
     }
 
     @ReactMethod

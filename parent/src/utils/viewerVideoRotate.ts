@@ -81,7 +81,7 @@ export function nudgePinchScale(current: number, factor: number): number {
   return clampViewerPinchScale(current * factor);
 }
 
-/** Layout box for Android viewer zoom (parent-side only; child camera unchanged). */
+/** Layout box for Android viewer zoom + rotate (parent-side only). */
 export function androidViewerVideoLayout(
   degrees: ViewerRotateDeg,
   containerW: number,
@@ -92,9 +92,8 @@ export function androidViewerVideoLayout(
   const w = Math.max(1, containerW);
   const h = Math.max(1, containerH);
 
-  // Android rotation is applied natively on the SurfaceViewRenderer (see native module).
-  // Because rotation is not done via RN `transform` here, we must NOT swap W/H for 90°/270°.
-  // Otherwise the rotated video appears shifted/diagonal.
+  // Android 90° is applied by rotating WebRTC frames (not View transforms / W-H swap).
+  // Swapping W/H without pixel rotation letterboxes an upright image and looks "not rotated".
   const boxW = w * pinch;
   const boxH = h * pinch;
   return {
