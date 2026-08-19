@@ -30,6 +30,12 @@ type Props = {
   viewRotateDeg?: number;
   onRotateView?: () => void;
   onResetViewRotate?: () => void;
+  /** Viewer-only zoom (pinch or +/- buttons). */
+  showViewZoom?: boolean;
+  viewZoomScale?: number;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onResetViewZoom?: () => void;
 };
 
 export function StreamControlBar({
@@ -59,6 +65,11 @@ export function StreamControlBar({
   viewRotateDeg = 0,
   onRotateView,
   onResetViewRotate,
+  showViewZoom,
+  viewZoomScale = 1,
+  onZoomIn,
+  onZoomOut,
+  onResetViewZoom,
 }: Props) {
   return (
     <View style={[styles.bar, {paddingBottom: bottomInset + 10}]}>
@@ -107,9 +118,27 @@ export function StreamControlBar({
             <Text style={styles.secondaryBtnText}>Rotate {viewRotateDeg}°</Text>
           </Pressable>
         ) : null}
-        {showViewRotate && viewRotateDeg !== 0 && onResetViewRotate ? (
-          <Pressable style={styles.secondaryBtn} onPress={onResetViewRotate}>
-            <Text style={styles.secondaryBtnText}>Reset</Text>
+        {showViewZoom && onZoomOut ? (
+          <Pressable style={styles.secondaryBtn} onPress={onZoomOut}>
+            <Text style={styles.secondaryBtnText}>Zoom −</Text>
+          </Pressable>
+        ) : null}
+        {showViewZoom && onZoomIn ? (
+          <Pressable style={styles.secondaryBtn} onPress={onZoomIn}>
+            <Text style={styles.secondaryBtnText}>
+              Zoom +{viewZoomScale > 1 ? ` ${viewZoomScale.toFixed(1)}×` : ''}
+            </Text>
+          </Pressable>
+        ) : null}
+        {(showViewRotate && viewRotateDeg !== 0 && onResetViewRotate) ||
+        (showViewZoom && viewZoomScale > 1 && onResetViewZoom) ? (
+          <Pressable
+            style={styles.secondaryBtn}
+            onPress={() => {
+              onResetViewRotate?.();
+              onResetViewZoom?.();
+            }}>
+            <Text style={styles.secondaryBtnText}>Reset view</Text>
           </Pressable>
         ) : null}
         {onToggleAudioMute ? (

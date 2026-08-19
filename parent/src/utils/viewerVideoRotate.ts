@@ -46,6 +46,11 @@ export function nextPinchScale(
   return clampViewerPinchScale(startScale * (currentDistance / startDistance));
 }
 
+/** Button zoom: multiply current scale (e.g. 1.25 in, 0.8 out). */
+export function nudgePinchScale(current: number, factor: number): number {
+  return clampViewerPinchScale(current * factor);
+}
+
 /**
  * Rotate in place and letterbox 90°/270°. Optional pinch scale is multiplied on top
  * so zoom is a separate gesture from rotate.

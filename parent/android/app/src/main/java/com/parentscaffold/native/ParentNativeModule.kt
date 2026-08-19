@@ -6,10 +6,15 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.AudioManager.OnAudioFocusChangeListener
 import android.os.Build
+import android.view.SurfaceView
+import android.view.View
+import android.view.ViewGroup
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.UiThreadUtil
+import com.facebook.react.uimanager.UIManagerModule
 import androidx.fragment.app.FragmentActivity
 import com.parentscaffold.BuildConfig
 import com.parentscaffold.capture.StreamRecorder
@@ -27,6 +32,63 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
 
     override fun getConstants(): MutableMap<String, Any> =
         hashMapOf("mapsAvailable" to BuildConfig.GOOGLE_MAPS_API_KEY.isNotBlank())
+
+    /**
+     * Android RTCView uses [SurfaceView], which ignores parent RN transform styles.
+     * Apply rotation/scale directly on the SurfaceView (and host) so viewer rotate/zoom work.
+     */
+    @ReactMethod
+    fun applyViewerVideoTransform(reactTag: Int, rotationDeg: Double, scale: Double, promise: Promise) {
+        UiThreadUtil.runOnUiThread {
+            try {
+                val uiManager = reactContext.getNativeModule(UIManagerModule::class.java)
+                if (uiManager == null) {
+                    promise.reject("NO_UIMANAGER", "UIManagerModule unavailable")
+                    return@runOnUiThread
+                }
+                val view = uiManager.resolveView(reactTag)
+                if (view == null) {
+                    promise.reject("NO_VIEW", "No view for reactTag=$reactTag")
+                    return@runOnUiThread
+                }
+                val rot = rotationDeg.toFloat()
+                val sc = scale.toFloat().coerceIn(0.25f, 8f)
+                applyViewerTransformRecursive(view, rot, sc)
+                // Layout may still be 0×0 on first attach — re-apply after next layout.
+                if (view.width == 0 || view.height == 0) {
+                    view.post {
+                        applyViewerTransformRecursive(view, rot, sc)
+                    }
+                }
+                promise.resolve(null)
+            } catch (e: Exception) {
+                promise.reject("VIEWER_TRANSFORM", e)
+            }
+        }
+    }
+
+    private fun applyViewerTransformRecursive(view: View, rotation: Float, scale: Float) {
+        val applyHere =
+            view is SurfaceView ||
+                view.javaClass.name.contains("SurfaceView", ignoreCase = true) ||
+                view.javaClass.name.contains("WebRTCView", ignoreCase = true)
+        if (applyHere) {
+            val w = view.width.toFloat()
+            val h = view.height.toFloat()
+            if (w > 0f && h > 0f) {
+                view.pivotX = w / 2f
+                view.pivotY = h / 2f
+            }
+            view.rotation = rotation
+            view.scaleX = scale
+            view.scaleY = scale
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                applyViewerTransformRecursive(view.getChildAt(i), rotation, scale)
+            }
+        }
+    }
 
     @ReactMethod
     fun saveSecureAuth(json: String, promise: Promise) {
