@@ -2,6 +2,12 @@ import {useEffect, useRef, useState} from 'react';
 import {monitoringApi, parentPinApi} from '../api/services';
 import type {StreamType} from '../types/api';
 import {shouldReleaseViewerOnStreamingEnded} from '../lib/streamTakeover';
+import {
+  nextViewerRotateDeg,
+  prevViewerRotateDeg,
+  viewerVideoRotateStyle,
+  type ViewerRotateDeg,
+} from '../lib/viewerVideoRotate';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {
   connectBrowserViewer,
@@ -14,8 +20,44 @@ type Props = {
   deviceId: string;
 };
 
+function isElementFullscreen(el: HTMLElement | null): boolean {
+  if (!el) {
+    return false;
+  }
+  const doc = document as Document & {webkitFullscreenElement?: Element | null};
+  return document.fullscreenElement === el || doc.webkitFullscreenElement === el;
+}
+
+async function requestElementFullscreen(el: HTMLElement): Promise<void> {
+  const anyEl = el as HTMLElement & {
+    webkitRequestFullscreen?: () => Promise<void> | void;
+  };
+  if (el.requestFullscreen) {
+    await el.requestFullscreen();
+    return;
+  }
+  if (anyEl.webkitRequestFullscreen) {
+    await anyEl.webkitRequestFullscreen();
+  }
+}
+
+async function exitDocumentFullscreen(): Promise<void> {
+  const doc = document as Document & {
+    webkitFullscreenElement?: Element | null;
+    webkitExitFullscreen?: () => Promise<void> | void;
+  };
+  if (document.fullscreenElement && document.exitFullscreen) {
+    await document.exitFullscreen();
+    return;
+  }
+  if (doc.webkitFullscreenElement && doc.webkitExitFullscreen) {
+    await doc.webkitExitFullscreen();
+  }
+}
+
 export function LiveStreamPanel({deviceId}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoWrapRef = useRef<HTMLDivElement>(null);
   const roomIdRef = useRef<string | null>(null);
   const [streamType, setStreamType] = useState<StreamType>('SCREEN');
   const [pin, setPin] = useState('');
@@ -25,6 +67,9 @@ export function LiveStreamPanel({deviceId}: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [viewRotate, setViewRotate] = useState<ViewerRotateDeg>(0);
+  const [wrapSize, setWrapSize] = useState({w: 0, h: 0});
   const streamingState = useRealtimeStore(s => s.streamingState);
 
   useEffect(() => {
@@ -39,14 +84,45 @@ export function LiveStreamPanel({deviceId}: Props) {
   }, []);
 
   useEffect(() => {
+    const syncFullscreen = () => {
+      setFullscreen(isElementFullscreen(videoWrapRef.current));
+    };
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('webkitfullscreenchange', syncFullscreen);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreen);
+    };
+  }, []);
+
+  useEffect(() => {
+    const wrap = videoWrapRef.current;
+    if (!wrap || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const ro = new ResizeObserver(entries => {
+      const rect = entries[0]?.contentRect;
+      if (!rect) {
+        return;
+      }
+      setWrapSize({w: Math.round(rect.width), h: Math.round(rect.height)});
+    });
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [sessionId, fullscreen]);
+
+  useEffect(() => {
     if (!streamingState) {
+      return;
+    }
+    if (busy) {
       return;
     }
     if (streamingState.deviceId && streamingState.deviceId !== deviceId) {
       return;
     }
     const activeRoom = roomIdRef.current ?? getActiveRoomId();
-    if (!shouldReleaseViewerOnStreamingEnded(streamingState, activeRoom)) {
+    if (!shouldReleaseViewerOnStreamingEnded(streamingState, activeRoom, busy)) {
       return;
     }
     void disconnectBrowserViewer();
@@ -56,9 +132,10 @@ export function LiveStreamPanel({deviceId}: Props) {
     }
     setSessionId(null);
     setBusy(false);
+    setViewRotate(0);
     setStatus('Moved to another client');
     setError('Live view continued on the parent app or another browser tab.');
-  }, [streamingState, deviceId]);
+  }, [streamingState, deviceId, busy]);
 
   const attachStream = (stream: MediaStream) => {
     const el = videoRef.current;
@@ -73,6 +150,8 @@ export function LiveStreamPanel({deviceId}: Props) {
     setBusy(true);
     setError(null);
     setStatus('Starting…');
+    setViewRotate(0);
+    useRealtimeStore.getState().setStreamingState(undefined);
     try {
       await disconnectBrowserViewer();
       const {data} = await monitoringApi.startStream(
@@ -125,6 +204,7 @@ export function LiveStreamPanel({deviceId}: Props) {
       }
       setSessionId(null);
       roomIdRef.current = null;
+      setViewRotate(0);
       setStatus('Stopped');
     } finally {
       setBusy(false);
@@ -147,6 +227,24 @@ export function LiveStreamPanel({deviceId}: Props) {
     setMuted(next);
     setRemoteAudioEnabled(!next);
   };
+
+  const onToggleFullscreen = async () => {
+    const wrap = videoWrapRef.current;
+    if (!wrap) {
+      return;
+    }
+    try {
+      if (isElementFullscreen(wrap)) {
+        await exitDocumentFullscreen();
+      } else {
+        await requestElementFullscreen(wrap);
+      }
+    } catch {
+      setError('Fullscreen is not available in this browser');
+    }
+  };
+
+  const videoStyle = viewerVideoRotateStyle(viewRotate, wrapSize.w || 640, wrapSize.h || 400);
 
   return (
     <div className="card live-panel">
@@ -185,10 +283,13 @@ export function LiveStreamPanel({deviceId}: Props) {
         </label>
       ) : null}
 
-      <div className="video-wrap">
+      <div
+        ref={videoWrapRef}
+        className={`video-wrap${fullscreen ? ' video-wrap--fullscreen' : ''}`}>
         <video
           ref={videoRef}
           className="live-video"
+          style={videoStyle}
           autoPlay
           playsInline
           muted={streamType === 'SCREEN' ? false : muted}
@@ -196,6 +297,41 @@ export function LiveStreamPanel({deviceId}: Props) {
         />
         {streamType === 'AUDIO' && !sessionId ? (
           <p className="muted center-overlay">Audio-only — start to listen</p>
+        ) : null}
+        {sessionId && streamType !== 'AUDIO' ? (
+          <div className="video-overlay-controls">
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => setViewRotate(d => prevViewerRotateDeg(d))}
+              aria-label="Rotate view left">
+              ↺
+            </button>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => setViewRotate(d => nextViewerRotateDeg(d))}
+              aria-label="Rotate view right"
+              title={`View rotation ${viewRotate}°`}>
+              ↻ {viewRotate}°
+            </button>
+            {viewRotate !== 0 ? (
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => setViewRotate(0)}
+                aria-label="Reset view rotation">
+                Reset
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => void onToggleFullscreen()}
+              aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
+              {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            </button>
+          </div>
         ) : null}
       </div>
 
@@ -217,6 +353,20 @@ export function LiveStreamPanel({deviceId}: Props) {
             <button type="button" className="btn ghost" onClick={onToggleMute}>
               {muted ? 'Unmute' : 'Mute'}
             </button>
+            {streamType !== 'AUDIO' ? (
+              <>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => setViewRotate(d => nextViewerRotateDeg(d))}
+                  title="Rotate view only (does not move child camera)">
+                  Rotate view {viewRotate}°
+                </button>
+                <button type="button" className="btn ghost" onClick={() => void onToggleFullscreen()}>
+                  {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                </button>
+              </>
+            ) : null}
           </>
         )}
       </div>

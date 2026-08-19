@@ -103,7 +103,7 @@ class AudioStreamForegroundService : Service() {
 
     companion object {
         private const val TAG = "AudioStreamFgSvc"
-        private const val NOTIFICATION_ID = 1003
+        private const val NOTIFICATION_ID = SilentNotificationHelper.NOTIFICATION_ID
         private const val DEFAULT_WAIT_MS = 8000L
 
         @Volatile

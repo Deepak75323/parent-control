@@ -10,6 +10,7 @@ import {SessionKeepAlive} from './src/components/SessionKeepAlive';
 import {PairingNavigationListener} from './src/components/PairingNavigationListener';
 import {PairingPollListener} from './src/components/PairingPollListener';
 import {AppDialogHost} from './src/components/AppDialogHost';
+import {ClockLockHost} from './src/components/ClockLockHost';
 import {initTelemetry, trackScreen} from './src/services/telemetry';
 
 initTelemetry();
@@ -43,6 +44,7 @@ export default function App() {
         <PairingNavigationListener />
         <RootNavigator />
       </NavigationContainer>
+      <ClockLockHost />
       <AppDialogHost />
     </SafeAreaProvider>
   );

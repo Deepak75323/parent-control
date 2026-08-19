@@ -209,6 +209,18 @@ object NativeStreamingCoordinator {
         onStreamRequest(context.applicationContext, roomId, streamType, sessionId, cameraFacing)
     }
 
+    /** Entry point for FCM high-priority camera flip when STOMP stream-control may be down. */
+    @JvmStatic
+    fun handleStreamControlFromWake(
+        context: Context,
+        sessionId: String,
+        command: String,
+    ) {
+        if (!MonitoringPrefs.isPaired(context)) return
+        start(context.applicationContext)
+        onStreamControl(context.applicationContext, sessionId, command)
+    }
+
     /** True when RN marked the listener active AND the JS runtime can receive events. */
     private fun canUseJsStreaming(): Boolean =
         jsListenerActive.get() && ChildMonitorNativeModule.canDeliverStreamToJs()
@@ -617,6 +629,19 @@ object NativeStreamingCoordinator {
             "stream-stop session=$sessionId room=$roomId jsFlag=${jsListenerActive.get()} " +
                 "reactActive=${ChildMonitorNativeModule.canDeliverStreamToJs()}",
         )
+        // Takeover race: a newer start is already running — do not tear down FGS/camera.
+        if (streamStartInProgress.get() &&
+            activeSessionId != null &&
+            sessionId.isNotBlank() &&
+            activeSessionId != sessionId
+        ) {
+            Log.w(
+                TAG,
+                "stream-stop ignored — start in progress for newer session=$activeSessionId " +
+                    "(stop was for $sessionId)",
+            )
+            return
+        }
         if (sessionId.isNotBlank() && activeSessionId != null && activeSessionId != sessionId) {
             if (roomId.isBlank() || activeRoomId == null || activeRoomId != roomId) {
                 Log.w(TAG, "stream-stop ignored — session mismatch want=$sessionId have=$activeSessionId")
@@ -635,6 +660,10 @@ object NativeStreamingCoordinator {
         if (!command.equals("SWITCH_CAMERA", ignoreCase = true)) return
         if (sessionId.isNotBlank() && activeSessionId != null && activeSessionId != sessionId) {
             Log.w(TAG, "stream-control SWITCH_CAMERA ignored — session mismatch want=$sessionId have=$activeSessionId")
+            return
+        }
+        if (!com.childmonitor.fcm.FcmStreamControlActions.acceptFlip()) {
+            Log.i(TAG, "stream-control SWITCH_CAMERA ignored — duplicate STOMP/FCM")
             return
         }
         Log.i(

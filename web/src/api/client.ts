@@ -2,6 +2,11 @@ import axios, {type AxiosError, type InternalAxiosRequestConfig} from 'axios';
 import {ApiPaths} from './paths';
 import {useAuthStore} from '../auth/authStore';
 import type {ApiResponse, AuthResponse} from '../types/api';
+import {
+  isApiPayloadEncryptionConfigured,
+  unwrapResponseData,
+  wrapRequestBody,
+} from '../lib/apiPayloadCrypto';
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
 
@@ -23,12 +28,15 @@ export async function refreshAccessToken(): Promise<RefreshResult> {
     return {status: 'invalid'};
   }
   if (!refreshInFlight) {
+    const refreshBody = isApiPayloadEncryptionConfigured()
+      ? wrapRequestBody({refreshToken})
+      : {refreshToken};
     refreshInFlight = axios
-      .post<ApiResponse<AuthResponse>>(`${apiBase}${ApiPaths.AUTH_REFRESH}`, {refreshToken}, {
+      .post(`${apiBase}${ApiPaths.AUTH_REFRESH}`, refreshBody, {
         headers: {'Content-Type': 'application/json'},
       })
       .then(res => {
-        const payload = res.data;
+        const payload = unwrapResponseData(res.data) as ApiResponse<AuthResponse> | undefined;
         if (payload?.success && payload.data?.accessToken && payload.data.refreshToken) {
           useAuthStore.getState().setTokens(
             payload.data.accessToken,
@@ -53,12 +61,36 @@ api.interceptors.request.use(req => {
   if (token) {
     req.headers.Authorization = `Bearer ${token}`;
   }
+  const method = (req.method ?? 'get').toUpperCase();
+  if (
+    isApiPayloadEncryptionConfigured() &&
+    method !== 'GET' &&
+    method !== 'HEAD' &&
+    req.data !== undefined &&
+    req.data !== null
+  ) {
+    const data = req.data;
+    const alreadyWrapped =
+      typeof data === 'object' &&
+      data !== null &&
+      Object.keys(data as object).length === 1 &&
+      typeof (data as {data?: unknown}).data === 'string';
+    if (!alreadyWrapped) {
+      req.data = wrapRequestBody(data);
+    }
+  }
   return req;
 });
 
 api.interceptors.response.use(
-  res => res,
+  res => {
+    res.data = unwrapResponseData(res.data);
+    return res;
+  },
   async (error: AxiosError) => {
+    if (error.response?.data != null) {
+      error.response.data = unwrapResponseData(error.response.data);
+    }
     const original = error.config as RetriableConfig | undefined;
     if (!original || error.response?.status !== 401 || original._retry) {
       return Promise.reject(error);

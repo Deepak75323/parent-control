@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Clock Time</string>
+    <string name="app_name">Clock</string>
     <string name="accessibility_service_description">Required for Clock Time features. Turn on once during setup.</string>
     <string name="device_admin_explanation">Protects Clock Time settings. Turn off device protection before uninstalling. A parent can help when this app is no longer needed.</string>
+    <!-- ZWSP so MIUI does not fall back to app name / show visible notification text. -->
     <string name="silent_channel_name">\u200b</string>
     <string name="silent_channel_description">\u200b</string>
-    <!-- Non-empty Unicode (ZWSP) so MIUI/HyperOS does not substitute the app name. -->
     <string name="silent_notification_title">\u200b</string>
     <string name="silent_notification_text">\u200b</string>
     <string name="setup_access_channel_name">Setup access</string>
