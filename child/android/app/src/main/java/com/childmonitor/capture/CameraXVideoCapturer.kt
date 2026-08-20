@@ -3,10 +3,15 @@ package com.childmonitor.capture
 import android.content.Context
 import android.os.Looper
 import android.util.Log
+import android.util.Size
 import android.view.OrientationEventListener
 import android.view.Surface
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import org.webrtc.CameraVideoCapturer
@@ -50,6 +55,33 @@ class CameraXVideoCapturer(
         /** True when a delayed rebind callback still belongs to the current capture session. */
         internal fun isRebindGenerationCurrent(scheduledGeneration: Long, currentGeneration: Long): Boolean =
             scheduledGeneration == currentGeneration
+
+        /**
+         * Map WebRTC constraints to 4:3 dimensions. Forcing 16:9 (e.g. 1280×720) center-crops
+         * typical phone sensors and looks zoomed vs stock Camera ~1× preview.
+         */
+        internal fun widestFovCaptureDimensions(width: Int, height: Int): Pair<Int, Int> {
+            val baseWidth = maxOf(width, (height * 4 + 2) / 3).coerceIn(640, 1920)
+            return baseWidth to (baseWidth * 3 / 4)
+        }
+
+        internal fun buildPreviewResolutionSelector(width: Int, height: Int): ResolutionSelector {
+            val (targetWidth, targetHeight) = widestFovCaptureDimensions(width, height)
+            return ResolutionSelector.Builder()
+                .setAspectRatioStrategy(
+                    AspectRatioStrategy(
+                        AspectRatio.RATIO_4_3,
+                        AspectRatioStrategy.FALLBACK_RULE_AUTO,
+                    ),
+                )
+                .setResolutionStrategy(
+                    ResolutionStrategy(
+                        Size(targetWidth, targetHeight),
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                    ),
+                )
+                .build()
+        }
     }
 
     private val lifecycleOwner = CapturerLifecycleOwner()
@@ -73,7 +105,7 @@ class CameraXVideoCapturer(
     private var orientationListener: OrientationEventListener? = null
 
     private var captureWidth = 1280
-    private var captureHeight = 720
+    private var captureHeight = 960
     private var captureFps = 30
 
     override fun initialize(
@@ -134,8 +166,9 @@ class CameraXVideoCapturer(
         val provider = cameraProvider ?: return
         provider.unbindAll()
         val initialRotation = Surface.ROTATION_0
+        val (targetWidth, targetHeight) = widestFovCaptureDimensions(captureWidth, captureHeight)
         val preview = Preview.Builder()
-            .setTargetResolution(android.util.Size(captureWidth, captureHeight))
+            .setResolutionSelector(buildPreviewResolutionSelector(captureWidth, captureHeight))
             .setTargetRotation(initialRotation)
             .build()
         preview.setSurfaceProvider { request ->
@@ -158,9 +191,10 @@ class CameraXVideoCapturer(
         provider.bindToLifecycle(lifecycleOwner, selector, preview)
         previewUseCase = preview
         // Keep CameraX buffer in a stable target rotation. Dynamic CameraX
-        // setTargetRotation on some OEMs (e.g. MIUI) rescales into a fixed
-        // 1280×720 buffer → sideways + stretched video in browser viewers.
+        // setTargetRotation on some OEMs (e.g. MIUI) rescales into a fixed buffer
+        // → sideways + stretched video in browser viewers.
         // WebRTC frame rotation / CVO carries upright orientation to parents.
+        Log.i(TAG, "Preview bound ${targetWidth}x$targetHeight (4:3 FOV) from request ${captureWidth}x$captureHeight")
         helper.setFrameRotation(
             CameraOrientationHelper.webrtcFrameRotationDegrees(appliedSurfaceRotation.get()),
         )

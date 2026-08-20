@@ -264,7 +264,7 @@ public final class HiddenCameraBridge {
 
                 WritableMap constraints = Arguments.createMap();
                 constraints.putInt("width", 1280);
-                constraints.putInt("height", 720);
+                constraints.putInt("height", 960);
                 constraints.putInt("frameRate", 30);
                 constraints.putString("facingMode", facingMode);
 
