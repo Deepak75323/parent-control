@@ -57,8 +57,9 @@ object PcpFlowLogger {
     }
 
     fun newSession(prefix: String = "sess"): String {
-        correlationId = "${prefix}_${System.currentTimeMillis().toString(16)}"
-        return correlationId!!
+        val id = "${prefix}_${System.currentTimeMillis().toString(16)}"
+        correlationId = id
+        return id
     }
 
     fun newTrace(prefix: String = "child"): String {

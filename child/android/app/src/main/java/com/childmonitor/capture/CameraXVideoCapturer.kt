@@ -18,6 +18,7 @@ import org.webrtc.VideoSink
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -45,6 +46,10 @@ class CameraXVideoCapturer(
         /** True when [cameraName] means front / user-facing (WebRTC convention). */
         internal fun wantsFrontCamera(cameraName: String?): Boolean =
             cameraName == null || !cameraName.contains("environment", ignoreCase = true)
+
+        /** True when a delayed rebind callback still belongs to the current capture session. */
+        internal fun isRebindGenerationCurrent(scheduledGeneration: Long, currentGeneration: Long): Boolean =
+            scheduledGeneration == currentGeneration
     }
 
     private val lifecycleOwner = CapturerLifecycleOwner()
@@ -52,6 +57,13 @@ class CameraXVideoCapturer(
     private val firstFrameLogged = AtomicBoolean(false)
     /** Serialize facing rebinds — overlapping unbind/bind left Flip stuck after one click. */
     private val facingSwitchInFlight = AtomicBoolean(false)
+    /**
+     * Invalidates any in-flight delayed rebinds (and watchdogs) when stop/teardown happens
+     * or when a newer flip supersedes the older one.
+     */
+    private val facingRebindGeneration = AtomicLong(0)
+    /** The currently active switch promise callback (at most one at a time). */
+    @Volatile private var pendingSwitchHandler: CameraVideoCapturer.CameraSwitchHandler? = null
     private val appliedSurfaceRotation = AtomicInteger(Surface.ROTATION_0)
 
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
@@ -207,6 +219,13 @@ class CameraXVideoCapturer(
     override fun stopCapture() {
         if (!started.compareAndSet(true, false)) return
 
+        // Invalidate any pending rebind callbacks to prevent use-after-stop attaching the
+        // camera back to a stopped pipeline.
+        facingRebindGeneration.incrementAndGet()
+        facingSwitchInFlight.set(false)
+        pendingSwitchHandler?.onCameraSwitchError("camera capture stopped")
+        pendingSwitchHandler = null
+
         CameraAccessManager.releaseCamera()
         Log.i(TAG, "Released forced camera access")
 
@@ -283,20 +302,27 @@ class CameraXVideoCapturer(
     fun setFacing(wantFront: Boolean, handler: CameraVideoCapturer.CameraSwitchHandler?) {
         if (wantFront == useFrontCamera) {
             Log.i(TAG, "setFacing no-op already front=$useFrontCamera")
+            pendingSwitchHandler = null
             handler?.onCameraSwitchDone(useFrontCamera)
             return
         }
         if (!facingSwitchInFlight.compareAndSet(false, true)) {
             Log.w(TAG, "setFacing skipped — rebind already in flight")
+            pendingSwitchHandler = null
             handler?.onCameraSwitchError("camera switch already in progress")
             return
         }
+        val switchGeneration = facingRebindGeneration.incrementAndGet()
+        pendingSwitchHandler = handler
+        val activeHandler = handler
+
         val previous = useFrontCamera
         useFrontCamera = wantFront
         firstFrameLogged.set(false)
         Log.i(TAG, "setFacing → front=$useFrontCamera started=${started.get()}")
         if (!started.get()) {
             facingSwitchInFlight.set(false)
+            if (pendingSwitchHandler === activeHandler) pendingSwitchHandler = null
             handler?.onCameraSwitchDone(useFrontCamera)
             return
         }
@@ -304,16 +330,23 @@ class CameraXVideoCapturer(
         if (helper == null) {
             useFrontCamera = previous
             facingSwitchInFlight.set(false)
+            if (pendingSwitchHandler === activeHandler) pendingSwitchHandler = null
             handler?.onCameraSwitchError("no SurfaceTextureHelper")
             return
         }
         val mainExecutor = ContextCompat.getMainExecutor(appContext)
         mainExecutor.execute {
             android.os.Handler(Looper.getMainLooper()).postDelayed({
-                if (facingSwitchInFlight.get()) {
-                    Log.w(TAG, "setFacing watchdog — clearing stuck rebind lock")
-                    facingSwitchInFlight.set(false)
-                }
+                // Only act if this watchdog still belongs to the current switch operation.
+                if (facingRebindGeneration.get() != switchGeneration) return@postDelayed
+                if (!facingSwitchInFlight.get()) return@postDelayed
+
+                Log.w(TAG, "setFacing watchdog — camera flip timed out; invalidating generation")
+                facingRebindGeneration.incrementAndGet()
+                facingSwitchInFlight.set(false)
+                // Resolve the pending promise so JS doesn't hang waiting for completion.
+                activeHandler?.onCameraSwitchError("camera switch timed out")
+                if (pendingSwitchHandler === activeHandler) pendingSwitchHandler = null
             }, 5_000L)
         }
         val future = ProcessCameraProvider.getInstance(appContext)
@@ -323,11 +356,19 @@ class CameraXVideoCapturer(
                 provider.unbindAll()
                 Log.i(TAG, "setFacing unbound — scheduling rebind front=$wantFront")
                 android.os.Handler(Looper.getMainLooper()).postDelayed({
+                    // If this delayed rebind was superseded or capture was stopped, do nothing.
+                    if (facingRebindGeneration.get() != switchGeneration) return@postDelayed
+                    if (!started.get()) {
+                        facingSwitchInFlight.set(false)
+                        activeHandler?.onCameraSwitchError("camera capture stopped")
+                        if (pendingSwitchHandler === activeHandler) pendingSwitchHandler = null
+                        return@postDelayed
+                    }
                     try {
                         cameraProvider = provider
                         bindPreview(helper)
                         Log.i(TAG, "setFacing rebind done front=$useFrontCamera")
-                        handler?.onCameraSwitchDone(useFrontCamera)
+                        activeHandler?.onCameraSwitchDone(useFrontCamera)
                     } catch (e: Exception) {
                         Log.w(TAG, "setFacing delayed bind failed", e)
                         useFrontCamera = previous
@@ -336,16 +377,23 @@ class CameraXVideoCapturer(
                         } catch (e2: Exception) {
                             Log.w(TAG, "setFacing restore previous facing failed", e2)
                         }
-                        handler?.onCameraSwitchError(e.message ?: "switch failed")
+                        activeHandler?.onCameraSwitchError(e.message ?: "switch failed")
                     } finally {
-                        facingSwitchInFlight.set(false)
+                        // Only clear the lock if this is still the active operation.
+                        if (facingRebindGeneration.get() == switchGeneration) {
+                            facingSwitchInFlight.set(false)
+                            if (pendingSwitchHandler === activeHandler) pendingSwitchHandler = null
+                        }
                     }
                 }, FACING_REBIND_DELAY_MS)
             } catch (e: Exception) {
                 Log.w(TAG, "setFacing unbind failed", e)
                 useFrontCamera = previous
-                facingSwitchInFlight.set(false)
-                handler?.onCameraSwitchError(e.message ?: "switch failed")
+                if (facingRebindGeneration.get() == switchGeneration) {
+                    facingSwitchInFlight.set(false)
+                    activeHandler?.onCameraSwitchError(e.message ?: "switch failed")
+                    if (pendingSwitchHandler === activeHandler) pendingSwitchHandler = null
+                }
             }
         }, mainExecutor)
     }

@@ -4,7 +4,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -36,8 +35,14 @@ class CameraStreamForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "onStartCommand action=${intent?.action} startId=$startId")
-        promoteToForeground()
-        return START_STICKY
+        return ForegroundServiceCrashGuard.runOnStartCommand(TAG, this) {
+            if (!promoteToForeground()) {
+                ForegroundServiceCrashGuard.abandonStartup(this, TAG, "camera_promote_failed")
+                START_NOT_STICKY
+            } else {
+                START_STICKY
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -54,59 +59,43 @@ class CameraStreamForegroundService : Service() {
         ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
 
-    private fun promoteToForeground() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-            !hasCameraPermission()
-        ) {
+    private fun promoteToForeground(): Boolean {
+        val notification = SilentNotificationHelper.buildForegroundNotification(this)
+        val cameraGranted = hasCameraPermission()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !cameraGranted) {
             Log.e(
                 TAG,
                 "Camera FGS blocked — CAMERA not granted (API ${Build.VERSION.SDK_INT}); " +
-                    "refusing FOREGROUND_SERVICE_TYPE_CAMERA startForeground",
+                    "promoting best-effort then abandoning",
             )
-            foregroundActive = false
-            startRequested = false
-            signalForegroundReady(false)
-            return
         }
-        val notification = SilentNotificationHelper.buildForegroundNotification(this)
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                // P2-1: This service captures video only — do not declare MICROPHONE type.
-                // Including FOREGROUND_SERVICE_TYPE_MICROPHONE for a camera-only stream
-                // caused unnecessary permission checks on API 34+ and could trigger a
-                // SecurityException if RECORD_AUDIO was revoked between streams.
-                // Audio streams use AudioStreamForegroundService which declares MICROPHONE only.
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA,
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-            foregroundActive = true
-            startRequested = false
-            Log.i(
-                TAG,
-                "Camera FGS promoted (API ${Build.VERSION.SDK_INT}) cameraOnly=true " +
-                    "cameraGranted=${hasCameraPermission()}",
-            )
-            signalForegroundReady(true)
-        } catch (e: SecurityException) {
+        val promoted = ForegroundServiceCrashGuard.promoteBestEffort(
+            service = this,
+            notificationId = NOTIFICATION_ID,
+            notification = notification,
+            preferredTypes = ForegroundServiceCrashGuard.cameraPromotionTypes(cameraGranted),
+        )
+        if (!promoted) {
             foregroundActive = false
             startRequested = false
-            Log.e(
-                TAG,
-                "Camera FGS SecurityException — likely missing CAMERA on API ${Build.VERSION.SDK_INT}",
-                e,
-            )
             signalForegroundReady(false)
-        } catch (e: Exception) {
-            foregroundActive = false
-            startRequested = false
-            Log.e(TAG, "Camera FGS startForeground failed", e)
-            signalForegroundReady(false)
+            return false
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !cameraGranted) {
+            foregroundActive = false
+            startRequested = false
+            signalForegroundReady(false)
+            return false
+        }
+        foregroundActive = true
+        startRequested = false
+        Log.i(
+            TAG,
+            "Camera FGS promoted (API ${Build.VERSION.SDK_INT}) cameraOnly=true " +
+                "cameraGranted=$cameraGranted",
+        )
+        signalForegroundReady(true)
+        return true
     }
 
     companion object {
