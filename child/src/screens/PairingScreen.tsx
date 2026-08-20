@@ -173,20 +173,22 @@ export function PairingScreen({navigation, route}: Props) {
 
   const pair = useCallback(async (codeOverride?: string) => {
     if (done || pairingRef.current) return;
-    const permStatus = await loadPermissionStatus();
-    if (!isPermissionStatusComplete(permStatus)) {
-      setError('Complete all permissions in setup before pairing.');
-      navigation.replace('PermissionWizard');
-      return;
-    }
     const normalized = (codeOverride ?? code).trim().toUpperCase();
     if (normalized.length < CODE_LENGTH) {
-      setError('Enter the full 8-character code from the parent app.'); return;
+      setError('Enter the full 8-character code from the parent app.');
+      return;
     }
+    // Set the in-flight guard before any await so auto-submit + button can't double-fire.
     pairingRef.current = true;
     setLoading(true);
     setError(null);
     try {
+      const permStatus = await loadPermissionStatus();
+      if (!isPermissionStatusComplete(permStatus)) {
+        setError('Complete all permissions in setup before pairing.');
+        navigation.replace('PermissionWizard');
+        return;
+      }
       const ok = await isApiReachable(true);
       setServerOk(ok);
       if (!ok) {
@@ -201,10 +203,17 @@ export function PairingScreen({navigation, route}: Props) {
         return;
       }
       const deviceInfo = await nativeModules.getDeviceInfo();
-      const attestation = await nativeModules.getDeviceAttestation('pair');
-      // Fetch FCM token best-effort so the backend can wake this device immediately after pairing
-      // without waiting for the first heartbeat cycle.
-      const fcmToken = await nativeModules.getFcmToken().catch(() => null);
+      // Attestation / FCM are best-effort — don't block pairing forever if Play Integrity hangs.
+      const attestation = await Promise.race([
+        nativeModules.getDeviceAttestation('pair').catch(() => ({})),
+        new Promise<Record<string, never>>(resolve =>
+          setTimeout(() => resolve({}), 12_000),
+        ),
+      ]);
+      const fcmToken = await Promise.race([
+        nativeModules.getFcmToken().catch(() => null),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 6_000)),
+      ]);
       slog('PAIR', 'attempt', {code: '[REDACTED]', api: getApiBaseUrl(), deviceInfo, hasFcmToken: !!fcmToken});
       const {data} = await deviceApi.pair({
         pairingCode: normalized,
@@ -214,8 +223,9 @@ export function PairingScreen({navigation, route}: Props) {
         consentAccepted: 'true',
         osVersion: deviceInfo.osVersion,
         appVersion: deviceInfo.appVersion,
-        integrityToken: attestation.integrityToken ?? undefined,
-        trustSignals: attestation.trustSignals,
+        integrityToken:
+          (attestation as {integrityToken?: string}).integrityToken ?? undefined,
+        trustSignals: (attestation as {trustSignals?: object}).trustSignals,
         fcmToken: fcmToken ?? undefined,
       });
       if (!data.success || !data.data?.deviceToken) {
