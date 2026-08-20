@@ -237,14 +237,13 @@ class ReuseProjectionCapturer(
                         MediaProjectionTokenStore.invalidateSession(ctx)
                         ScreenCaptureController.onConsentInvalidated()
                     }
-                    throw t
                 }
             }
         } catch (t: Throwable) {
             MediaProjectionCaptureGate.release(captureOwnerId)
             CaptureFrameLogger.error("INVOKE_HELPER_THREAD_FAILED", t, threadContext())
             observer.onCapturerStarted(false)
-            throw if (t is RuntimeException) t else RuntimeException(t)
+            return
         } finally {
             CaptureFrameLogger.log(
                 "INVOKE_HELPER_THREAD_EXIT",
@@ -254,8 +253,9 @@ class ReuseProjectionCapturer(
         }
 
         invokeError.get()?.let { err ->
+            CaptureFrameLogger.error("CAPTURE_START_DEFERRED_FAILURE", err, threadContext())
             observer.onCapturerStarted(false)
-            throw if (err is RuntimeException) err else RuntimeException(err)
+            return
         }
 
         if (!displayAttached.get()) {
@@ -273,7 +273,6 @@ class ReuseProjectionCapturer(
             MediaProjectionCaptureGate.release(captureOwnerId)
             CaptureFrameLogger.error("START_LISTENING_FAILED", t, threadContext())
             observer.onCapturerStarted(false)
-            throw if (t is RuntimeException) t else RuntimeException(t)
         }
     }
 
@@ -316,7 +315,6 @@ class ReuseProjectionCapturer(
                 }
             } catch (t: Throwable) {
                 CaptureFrameLogger.error("CAPTURE_STOP_HELPER_FAILED", t, threadContext())
-                throw if (t is RuntimeException) t else RuntimeException(t)
             }
         } else {
             ScreenCaptureController.detachCaptureSurface()

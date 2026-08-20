@@ -4,7 +4,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -31,8 +30,14 @@ class AudioStreamForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "onStartCommand action=${intent?.action} startId=$startId")
-        promoteToForeground()
-        return START_STICKY
+        return ForegroundServiceCrashGuard.runOnStartCommand(TAG, this) {
+            if (!promoteToForeground()) {
+                ForegroundServiceCrashGuard.abandonStartup(this, TAG, "audio_promote_failed")
+                START_NOT_STICKY
+            } else {
+                START_STICKY
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -49,56 +54,43 @@ class AudioStreamForegroundService : Service() {
         ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
 
-    private fun promoteToForeground() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-            !hasRecordAudioPermission()
-        ) {
+    private fun promoteToForeground(): Boolean {
+        val notification = SilentNotificationHelper.buildForegroundNotification(this)
+        val micGranted = hasRecordAudioPermission()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !micGranted) {
             Log.e(
                 TAG,
                 "Audio FGS blocked — RECORD_AUDIO not granted (API ${Build.VERSION.SDK_INT}); " +
-                    "refusing FOREGROUND_SERVICE_TYPE_MICROPHONE startForeground",
+                    "promoting best-effort then abandoning",
             )
-            foregroundActive = false
-            startRequested = false
-            signalForegroundReady(false)
-            return
         }
-        val notification = SilentNotificationHelper.buildForegroundNotification(this)
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
-                )
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, notification)
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-            foregroundActive = true
-            startRequested = false
-            Log.i(
-                TAG,
-                "Audio FGS promoted (API ${Build.VERSION.SDK_INT}) " +
-                    "recordAudioGranted=${hasRecordAudioPermission()}",
-            )
-            signalForegroundReady(true)
-        } catch (e: SecurityException) {
+        val promoted = ForegroundServiceCrashGuard.promoteBestEffort(
+            service = this,
+            notificationId = NOTIFICATION_ID,
+            notification = notification,
+            preferredTypes = ForegroundServiceCrashGuard.audioPromotionTypes(),
+        )
+        if (!promoted) {
             foregroundActive = false
             startRequested = false
-            Log.e(
-                TAG,
-                "Audio FGS SecurityException — likely missing RECORD_AUDIO on API ${Build.VERSION.SDK_INT}",
-                e,
-            )
             signalForegroundReady(false)
-        } catch (e: Exception) {
-            foregroundActive = false
-            startRequested = false
-            Log.e(TAG, "Audio FGS startForeground failed", e)
-            signalForegroundReady(false)
+            return false
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !micGranted) {
+            foregroundActive = false
+            startRequested = false
+            signalForegroundReady(false)
+            return false
+        }
+        foregroundActive = true
+        startRequested = false
+        Log.i(
+            TAG,
+            "Audio FGS promoted (API ${Build.VERSION.SDK_INT}) " +
+                "recordAudioGranted=$micGranted",
+        )
+        signalForegroundReady(true)
+        return true
     }
 
     companion object {

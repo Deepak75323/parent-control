@@ -81,7 +81,12 @@ object NetworkConnectivityMonitor {
                 }
             }
             
-            connectivityManager?.registerNetworkCallback(networkRequest, networkCallback!!)
+            val callback = networkCallback
+            if (callback != null) {
+                connectivityManager?.registerNetworkCallback(networkRequest, callback)
+            } else {
+                Log.w(TAG, "Network monitoring: networkCallback missing; skipping registerNetworkCallback")
+            }
             Log.i(TAG, "Network monitoring started")
         } else {
             // For older Android versions, we'll rely on periodic heartbeat checks

@@ -184,7 +184,7 @@ object ScreenCaptureController {
                 }
                 invalidateSpentProjectionLocked("create_virtual_display_security")
             }
-            throw t
+            null
         }
     }
 

@@ -32,6 +32,12 @@ class ScreenCaptureForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return ForegroundServiceCrashGuard.runOnStartCommand(TAG, this) {
+            onStartCommandInner(intent)
+        }
+    }
+
+    private fun onStartCommandInner(intent: Intent?): Int {
         // Android kills the process if startForeground() is not called within ~5s of
         // startForegroundService() — promote immediately before any other work.
         when (intent?.action) {
@@ -43,8 +49,10 @@ class ScreenCaptureForegroundService : Service() {
                 StreamLifecycleLogger.log("SERVICE_STOP_REQUEST", "ScreenCaptureForegroundService ACTION_STOP")
                 // JS hidden capture uses this path without NativeStreamPublisher — do not release
                 // the warm MediaProjection session or the next parent request fails on API 34+.
-                if (NativeStreamPublisher.isRunning()) {
-                    NativeStreamPublisher.stop(applicationContext)
+                ForegroundServiceCrashGuard.safeRun(TAG, "ACTION_STOP_nativePublisherStop") {
+                    if (NativeStreamPublisher.isRunning()) {
+                        NativeStreamPublisher.stop(applicationContext)
+                    }
                 }
                 releaseForegroundOwnership("ACTION_STOP")
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -197,7 +205,7 @@ class ScreenCaptureForegroundService : Service() {
 
     private fun abandonForegroundStartup() {
         // startForegroundService() requires startForeground() within ~5s even on failure paths.
-        try {
+        ForegroundServiceCrashGuard.safeRun(TAG, "abandonForegroundStartup_promote") {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
                 ScreenCaptureController.activeProjection() != null
             ) {
@@ -205,16 +213,10 @@ class ScreenCaptureForegroundService : Service() {
             } else {
                 promoteBootstrapForeground()
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "abandonForegroundStartup failed", e)
         }
         releaseForegroundOwnership("abandonForegroundStartup")
         signalForegroundReady()
-        try {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } catch (_: Exception) {
-        }
-        stopSelf()
+        ForegroundServiceCrashGuard.abandonStartup(this, TAG, "abandonForegroundStartup")
     }
 
     private fun enterForeground(prepareOnly: Boolean = false): Boolean {
@@ -319,7 +321,9 @@ class ScreenCaptureForegroundService : Service() {
         PcpFlowLogger.log(PcpFlowLogger.Category.SERVICE_STATE, "onDestroy", "ScreenCaptureForegroundService destroyed")
         StreamLifecycleLogger.warn("SERVICE_DESTROYED", "ScreenCaptureForegroundService")
         releaseForegroundOwnership("onDestroy")
-        NativeStreamPublisher.stop(applicationContext)
+        ForegroundServiceCrashGuard.safeRun(TAG, "onDestroy_nativePublisherStop") {
+            NativeStreamPublisher.stop(applicationContext)
+        }
         super.onDestroy()
     }
 
