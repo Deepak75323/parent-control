@@ -651,6 +651,7 @@ object NativeStreamPublisher {
                     // Mirror the JS publisher behaviour: tell the backend the session is dead
                     // so the parent UI sees a "stream failed" message instead of a frozen view.
                     reportFailureAsync(context, session, "ICE_RECOVERY_EXHAUSTED")
+                    stop(context)
                 }, 12_000)
             }
         }

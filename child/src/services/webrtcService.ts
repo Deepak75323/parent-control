@@ -425,6 +425,11 @@ async function renegotiateChildOffer(): Promise<void> {
   slog('ICE', 'ice-restart offer sent', {roomId: activeRoomId});
 }
 
+function reportIceStateToNative(state: string): void {
+  if (Platform.OS !== 'android') return;
+  void nativeModules.reportJsIceConnectionState(state).catch(() => undefined);
+}
+
 function attachConnectionHandlers(peer: RTCPeerConnection): void {
   detachIceRecovery?.();
   detachNetworkQualityMonitor?.();
@@ -516,6 +521,7 @@ function attachConnectionHandlers(peer: RTCPeerConnection): void {
         streamType: activeStreamType
       });
       logIce('child', 'iceConnectionState', state);
+      reportIceStateToNative(state);
       
       if (state === 'connected' || state === 'completed') {
         streamStateTransition('CONNECTED', 'oniceconnectionstatechange', {state, roomId: activeRoomId});
@@ -609,9 +615,23 @@ function attachConnectionHandlers(peer: RTCPeerConnection): void {
         streamType: activeStreamType,
       });
       logIce('child', 'connectionState', connectionState);
+      // Do NOT feed connectionState into JsViewerPresenceTracker — values like
+      // "connecting" are not ICE states and previously caused false camera release.
 
-      if (connectionState === 'failed') {
-        slog('PC', 'PeerConnection FAILED - connection state failure', {
+      if (connectionState === 'closed') {
+        // PeerConnection is gone — release capture. "failed" is handled by iceRecovery
+        // (with grace + restart) so we do not tear down mid-handoff here.
+        slog('PC', 'connectionState closed — releasing capture', {
+          connectionState,
+          iceState,
+          roomId: activeRoomId,
+          sessionId: activeSessionId,
+        });
+        disconnectStream().catch(err =>
+          slog('PC', 'disconnectStream after connectionState closed failed', String(err)),
+        );
+      } else if (connectionState === 'failed') {
+        slog('PC', 'PeerConnection FAILED — iceRecovery owns teardown', {
           connectionState,
           iceState,
           roomId: activeRoomId,

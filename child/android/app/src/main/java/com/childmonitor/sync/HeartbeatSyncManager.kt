@@ -137,6 +137,7 @@ object HeartbeatSyncManager {
         }
         
         MobileTelemetryReporter.flushIfDue(context)
+        com.childmonitor.telemetry.ClientAnalyticsReporter.flushIfDue(context)
         android.util.Log.i(
             TAG,
             when (result) {

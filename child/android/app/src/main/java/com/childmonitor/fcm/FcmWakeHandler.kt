@@ -71,6 +71,12 @@ object FcmWakeHandler {
         }
         PcpFlowLogger.log(PcpFlowLogger.Category.FCM, "handleMessage", "FCM action parsed", "action=$action")
         Log.i(TAG, "FCM wake action=$action traceId=${data["traceId"]}")
+        com.childmonitor.telemetry.ClientAnalyticsReporter.recordIngress(
+            action,
+            org.json.JSONObject()
+                .put("traceId", data["traceId"] ?: "")
+                .put("source", "fcm"),
+        )
         PcpFlowLogger.log(PcpFlowLogger.Category.FCM, "acquireWakeLock", "Acquiring partial wake lock", "timeoutMs=$WAKE_LOCK_MS")
         // P2-3: per-invocation local reference — concurrent FCM messages each hold
         // their own lock and release it independently, with no shared mutable state.

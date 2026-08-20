@@ -1,5 +1,9 @@
 import {redactForLogs} from '../utils/logRedaction';
 import {navigationRef} from './navigationRef';
+import {
+  trackBackAnalytics,
+  trackScreenAnalytics,
+} from '../services/analyticsUtils';
 
 const TAG = '[NAV_TRACE]';
 
@@ -163,6 +167,7 @@ export function navTracePermissions(
 export function navTraceStateChange(
   prevState: NavigationState | undefined,
   nextState: NavigationState | undefined,
+  prevDepth = 0,
 ): void {
   const prevRoutes = prevState?.routes?.map(r => r.name) ?? [];
   const nextRoutes = nextState?.routes?.map(r => r.name) ?? [];
@@ -177,6 +182,27 @@ export function navTraceStateChange(
     nextStack: nextRoutes.join(' > ') || '(empty)',
     navigationTriggered: prevActive !== nextActive,
   });
+  if (nextActive !== '?' && prevActive !== nextActive) {
+    if (prevActive !== '?' && prevDepth > 0) {
+      const nextDepth = countNavDepth(nextState);
+      if (nextDepth < prevDepth) {
+        trackBackAnalytics(prevActive, nextActive);
+      }
+    }
+    trackScreenAnalytics(nextActive);
+  }
+}
+
+function countNavDepth(state: NavigationState | undefined): number {
+  if (!state?.routes?.length) {
+    return 0;
+  }
+  const index = state.index ?? state.routes.length - 1;
+  const route = state.routes[index];
+  if (route.state) {
+    return 1 + countNavDepth(route.state as NavigationState);
+  }
+  return 1;
 }
 
 /** Schedule stack snapshots after a navigation to detect follow-up redirects. */

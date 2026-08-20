@@ -96,6 +96,9 @@ export const nativeModules = {
   logStreamLifecycle: (stage: string, detail?: string | null): Promise<void> =>
     Native.logStreamLifecycle?.(stage, detail ?? null) ?? Promise.resolve(),
 
+  reportJsIceConnectionState: (state: string): Promise<void> =>
+    Native.reportJsIceConnectionState?.(state) ?? Promise.resolve(),
+
   notifyStreamTeardownComplete: (detail?: string | null): Promise<void> =>
     Native.notifyStreamTeardownComplete?.(detail ?? null) ?? Promise.resolve(),
 

@@ -70,6 +70,9 @@ object StreamSessionRegistry {
         }
         phase = LifecyclePhase.ACQUIRING
         acquiredAtMs = System.currentTimeMillis()
+        // Clear any stale parent-offline ICE signal from a previous session so we do not
+        // tear down the new capturer before the first connected ICE arrives.
+        JsViewerPresenceTracker.reset()
         StreamLifecycleTelemetry.record("session_acquired", snapshot())
         return true
     }
