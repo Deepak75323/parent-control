@@ -25,6 +25,7 @@ import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
 import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Native WebRTC screen publisher using stored MediaProjection token (headless-only path).
@@ -50,6 +51,7 @@ object NativeStreamPublisher {
     private var activeSessionId: String? = null
     private val seenMessageIds = mutableSetOf<String>()
     private var remoteAnswerApplied = false
+    private val publisherGeneration = AtomicLong(0)
 
     private var iceRecoveryRunnable: Runnable? = null
     private var iceRecoveryStage = 0
@@ -76,6 +78,7 @@ object NativeStreamPublisher {
         activeSessionId = sessionId
         seenMessageIds.clear()
         remoteAnswerApplied = false
+        val generation = publisherGeneration.incrementAndGet()
 
         return try {
             PcpFlowLogger.transitionState(StreamState.CAPTURE_STARTING, "NativeStreamPublisher.start",
@@ -101,8 +104,11 @@ object NativeStreamPublisher {
             }
 
             initWebRtc(context)
+            val factory = requirePeerConnectionFactory()
+            val pc = requirePeerConnection()
+            val egl = requireEglBase()
             val metrics = context.resources.displayMetrics
-            capturer = ReuseProjectionCapturer(
+            val screenCapturer = ReuseProjectionCapturer(
                 projection,
                 metrics.densityDpi,
                 onProjectionLost = {
@@ -118,13 +124,15 @@ object NativeStreamPublisher {
                     ScreenCaptureForegroundService.stopStream(context)
                 },
             )
-            val helper = SurfaceTextureHelper.create("ScreenCaptureThread", eglBase!!.eglBaseContext)
-            videoSource = peerConnectionFactory!!.createVideoSource(capturer!!.isScreencast)
-            capturer!!.initialize(helper, context, videoSource!!.capturerObserver)
+            capturer = screenCapturer
+            val helper = SurfaceTextureHelper.create("ScreenCaptureThread", egl.eglBaseContext)
+            val source = factory.createVideoSource(screenCapturer.isScreencast)
+            videoSource = source
+            screenCapturer.initialize(helper, context, source.capturerObserver)
             ReuseProjectionCapturer.resetFirstFrameFlag()
             val width = metrics.widthPixels.coerceAtLeast(360)
             val height = metrics.heightPixels.coerceAtLeast(640)
-            capturer!!.startCapture(width, height, 15)
+            screenCapturer.startCapture(width, height, 15)
 
             if (!awaitFirstCaptureFrame(FIRST_FRAME_TIMEOUT_MS)) {
                 throw IllegalStateException("No screen capture frames within ${FIRST_FRAME_TIMEOUT_MS}ms")
@@ -132,15 +140,15 @@ object NativeStreamPublisher {
             PcpFlowLogger.transitionState(StreamState.CAPTURE_RUNNING, "NativeStreamPublisher.start",
                 "firstFrame session=$sessionId")
 
-            val videoTrack = peerConnectionFactory!!.createVideoTrack("screen_video", videoSource)
-            peerConnection!!.addTrack(videoTrack, listOf("stream"))
+            val videoTrack = factory.createVideoTrack("screen_video", source)
+            pc.addTrack(videoTrack, listOf("stream"))
 
             // System / device audio via AudioPlaybackCapture on the same MediaProjection.
             try {
                 if (DevicePlaybackAudioCapturer.start(projection)) {
-                    val audioSource = peerConnectionFactory!!.createAudioSource(MediaConstraints())
-                    val audioTrack = peerConnectionFactory!!.createAudioTrack("screen_audio", audioSource)
-                    peerConnection!!.addTrack(audioTrack, listOf("stream"))
+                    val audioSource = factory.createAudioSource(MediaConstraints())
+                    val audioTrack = factory.createAudioTrack("screen_audio", audioSource)
+                    pc.addTrack(audioTrack, listOf("stream"))
                     (audioDeviceModule as? JavaAudioDeviceModule)?.setMicrophoneMute(true)
                     Log.i(TAG, "PLAYBACK_CAPTURE_STARTED native screen audio track added")
                 }
@@ -151,7 +159,7 @@ object NativeStreamPublisher {
             PcpFlowLogger.transitionState(StreamState.WEBRTC_CONNECTING, "NativeStreamPublisher.start",
                 "peerConnection ready session=$sessionId")
 
-            createAndSendOffer(context, roomId, sessionId)
+            createAndSendOffer(context, roomId, sessionId, generation)
             // STOMP push + HTTP poll (must run off main — NetworkOnMainThreadException otherwise).
             NativeStompOwner.subscribeSignalingRoom(roomId)
             startSignalingPoll(context, roomId)
@@ -209,6 +217,7 @@ object NativeStreamPublisher {
     }
 
     fun stop(context: Context) {
+        publisherGeneration.incrementAndGet()
         running.set(false)
         DevicePlaybackAudioCapturer.stop()
         try {
@@ -270,17 +279,49 @@ object NativeStreamPublisher {
 
     fun isRunning(): Boolean = running.get()
 
+    internal fun isActiveGenerationForTesting(
+        generation: Long,
+        expectedSessionId: String?,
+        runningValue: Boolean,
+        activeSessionIdValue: String?,
+        currentGeneration: Long,
+    ): Boolean {
+        if (!runningValue) return false
+        if (generation != currentGeneration) return false
+        if (expectedSessionId.isNullOrBlank()) return true
+        return expectedSessionId == activeSessionIdValue
+    }
+
+    private fun isActiveGeneration(generation: Long, expectedSessionId: String? = null): Boolean =
+        isActiveGenerationForTesting(
+            generation = generation,
+            expectedSessionId = expectedSessionId,
+            runningValue = running.get(),
+            activeSessionIdValue = activeSessionId,
+            currentGeneration = publisherGeneration.get(),
+        )
+
+    private fun requireEglBase(): EglBase =
+        eglBase ?: throw IllegalStateException("WebRTC EGL context not initialized")
+
+    private fun requirePeerConnectionFactory(): PeerConnectionFactory =
+        peerConnectionFactory ?: throw IllegalStateException("PeerConnectionFactory not initialized")
+
+    private fun requirePeerConnection(): PeerConnection =
+        peerConnection ?: throw IllegalStateException("PeerConnection not initialized")
+
     private fun initWebRtc(context: Context) {
         if (peerConnectionFactory == null) {
-            eglBase = EglBase.create()
+            val egl = EglBase.create()
+            eglBase = egl
             if (webRtcGlobalInitDone.compareAndSet(false, true)) {
                 PeerConnectionFactory.initialize(
                     PeerConnectionFactory.InitializationOptions.builder(context)
                         .createInitializationOptions(),
                 )
             }
-            val encoderFactory = DefaultVideoEncoderFactory(eglBase!!.eglBaseContext, true, true)
-            val decoderFactory = DefaultVideoDecoderFactory(eglBase!!.eglBaseContext)
+            val encoderFactory = DefaultVideoEncoderFactory(egl.eglBaseContext, true, true)
+            val decoderFactory = DefaultVideoDecoderFactory(egl.eglBaseContext)
             val adm = JavaAudioDeviceModule.builder(context)
                 .setEnableVolumeLogger(false)
                 .setAudioRecordDataCallback { _, channelCount, sampleRate, audioBuffer ->
@@ -304,7 +345,8 @@ object NativeStreamPublisher {
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
             iceTransportsType = PeerConnection.IceTransportsType.ALL
         }
-        peerConnection = peerConnectionFactory!!.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
+        val factory = requirePeerConnectionFactory()
+        peerConnection = factory.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
             override fun onIceCandidate(candidate: IceCandidate?) {
                 candidate ?: return
                 val room = activeRoomId ?: return
@@ -390,7 +432,7 @@ object NativeStreamPublisher {
         })
     }
 
-    private fun createAndSendOffer(context: Context, roomId: String, sessionId: String) {
+    private fun createAndSendOffer(context: Context, roomId: String, sessionId: String, generation: Long) {
         PcpFlowLogger.log(
             PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
             "createOffer start",
@@ -400,16 +442,30 @@ object NativeStreamPublisher {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
         }
-        peerConnection!!.createOffer(object : SdpObserverAdapter() {
+        val pc = peerConnection
+        if (pc == null) {
+            Log.e(TAG, "createOffer skipped — PeerConnection not initialized")
+            reportFailureAsync(context, sessionId, "NATIVE_PUBLISHER_START_FAILED")
+            return
+        }
+        pc.createOffer(object : SdpObserverAdapter() {
             override fun onCreateSuccess(desc: SessionDescription?) {
                 desc ?: return
+                if (!isActiveGeneration(generation, sessionId)) {
+                    Log.w(TAG, "createOffer success ignored for stale session=$sessionId generation=$generation")
+                    return
+                }
                 PcpFlowLogger.log(
                     PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
                     "createOffer success",
                     "room=$roomId session=$sessionId",
                 )
-                peerConnection!!.setLocalDescription(object : SdpObserverAdapter() {
+                pc.setLocalDescription(object : SdpObserverAdapter() {
                     override fun onSetSuccess() {
+                        if (!isActiveGeneration(generation, sessionId)) {
+                            Log.w(TAG, "setLocalDescription ignored for stale session=$sessionId generation=$generation")
+                            return
+                        }
                         val payload = JSONObject()
                             .put("type", desc.type.canonicalForm())
                             .put("sdp", desc.description)
@@ -452,7 +508,8 @@ object NativeStreamPublisher {
                 }
             }
         }
-        handler.post(pollRunnable!!)
+        val runnable = pollRunnable ?: return
+        handler.post(runnable)
     }
 
     private fun ensureBackgroundPollHandler(): Handler {
@@ -491,20 +548,31 @@ object NativeStreamPublisher {
     private fun handleParentSignalingMessage(context: Context, msg: JSONObject) {
         val id = msg.optString("id", "${msg.optString("messageType")}-${msg.optString("payload").hashCode()}")
         if (seenMessageIds.contains(id) || msg.optString("senderRole") == "CHILD") return
+        val sessionId = activeSessionId
         when (msg.optString("messageType")) {
-            "answer" -> applyAnswer(context, msg.optString("payload"), id)
+            "answer" -> applyAnswer(context, msg.optString("payload"), id, sessionId, publisherGeneration.get())
             "ice" -> {
                 if (!remoteAnswerApplied) return
-                applyIce(msg.optString("payload"), id)
+                applyIce(msg.optString("payload"), id, sessionId, publisherGeneration.get())
             }
         }
     }
 
-    private fun applyAnswer(context: Context, payload: String, messageId: String) {
+    private fun applyAnswer(
+        context: Context,
+        payload: String,
+        messageId: String,
+        sessionId: String?,
+        generation: Long,
+    ) {
         val sdp = extractSdp(payload)
         val desc = SessionDescription(SessionDescription.Type.ANSWER, sdp)
         peerConnection?.setRemoteDescription(object : SdpObserverAdapter() {
             override fun onSetSuccess() {
+                if (!isActiveGeneration(generation, sessionId)) {
+                    Log.w(TAG, "remote answer ignored for stale session=$sessionId generation=$generation")
+                    return
+                }
                 seenMessageIds.add(messageId)
                 remoteAnswerApplied = true
                 PcpFlowLogger.log(
@@ -515,6 +583,10 @@ object NativeStreamPublisher {
                 Log.i(TAG, "remote answer applied")
             }
             override fun onSetFailure(error: String?) {
+                if (!isActiveGeneration(generation, sessionId)) {
+                    Log.w(TAG, "remote answer failure ignored for stale session=$sessionId generation=$generation")
+                    return
+                }
                 Log.e(TAG, "remote answer failed: $error")
                 val session = activeSessionId
                 if (session != null) {
@@ -524,7 +596,11 @@ object NativeStreamPublisher {
         }, desc)
     }
 
-    private fun applyIce(payload: String, messageId: String) {
+    private fun applyIce(payload: String, messageId: String, sessionId: String?, generation: Long) {
+        if (!isActiveGeneration(generation, sessionId)) {
+            Log.w(TAG, "ICE candidate ignored for stale session=$sessionId generation=$generation")
+            return
+        }
         try {
             val json = JSONObject(payload)
             val candidate = IceCandidate(
@@ -545,6 +621,7 @@ object NativeStreamPublisher {
         iceRecoveryRunnable = Runnable {
             iceRecoveryRunnable = null
             if (!running.get()) return@Runnable
+            val generation = publisherGeneration.get()
             val state = peerConnection?.iceConnectionState()
             if (state == PeerConnection.IceConnectionState.CONNECTED ||
                 state == PeerConnection.IceConnectionState.COMPLETED
@@ -558,9 +635,9 @@ object NativeStreamPublisher {
                 StreamSessionRegistry.markReconnecting()
                 StreamLifecycleTelemetry.record("ice_restart_attempt", StreamSessionRegistry.snapshot())
                 PcpFlowLogger.log(PcpFlowLogger.Category.SCREEN_SHARE_FLOW, "native ICE restart", "room=$room")
-                renegotiateWithIceRestart(context, room, session)
+                renegotiateWithIceRestart(context, room, session, generation)
                 handler.postDelayed({
-                    if (!running.get()) return@postDelayed
+                    if (!isActiveGeneration(generation, session)) return@postDelayed
                     val after = peerConnection?.iceConnectionState()
                     if (after == PeerConnection.IceConnectionState.CONNECTED ||
                         after == PeerConnection.IceConnectionState.COMPLETED
@@ -582,20 +659,39 @@ object NativeStreamPublisher {
         } else {
             6000L
         }
-        handler.postDelayed(iceRecoveryRunnable!!, delay)
+        val runnable = iceRecoveryRunnable ?: return
+        handler.postDelayed(runnable, delay)
     }
 
-    private fun renegotiateWithIceRestart(context: Context, roomId: String, sessionId: String) {
+    private fun renegotiateWithIceRestart(
+        context: Context,
+        roomId: String,
+        sessionId: String,
+        generation: Long,
+    ) {
         val constraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
         }
-        peerConnection?.createOffer(object : SdpObserverAdapter() {
+        val pc = peerConnection
+        if (pc == null) {
+            Log.w(TAG, "ice-restart offer skipped — PeerConnection gone")
+            return
+        }
+        pc.createOffer(object : SdpObserverAdapter() {
             override fun onCreateSuccess(desc: SessionDescription?) {
                 desc ?: return
-                peerConnection!!.setLocalDescription(object : SdpObserverAdapter() {
+                if (!isActiveGeneration(generation, sessionId)) {
+                    Log.w(TAG, "ice-restart offer ignored for stale session=$sessionId generation=$generation")
+                    return
+                }
+                pc.setLocalDescription(object : SdpObserverAdapter() {
                     override fun onSetSuccess() {
+                        if (!isActiveGeneration(generation, sessionId)) {
+                            Log.w(TAG, "ice-restart local description ignored for stale session=$sessionId generation=$generation")
+                            return
+                        }
                         SignalingHttpClient.postMessage(
                             context,
                             roomId,

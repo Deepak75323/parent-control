@@ -20,7 +20,7 @@ object LocationReader {
         for (provider in providers) {
             if (!manager.isProviderEnabled(provider)) continue
             val loc = manager.getLastKnownLocation(provider) ?: continue
-            if (best == null || loc.time > best!!.time) best = loc
+            if (best == null || loc.time > best.time) best = loc
         }
         return best?.let {
             LocationSnapshot(

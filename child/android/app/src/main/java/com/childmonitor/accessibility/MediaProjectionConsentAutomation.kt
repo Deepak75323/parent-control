@@ -359,7 +359,7 @@ object MediaProjectionConsentAutomation {
             return false
         }
 
-        val target = best!!
+        val target = best
         val buttonLabel = nodeText(target)
         val clicked = if (target.isClickable) {
             target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
