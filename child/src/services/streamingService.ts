@@ -56,6 +56,7 @@ let lastStartAttemptAt = 0;
 let lastNegotiationTimeoutAt = 0;
 let nativeControlSubscription: {remove: () => void} | null = null;
 let stopInFlight: Promise<void> | null = null;
+let pollInFlight = false;
 
 let nativeWakeSubscription: {remove: () => void} | null = null;
 let lastHandledSessionId: string | null = null;
@@ -384,6 +385,10 @@ async function startStream(pending: PendingSession): Promise<void> {
 }
 
 async function pollPendingStreams(): Promise<void> {
+  if (pollInFlight) {
+    return;
+  }
+  pollInFlight = true;
   try {
     const [pendingRes, activeRes] = await Promise.all([
       streamingApi.pendingSessions(),
@@ -468,6 +473,12 @@ async function pollPendingStreams(): Promise<void> {
       (active.status === 'ACTIVE' || active.status === 'PENDING');
 
     if (backendStillActive) {
+      // Do not tear down on ice=failed here — iceRecovery owns restarts for handoffs.
+      // Only closed means the PeerConnection is gone and capture must be released.
+      if (ice === 'closed') {
+        await stopActiveStream('parent viewer gone (ICE closed)');
+        return;
+      }
       return;
     }
 
@@ -501,6 +512,8 @@ async function pollPendingStreams(): Promise<void> {
     }
   } catch (err) {
     slog('STREAM', 'poll error', String(err));
+  } finally {
+    pollInFlight = false;
   }
 }
 
@@ -601,20 +614,30 @@ export function startStreamingListener(): void {
 }
 
 export function pauseStreamingListener(): void {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
-  }
   detachNativeStreamWakeListener();
   pauseStreamWebSocketSubscriptions();
-  if (!isStreamActive() && !hasNativePublisherOwner() && !isStreamConnecting() && !starting) {
+  const streamLive =
+    isStreamActive() ||
+    isStreamConnecting() ||
+    starting ||
+    hasNativePublisherOwner();
+  if (!streamLive) {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
     detachNativeStreamControlListener();
   }
   void nativeModules.logStreamLifecycle(
     'STREAM_LISTENER_PAUSED',
-    'active stream preserved for background capture',
+    streamLive
+      ? 'wake handler detached — session poll kept for parent-stop detection'
+      : 'active stream preserved for background capture',
   );
-  slog('STREAM', 'listener paused — active stream kept for background capture');
+  slog('STREAM', 'listener paused', {
+    streamLive,
+    pollKept: streamLive,
+  });
 }
 
 export function stopStreamingListener(): void {

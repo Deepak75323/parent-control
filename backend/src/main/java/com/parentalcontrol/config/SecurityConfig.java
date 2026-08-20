@@ -42,6 +42,8 @@ public class SecurityConfig {
                     .hasAuthority(Role.ROLE_CHILD_DEVICE.name())
                     .requestMatchers(HttpMethod.POST, ApiConstants.DEVICE_TELEMETRY_ANT)
                     .hasAuthority(Role.ROLE_CHILD_DEVICE.name())
+                    .requestMatchers(HttpMethod.POST, ApiConstants.DEVICE_ANALYTICS_ANT)
+                    .hasAuthority(Role.ROLE_CHILD_DEVICE.name())
                     .requestMatchers(
                         ApiConstants.DEVICE_ANT, ApiConstants.CHILD_ANT, ApiConstants.EVENTS_ANT)
                     .hasAuthority(Role.ROLE_CHILD_DEVICE.name())

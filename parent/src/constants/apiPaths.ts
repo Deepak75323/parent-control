@@ -72,6 +72,7 @@ export const ApiPaths = {
   PARENT_CHILD_LOGIN_PASSWORD_STATUS: `${V1}/parent/child-login-password/status`,
   PARENT_FAMILY_HANDLE: `${V1}/parent/family-handle`,
   PARENT_FAMILY_HANDLE_STATUS: `${V1}/parent/family-handle/status`,
+  PARENT_ANALYTICS_BATCH: `${V1}/parent/analytics/batch`,
 
   STREAMING: `${V1}/streaming`,
   SIGNALING: `${V1}/signaling`,

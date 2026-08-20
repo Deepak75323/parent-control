@@ -7,6 +7,8 @@ import android.util.Log
 import com.childmonitor.StreamingHeadlessTaskService
 import com.childmonitor.native.ChildMonitorNativeModule
 import com.facebook.react.bridge.ReactApplicationContext
+import com.oney.WebRTCModule.HiddenAudioBridge
+import com.oney.WebRTCModule.HiddenCameraBridge
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -264,7 +266,7 @@ object StreamTeardownCoordinator {
 
         val reactContext = ChildMonitorNativeModule.getSharedReactApplicationContext()
         if (releaseCaptures) {
-            releaseHiddenCaptures(reactContext)
+            releaseHiddenCaptures(context.applicationContext, reactContext)
             forceStopWebRtcMicrophone(reactContext)
         }
 
@@ -279,6 +281,7 @@ object StreamTeardownCoordinator {
         StreamingHeadlessTaskService.stop(context)
         StreamSessionRegistry.release(StreamSessionRegistry.Owner.JS_HIDDEN)
         StreamSessionRegistry.release(StreamSessionRegistry.Owner.NATIVE_PUBLISHER)
+        JsViewerPresenceTracker.reset()
 
         StreamLifecycleLogger.log("TEARDOWN_COMPLETE", "$label reason=$reason")
     }
@@ -293,13 +296,23 @@ object StreamTeardownCoordinator {
         when (kind) {
             StreamKind.AUDIO -> {
                 if (releaseCaptures) {
-                    reactContext?.let { HiddenAudioCapture.stopCaptureOnly(it) }
+                    val ctx = reactContext
+                    if (ctx != null) {
+                        HiddenAudioCapture.stopCaptureOnly(ctx)
+                    } else {
+                        HiddenAudioBridge.stopActiveCaptureHardware(context.applicationContext)
+                    }
                 }
                 AudioStreamForegroundService.stopSafely(context, reason)
             }
             StreamKind.CAMERA -> {
                 if (releaseCaptures) {
-                    reactContext?.let { HiddenCameraCapture.stopCaptureOnly(it) }
+                    val ctx = reactContext
+                    if (ctx != null) {
+                        HiddenCameraCapture.stopCaptureOnly(ctx)
+                    } else {
+                        HiddenCameraBridge.stopActiveCaptureHardware()
+                    }
                 }
                 CameraStreamForegroundService.stopSafely(context, reason)
             }
@@ -317,29 +330,53 @@ object StreamTeardownCoordinator {
     }
 
     private fun stopTypedForegroundServicesIfActive(context: Context, capturesAlreadyReleased: Boolean) {
-        if (AudioStreamForegroundService.isActive()) {
+        if (AudioStreamForegroundService.isActive() || HiddenAudioBridge.isCaptureActive()) {
             if (!capturesAlreadyReleased) {
-                ChildMonitorNativeModule.getSharedReactApplicationContext()?.let {
-                    HiddenAudioCapture.stopCaptureOnly(it)
+                val ctx = ChildMonitorNativeModule.getSharedReactApplicationContext()
+                if (ctx != null) {
+                    HiddenAudioCapture.stopCaptureOnly(ctx)
+                } else {
+                    HiddenAudioBridge.stopActiveCaptureHardware(context.applicationContext)
                 }
+            } else if (HiddenAudioBridge.isCaptureActive()) {
+                HiddenAudioBridge.stopActiveCaptureHardware(context.applicationContext)
             }
             AudioStreamForegroundService.stopSafely(context, "teardown-finalize")
         }
-        if (CameraStreamForegroundService.isActive()) {
+        if (CameraStreamForegroundService.isActive() || HiddenCameraBridge.isCaptureActive()) {
             if (!capturesAlreadyReleased) {
-                ChildMonitorNativeModule.getSharedReactApplicationContext()?.let {
-                    HiddenCameraCapture.stopCaptureOnly(it)
+                val ctx = ChildMonitorNativeModule.getSharedReactApplicationContext()
+                if (ctx != null) {
+                    HiddenCameraCapture.stopCaptureOnly(ctx)
+                } else {
+                    HiddenCameraBridge.stopActiveCaptureHardware()
                 }
+            } else if (HiddenCameraBridge.isCaptureActive()) {
+                HiddenCameraBridge.stopActiveCaptureHardware()
             }
             CameraStreamForegroundService.stopSafely(context, "teardown-finalize")
         }
     }
 
-    private fun releaseHiddenCaptures(reactContext: ReactApplicationContext?) {
+    private fun releaseHiddenCaptures(appContext: Context, reactContext: ReactApplicationContext?) {
+        try {
+            HiddenCameraBridge.stopActiveCaptureHardware()
+            StreamLifecycleLogger.log("STREAM_BRIDGE_HW_STOP", "camera hardware released")
+        } catch (e: Exception) {
+            Log.w(TAG, "Hidden camera hardware stop failed", e)
+            StreamLifecycleLogger.warn("STREAM_BRIDGE_HW_STOP_FAILED", e.message)
+        }
+        try {
+            HiddenAudioBridge.stopActiveCaptureHardware(appContext)
+            StreamLifecycleLogger.log("STREAM_BRIDGE_HW_STOP", "audio bridge cleared")
+        } catch (e: Exception) {
+            Log.w(TAG, "Hidden audio hardware stop failed", e)
+            StreamLifecycleLogger.warn("STREAM_BRIDGE_HW_STOP_FAILED", e.message)
+        }
         if (reactContext == null) {
             StreamLifecycleLogger.log(
                 "STREAM_BRIDGE_STOP_SKIPPED",
-                "no ReactApplicationContext — FGS stop only",
+                "no ReactApplicationContext — hardware stop only",
             )
             return
         }

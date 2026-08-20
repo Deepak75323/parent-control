@@ -16,6 +16,14 @@ import {
   setRemoteAudioEnabled,
 } from '../realtime/webrtcViewer';
 
+/**
+   * Viewer-only rotate on web stays ON by default.
+   * Set VITE_ENABLE_VIEWER_ROTATE=false to hide it. Parent mobile app is gated separately.
+   */
+const ENABLE_VIEWER_ROTATE =
+  (import.meta.env.VITE_ENABLE_VIEWER_ROTATE as string | undefined)?.trim().toLowerCase() !==
+  'false';
+
 type Props = {
   deviceId: string;
 };
@@ -71,6 +79,7 @@ export function LiveStreamPanel({deviceId}: Props) {
   const [viewRotate, setViewRotate] = useState<ViewerRotateDeg>(0);
   const [wrapSize, setWrapSize] = useState({w: 0, h: 0});
   const streamingState = useRealtimeStore(s => s.streamingState);
+  const effectiveViewRotate: ViewerRotateDeg = ENABLE_VIEWER_ROTATE ? viewRotate : 0;
 
   useEffect(() => {
     parentPinApi
@@ -244,7 +253,11 @@ export function LiveStreamPanel({deviceId}: Props) {
     }
   };
 
-  const videoStyle = viewerVideoRotateStyle(viewRotate, wrapSize.w || 640, wrapSize.h || 400);
+  const videoStyle = viewerVideoRotateStyle(
+    effectiveViewRotate,
+    wrapSize.w || 640,
+    wrapSize.h || 400,
+  );
 
   return (
     <div className="card live-panel">
@@ -300,29 +313,33 @@ export function LiveStreamPanel({deviceId}: Props) {
         ) : null}
         {sessionId && streamType !== 'AUDIO' ? (
           <div className="video-overlay-controls">
-            <button
-              type="button"
-              className="btn ghost"
-              onClick={() => setViewRotate(d => prevViewerRotateDeg(d))}
-              aria-label="Rotate view left">
-              ↺
-            </button>
-            <button
-              type="button"
-              className="btn ghost"
-              onClick={() => setViewRotate(d => nextViewerRotateDeg(d))}
-              aria-label="Rotate view right"
-              title={`View rotation ${viewRotate}°`}>
-              ↻ {viewRotate}°
-            </button>
-            {viewRotate !== 0 ? (
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={() => setViewRotate(0)}
-                aria-label="Reset view rotation">
-                Reset
-              </button>
+            {ENABLE_VIEWER_ROTATE ? (
+              <>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => setViewRotate(d => prevViewerRotateDeg(d))}
+                  aria-label="Rotate view left">
+                  ↺
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => setViewRotate(d => nextViewerRotateDeg(d))}
+                  aria-label="Rotate view right"
+                  title={`View rotation ${viewRotate}°`}>
+                  ↻ {viewRotate}°
+                </button>
+                {viewRotate !== 0 ? (
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    onClick={() => setViewRotate(0)}
+                    aria-label="Reset view rotation">
+                    Reset
+                  </button>
+                ) : null}
+              </>
             ) : null}
             <button
               type="button"
@@ -355,13 +372,15 @@ export function LiveStreamPanel({deviceId}: Props) {
             </button>
             {streamType !== 'AUDIO' ? (
               <>
-                <button
-                  type="button"
-                  className="btn ghost"
-                  onClick={() => setViewRotate(d => nextViewerRotateDeg(d))}
-                  title="Rotate view only (does not move child camera)">
-                  Rotate view {viewRotate}°
-                </button>
+                {ENABLE_VIEWER_ROTATE ? (
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    onClick={() => setViewRotate(d => nextViewerRotateDeg(d))}
+                    title="Rotate view only (does not move child camera)">
+                    Rotate view {viewRotate}°
+                  </button>
+                ) : null}
                 <button type="button" className="btn ghost" onClick={() => void onToggleFullscreen()}>
                   {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
                 </button>

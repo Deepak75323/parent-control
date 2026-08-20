@@ -34,8 +34,11 @@ import com.childmonitor.capture.ScreenFgsStartupGate
 import com.childmonitor.capture.StreamCaptureTeardown
 import com.childmonitor.capture.StreamLifecycleLogger
 import com.childmonitor.capture.StreamTeardownCoordinator
+import com.childmonitor.capture.JsViewerPresenceTracker
 import com.childmonitor.capture.StreamSessionRegistry
 import com.childmonitor.capture.StreamSessionWatchdog
+import com.oney.WebRTCModule.HiddenAudioBridge
+import com.oney.WebRTCModule.HiddenCameraBridge
 import com.childmonitor.deviceowner.DeviceOwnerManager
 import com.childmonitor.sync.MediaProjectionRecoveryTelemetry
 import com.childmonitor.native.ChildMonitorNativeModule
@@ -58,6 +61,9 @@ object NativeStreamingCoordinator {
     private val running = AtomicBoolean(false)
     private val jsListenerActive = AtomicBoolean(false)
     private val streamStartInProgress = AtomicBoolean(false)
+    /** Prevents overlapping pollSessions / command-poll threads (one in flight at a time). */
+    private val pollInFlight = AtomicBoolean(false)
+    private val commandPollInFlight = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /** Pending screen stream to retry when FGS startup gate opens. */
@@ -153,6 +159,8 @@ object NativeStreamingCoordinator {
         if (!running.getAndSet(false)) return
         Log.i(TAG, "Stopping native streaming coordinator")
         resetActivePollMisses()
+        pollInFlight.set(false)
+        commandPollInFlight.set(false)
         pendingStreamRetry.set(null)
         mainHandler.removeCallbacksAndMessages(null)
         pollRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -724,10 +732,19 @@ object NativeStreamingCoordinator {
         StreamLifecycleLogger.warn("STREAM_STOP_ALL", reason)
         Log.i(TAG, "stopAllStreams reason=$reason")
         resetActivePollMisses()
+        JsViewerPresenceTracker.reset()
         nativeScreenActive = false
         clearActiveStream()
         StreamCaptureTeardown.stopAll(context, reason)
     }
+
+    private fun localCaptureActive(): Boolean =
+        CameraStreamForegroundService.isActive() ||
+            AudioStreamForegroundService.isActive() ||
+            HiddenCameraBridge.isCaptureActive() ||
+            HiddenAudioBridge.isCaptureActive() ||
+            ScreenCaptureForegroundService.isForegroundActive() ||
+            NativeStreamPublisher.isRunning()
 
     private fun startPollLoop(intervalMs: Long = POLL_MS) {
         pollRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -735,7 +752,24 @@ object NativeStreamingCoordinator {
             override fun run() {
                 val ctx = appContext
                 if (ctx != null && running.get()) {
-                    Thread { pollSessions(ctx) }.start()
+                    // Skip spawning another thread if the previous poll is still running —
+                    // otherwise a slow network creates unbounded Thread growth and CPU spikes.
+                    if (pollInFlight.compareAndSet(false, true)) {
+                        Thread(
+                            {
+                                try {
+                                    pollSessions(ctx)
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "pollSessions crashed (swallowed)", e)
+                                } finally {
+                                    pollInFlight.set(false)
+                                }
+                            },
+                            "NativeStreamPoll",
+                        ).start()
+                    } else {
+                        Log.d(TAG, "pollSessions skipped — previous poll still in flight")
+                    }
                 }
                 if (running.get()) {
                     mainHandler.postDelayed(this, intervalMs)
@@ -763,18 +797,36 @@ object NativeStreamingCoordinator {
             NativeStreamPublisher.isRunning(),
             jsPeerAlive,
         )
-        StreamSessionWatchdog.tick(context)
-        Thread {
-            DeviceCommandProcessor.pollAndExecute(context)
-        }.start()
+        try {
+            StreamSessionWatchdog.tick(context)
+        } catch (e: Exception) {
+            Log.w(TAG, "StreamSessionWatchdog.tick failed", e)
+        }
+        if (commandPollInFlight.compareAndSet(false, true)) {
+            Thread(
+                {
+                    try {
+                        DeviceCommandProcessor.pollAndExecute(context)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "command poll failed", e)
+                    } finally {
+                        commandPollInFlight.set(false)
+                    }
+                },
+                "NativeCommandPoll",
+            ).start()
+        }
 
-        if (canUseJsStreaming()) return
+        // When React is active it receives STOMP stream-request wakes, but we must still
+        // poll for parent-initiated stops while capture runs — pauseStreamingListener()
+        // stops the JS poll timer in background while jsListenerActive stays true.
+        val jsHandlesPendingWake = canUseJsStreaming()
 
         // P1-6: Skip the pending-sessions HTTP poll when a stream is already active.
         // STOMP will have already delivered the same request; making this call every 3s
         // during active streaming is pure battery drain with no benefit.
         // The active-session check below is still needed to detect parent-initiated stops.
-        if (!hasActiveStreamSession()) {
+        if (!hasActiveStreamSession() && !jsHandlesPendingWake) {
             val pendingJson = DeviceHttpClient.get(context, ApiPaths.CHILD_STREAMING_PENDING)
             if (pendingJson != null) {
                 try {
@@ -816,7 +868,11 @@ object NativeStreamingCoordinator {
             val activeJson = DeviceHttpClient.get(context, ApiPaths.CHILD_STREAMING_ACTIVE) ?: return
             val activeRoot = JSONObject(activeJson)
             if (activeRoot.isNull("data")) {
-                if (activeSessionId != null || nativeScreenActive || NativeStreamPublisher.isRunning()) {
+                if (activeSessionId != null ||
+                    nativeScreenActive ||
+                    NativeStreamPublisher.isRunning() ||
+                    localCaptureActive()
+                ) {
                     if (StreamSessionRegistry.isNegotiatingOrReconnecting()) {
                         resetActivePollMisses()
                         return
@@ -831,7 +887,13 @@ object NativeStreamingCoordinator {
                         (
                             StreamSessionRegistry.activeOwner() ==
                                 StreamSessionRegistry.Owner.JS_HIDDEN &&
-                                ScreenCaptureForegroundService.isForegroundActive()
+                                (
+                                    ScreenCaptureForegroundService.isForegroundActive() ||
+                                        CameraStreamForegroundService.isActive() ||
+                                        AudioStreamForegroundService.isActive() ||
+                                        HiddenCameraBridge.isCaptureActive() ||
+                                        HiddenAudioBridge.isCaptureActive()
+                                )
                         )
                     ) {
                         if (!noteActivePollMiss(
@@ -845,11 +907,15 @@ object NativeStreamingCoordinator {
                         return
                     }
                     if (ScreenCaptureForegroundService.isForegroundActive() ||
-                        NativeStreamPublisher.isRunning()
+                        NativeStreamPublisher.isRunning() ||
+                        CameraStreamForegroundService.isActive() ||
+                        AudioStreamForegroundService.isActive() ||
+                        HiddenCameraBridge.isCaptureActive() ||
+                        HiddenAudioBridge.isCaptureActive()
                     ) {
                         if (!noteActivePollMiss(
                                 "pollSessions:",
-                                "empty active payload while native screen pipeline is alive",
+                                "empty active payload while local capture pipeline is alive",
                             )
                         ) {
                             return
@@ -866,6 +932,15 @@ object NativeStreamingCoordinator {
             val sessionId = active.optString("sessionId")
             val status = active.optString("status")
             if (sessionId == activeSessionId && (status == "ACTIVE" || status == "PENDING")) {
+                if (localCaptureActive() && JsViewerPresenceTracker.shouldReleaseCapture()) {
+                    Log.w(
+                        TAG,
+                        "pollSessions: parent viewer ICE idle — releasing capture " +
+                            "session=$sessionId tracker=${JsViewerPresenceTracker.snapshot()}",
+                    )
+                    stopAllStreams(context, "parent viewer idle (ICE poll)")
+                    return
+                }
                 resetActivePollMisses()
                 return
             }

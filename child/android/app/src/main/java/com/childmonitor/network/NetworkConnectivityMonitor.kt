@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -50,44 +49,37 @@ object NetworkConnectivityMonitor {
         connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val networkRequest = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                .build()
-                
             networkCallback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    Log.i(TAG, "Network available: $network")
+                    Log.i(TAG, "Default network available: $network")
                     handleNetworkChange(context, isNetworkAvailable(context))
                 }
-                
+
                 override fun onLost(network: Network) {
-                    Log.i(TAG, "Network lost: $network")
-                    // Another network may still have internet — re-check before flipping offline.
+                    Log.i(TAG, "Default network lost: $network")
                     handleNetworkChange(context, isNetworkAvailable(context))
                 }
-                
+
                 override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-                    val thisNetOk = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                        networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                    val globalOk = isNetworkAvailable(context)
+                    val online = isNetworkAvailable(context)
                     Log.d(
                         TAG,
-                        "Network capabilities changed: $network, hasInternet=$thisNetOk globalOk=$globalOk",
+                        "Default network capabilities changed: $network online=$online",
                     )
-                    // During wifi↔cellular handoff, activeNetwork can briefly be null/unvalidated
-                    // while the callback network is already validated — treat either as online.
-                    handleNetworkChange(context, thisNetOk || globalOk)
+                    handleNetworkChange(context, online)
                 }
             }
-            
+
             val callback = networkCallback
             if (callback != null) {
-                connectivityManager?.registerNetworkCallback(networkRequest, callback)
+                // Track the system default network (Wi‑Fi ↔ cellular handoff) instead of a
+                // filtered INTERNET+VALIDATED request — some OEMs never deliver onLost on the
+                // filtered callback when airplane mode is enabled, leaving capture stuck on.
+                connectivityManager?.registerDefaultNetworkCallback(callback)
             } else {
-                Log.w(TAG, "Network monitoring: networkCallback missing; skipping registerNetworkCallback")
+                Log.w(TAG, "Network monitoring: networkCallback missing; skipping registerDefaultNetworkCallback")
             }
-            Log.i(TAG, "Network monitoring started")
+            Log.i(TAG, "Network monitoring started (default network callback)")
         } else {
             // For older Android versions, we'll rely on periodic heartbeat checks
             Log.i(TAG, "Network monitoring not available on Android < N, using periodic checks")
