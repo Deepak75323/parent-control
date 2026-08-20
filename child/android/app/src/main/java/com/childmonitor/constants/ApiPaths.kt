@@ -22,6 +22,7 @@ object ApiPaths {
     const val DEVICE_TAMPER_OFFLINE_PIN = "$DEVICE/tamper/offline-pin"
     const val DEVICE_TAMPER_ADMIN_DISABLED = "$DEVICE/tamper/admin-disabled"
     const val DEVICE_TELEMETRY_BATCH = "$DEVICE/telemetry/batch"
+    const val DEVICE_ANALYTICS_BATCH = "$DEVICE/analytics/batch"
     const val DEVICE_TIME_EXTENSION_REQUESTS = "$DEVICE/time-extension-requests"
 
     const val CHILD_POLICIES = "$V1/child/policies"

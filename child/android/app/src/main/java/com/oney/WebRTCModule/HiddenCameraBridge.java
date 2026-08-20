@@ -29,7 +29,30 @@ public final class HiddenCameraBridge {
     private HiddenCameraBridge() {}
 
     public static boolean isCaptureActive() {
-        return activeStreamId != null;
+        return activeStreamId != null || activeController != null;
+    }
+
+    /**
+     * Stop CameraX / legacy capturer hardware without React context.
+     * Clears the green camera privacy indicator even when JS is backgrounded.
+     */
+    public static void stopActiveCaptureHardware() {
+        activeStreamId = null;
+        AbstractVideoCaptureController ctrl = activeController;
+        activeController = null;
+        if (ctrl != null) {
+            try {
+                ctrl.stopCapture();
+                Log.i(TAG, "stopActiveCaptureHardware: capturer stopped, camera unbound");
+            } catch (Exception e) {
+                Log.w(TAG, "stopActiveCaptureHardware: capturer stopCapture failed", e);
+            }
+        }
+        try {
+            com.childmonitor.capture.CameraAccessManager.INSTANCE.releaseCamera();
+        } catch (Exception e) {
+            Log.w(TAG, "stopActiveCaptureHardware: CameraAccessManager.release failed", e);
+        }
     }
 
     /**
@@ -194,23 +217,7 @@ public final class HiddenCameraBridge {
 
     public static void stopActiveCapture(ReactApplicationContext reactContext) {
         String streamId = activeStreamId;
-        activeStreamId = null;
-
-        // Stop the CameraX capturer first so ProcessCameraProvider.unbindAll() runs
-        // synchronously and the green camera privacy indicator is cleared immediately.
-        // Do this even when streamId is already null — PC may still hold the track while
-        // the controller reference remains (network-loss teardown race).
-        AbstractVideoCaptureController ctrl = activeController;
-        activeController = null;
-        if (ctrl != null) {
-            try {
-                ctrl.stopCapture();
-                Log.i(TAG, "stopActiveCapture: capturer stopped, camera unbound");
-            } catch (Exception e) {
-                Log.w(TAG, "stopActiveCapture: capturer stopCapture failed", e);
-            }
-        }
-
+        stopActiveCaptureHardware();
         if (streamId == null) {
             return;
         }

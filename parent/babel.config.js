@@ -31,6 +31,7 @@ module.exports = {
           'DEV_AUTO_EMAIL',
           'DEV_AUTO_PASSWORD',
           'ENABLE_SSL_PINNING',
+          'ENABLE_VIEWER_ROTATE',
           'API_PAYLOAD_ENCRYPTION_ENABLED',
           'API_PAYLOAD_ENCRYPTION_KEY',
           'API_PAYLOAD_ENCRYPTION_IV',

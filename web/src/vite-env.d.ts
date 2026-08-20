@@ -7,6 +7,7 @@ interface ImportMetaEnv {
   readonly VITE_API_PAYLOAD_ENCRYPTION_ENABLED?: string;
   readonly VITE_API_PAYLOAD_ENCRYPTION_KEY?: string;
   readonly VITE_API_PAYLOAD_ENCRYPTION_IV?: string;
+  readonly VITE_ENABLE_VIEWER_ROTATE?: string;
 }
 
 interface ImportMeta {

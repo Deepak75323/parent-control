@@ -32,6 +32,7 @@ import com.childmonitor.accessibility.ScreenCaptureAutoApprove
 import com.childmonitor.capture.DevicePlaybackCaptureSession
 import com.childmonitor.capture.DevicePlaybackAudioCapturer
 import com.childmonitor.capture.PlaybackCaptureInjector
+import com.childmonitor.capture.JsViewerPresenceTracker
 import com.childmonitor.capture.HiddenAudioCapture
 import com.childmonitor.capture.CameraAccessManager
 import com.childmonitor.capture.HiddenCameraCapture
@@ -157,6 +158,16 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("TEARDOWN_COMPLETE_ERROR", e)
+        }
+    }
+
+    @ReactMethod
+    fun reportJsIceConnectionState(state: String, promise: Promise) {
+        try {
+            JsViewerPresenceTracker.onIceState(state)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ICE_STATE_ERROR", e)
         }
     }
 

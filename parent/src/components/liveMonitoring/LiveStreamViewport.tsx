@@ -23,6 +23,7 @@ import {StreamControlBar} from './StreamControlBar';
 import {flowLog} from '../../services/streamDebug';
 import {mapContainTouchToNorm, videoAspectFromStream} from './remoteControlCoords';
 import {nativeModules} from '../../nativeModules';
+import {config} from '../../utils/config';
 import {
   nextViewerRotateDeg,
   nextPinchScale,
@@ -32,6 +33,9 @@ import {
   VIEWER_ZOOM_STEP_PERCENT,
   type ViewerRotateDeg,
 } from '../../utils/viewerVideoRotate';
+
+/** Viewer-only rotate UI — off by default; enable with ENABLE_VIEWER_ROTATE=true. */
+const ENABLE_VIEWER_ROTATE = config.enableViewerRotate;
 
 type StreamType = 'SCREEN' | 'CAMERA' | 'AUDIO';
 
@@ -151,6 +155,7 @@ export function LiveStreamViewport({
   const [pipPos, setPipPos] = useState(() =>
     defaultPipPosition(layout, window.width, window.height),
   );
+  const effectiveViewRotate: ViewerRotateDeg = ENABLE_VIEWER_ROTATE ? viewRotate : 0;
 
   useEffect(() => {
     setViewRotate(0);
@@ -171,7 +176,12 @@ export function LiveStreamViewport({
   const primaryRtcRef = useRef<View>(null);
 
   const applyAndroidViewerTransform = useCallback(() => {
-    if (Platform.OS !== 'android' || !isLive || streamType === 'AUDIO') {
+    if (
+      !ENABLE_VIEWER_ROTATE ||
+      Platform.OS !== 'android' ||
+      !isLive ||
+      streamType === 'AUDIO'
+    ) {
       return;
     }
     const tag = findNodeHandle(primaryRtcRef.current);
@@ -179,8 +189,8 @@ export function LiveStreamViewport({
       return;
     }
     // Zoom is layout-based on Android; native only rotates the SurfaceViewRenderer.
-    nativeModules.applyViewerVideoTransform(tag, viewRotate, 1).catch(() => undefined);
-  }, [isLive, streamType, viewRotate]);
+    nativeModules.applyViewerVideoTransform(tag, effectiveViewRotate, 1).catch(() => undefined);
+  }, [isLive, streamType, effectiveViewRotate]);
 
   // Android SurfaceView ignores RN transforms — apply rotation natively (Fabric-safe).
   useEffect(() => {
@@ -384,13 +394,13 @@ export function LiveStreamViewport({
               style={[
                 Platform.OS === 'android'
                   ? androidViewerVideoLayout(
-                      viewRotate,
+                      effectiveViewRotate,
                       viewportSize.width,
                       viewportSize.height,
                       pinchScale,
                     )
                   : rnViewerVideoRotateStyle(
-                      viewRotate,
+                      effectiveViewRotate,
                       viewportSize.width,
                       viewportSize.height,
                       pinchScale,
@@ -486,7 +496,12 @@ export function LiveStreamViewport({
           recording={recording}
           recordingSupported={recordingSupported}
           onToggleRecording={onToggleRecording}
-          showViewRotate={isLive && streamType !== 'AUDIO' && !remoteControlEnabled}
+          showViewRotate={
+            ENABLE_VIEWER_ROTATE &&
+            isLive &&
+            streamType !== 'AUDIO' &&
+            !remoteControlEnabled
+          }
           viewRotateDeg={viewRotate}
           onRotateView={() => setViewRotate(d => nextViewerRotateDeg(d))}
           onResetViewRotate={() => setViewRotate(0)}
