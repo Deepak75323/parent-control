@@ -125,15 +125,27 @@ public final class HiddenAudioBridge {
         return activeStreamId != null;
     }
 
-    public static void stopActiveCapture(ReactApplicationContext reactContext) {
-        String streamId = activeStreamId;
-        if (streamId == null) {
-            return;
-        }
+    /**
+     * Clear mic bridge state and abandon audio focus without React context.
+     * WebRTC ADM stop is handled separately by StreamTeardownCoordinator.
+     */
+    public static void stopActiveCaptureHardware(Context appContext) {
         activeStreamId = null;
         activeReactContext = null;
         onStopForegroundCallback = null;
-        abandonAudioFocus(reactContext.getApplicationContext());
+        if (appContext != null) {
+            abandonAudioFocus(appContext);
+            Log.i(TAG, "stopActiveCaptureHardware: audio focus abandoned");
+        }
+    }
+
+    public static void stopActiveCapture(ReactApplicationContext reactContext) {
+        String streamId = activeStreamId;
+        Context appContext = reactContext.getApplicationContext();
+        stopActiveCaptureHardware(appContext);
+        if (streamId == null) {
+            return;
+        }
         try {
             WebRTCModule webrtc = reactContext.getNativeModule(WebRTCModule.class);
             if (webrtc != null) {

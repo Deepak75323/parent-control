@@ -38,5 +38,10 @@ export const config = {
   wsBaseUrl: process.env.WS_BASE_URL ?? `${defaultApiBase}/ws`,
   wsNativeUrl: process.env.WS_NATIVE_URL ?? deriveWsNativeUrl(defaultApiBase),
   enableSslPinning: process.env.ENABLE_SSL_PINNING === 'true',
+  /**
+   * Viewer-only video rotate (parent UI). Default off — set ENABLE_VIEWER_ROTATE=true
+   * in parent/.env for local/dev experiments. Does not move the child camera.
+   */
+  enableViewerRotate: process.env.ENABLE_VIEWER_ROTATE === 'true',
   devIceServers,
 };

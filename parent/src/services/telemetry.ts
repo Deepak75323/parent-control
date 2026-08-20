@@ -122,6 +122,9 @@ export function trackScreen(screenName: string): void {
     data: props,
     level: 'info',
   });
+  void import('./analyticsUtils').then(({trackScreenAnalytics}) => {
+    trackScreenAnalytics(screenName);
+  }).catch(() => undefined);
 }
 
 export function track(event: string, props?: TelemetryProps): void {
@@ -136,6 +139,9 @@ export function track(event: string, props?: TelemetryProps): void {
     data,
     level: 'info',
   });
+  void import('./analyticsUtils').then(({trackTelemetryEventAsAnalytics}) => {
+    trackTelemetryEventAsAnalytics(event, props);
+  }).catch(() => undefined);
 }
 
 export function captureException(error: unknown, context?: TelemetryProps): void {
@@ -143,6 +149,13 @@ export function captureException(error: unknown, context?: TelemetryProps): void
   if (__DEV__) {
     console.warn('[telemetry] exception', error, context);
   }
+  void import('./analyticsUtils').then(({trackErrorAnalytics, AnalyticsConstants, EventType}) => {
+    const message = error instanceof Error ? error.message : String(error);
+    trackErrorAnalytics(AnalyticsConstants.eventSection.SYSTEM, AnalyticsConstants.eventLabel.EXCEPTION, {
+      message,
+      ...sanitizeProps(context),
+    });
+  }).catch(() => undefined);
   if (!sentry) return;
   if (context) {
     sentry.withScope(scope => {

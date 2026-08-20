@@ -10,6 +10,7 @@ export const ApiPaths = {
   DEVICE_PREFIX: `${V1}/device/`,
   DEVICE_PAIR: `${V1}/device/pair`,
   DEVICE_HEARTBEAT: `${V1}/device/heartbeat`,
+  DEVICE_ANALYTICS_BATCH: `${V1}/device/analytics/batch`,
   DEVICE_PERMISSION_STATUS: `${V1}/device/permission-status`,
   DEVICE_NOTIFICATIONS: `${V1}/device/notifications`,
   DEVICE_LOCATION: `${V1}/device/location`,
