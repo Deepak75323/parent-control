@@ -225,6 +225,30 @@ object NativeStreamingCoordinator {
     private fun canUseJsStreaming(): Boolean =
         jsListenerActive.get() && ChildMonitorNativeModule.canDeliverStreamToJs()
 
+    private fun markActiveStream(roomId: String, sessionId: String) {
+        activeRoomId = roomId
+        activeSessionId = sessionId
+    }
+
+    private fun clearActiveStream() {
+        activeRoomId = null
+        activeSessionId = null
+    }
+
+    private fun isSameSessionAlreadyLive(sessionId: String, roomId: String): Boolean =
+        NativeStreamingHandoffPolicy.isSameSessionAlreadyLive(
+            activeSessionId = activeSessionId,
+            activeRoomId = activeRoomId,
+            requestedSessionId = sessionId,
+            requestedRoomId = roomId,
+            nativePublisherRunning = NativeStreamPublisher.isRunning(),
+            registrySessionId = StreamSessionRegistry.activeSessionId(),
+            screenFgsActive = ScreenCaptureForegroundService.isForegroundActive(),
+            cameraActive = CameraStreamForegroundService.isActive(),
+            audioActive = AudioStreamForegroundService.isActive(),
+            startInProgress = streamStartInProgress.get(),
+        )
+
     /**
      * Guarantee JS receives a stream-request when the native coordinator sees it first.
      * @return true if [emitStreamWake] was delivered to an active React instance.
@@ -235,8 +259,6 @@ object NativeStreamingCoordinator {
         sessionId: String,
         cameraFacing: String?,
     ): Boolean {
-        activeRoomId = roomId
-        activeSessionId = sessionId
         PcpFlowLogger.log(
             PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
             "delegating stream request to JS",
@@ -247,6 +269,7 @@ object NativeStreamingCoordinator {
             roomId, streamType, sessionId, cameraFacing,
         )
         if (delivered) {
+            markActiveStream(roomId, sessionId)
             PcpFlowLogger.log(
                 PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
                 "JS wake event emitted",
@@ -270,8 +293,6 @@ object NativeStreamingCoordinator {
         streamType: String,
         cameraFacing: String?,
     ) {
-        activeRoomId = roomId
-        activeSessionId = sessionId
         if (canUseJsStreaming()) {
             PcpFlowLogger.log(
                 PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
@@ -281,7 +302,10 @@ object NativeStreamingCoordinator {
             val delivered = ChildMonitorNativeModule.emitStreamWake(
                 roomId, streamType, sessionId, cameraFacing,
             )
-            if (delivered) return
+            if (delivered) {
+                markActiveStream(roomId, sessionId)
+                return
+            }
             Log.w(
                 TAG,
                 "JS listener flagged but React inactive — falling back to headless " +
@@ -310,6 +334,7 @@ object NativeStreamingCoordinator {
             "type=$streamType session=$sessionId jsFlag=${jsListenerActive.get()} " +
                 "reactActive=${ChildMonitorNativeModule.canDeliverStreamToJs()}",
         )
+        markActiveStream(roomId, sessionId)
         StreamingHeadlessTaskService.start(context, roomId, sessionId, streamType, cameraFacing)
     }
 
@@ -469,7 +494,7 @@ object NativeStreamingCoordinator {
 
         // Remote streams never launch MainActivity — headless or silent JS only.
         if (isBackgroundStream(streamType)) {
-            if (activeSessionId == sessionId && activeRoomId == roomId) return
+            if (isSameSessionAlreadyLive(sessionId, roomId)) return
 
             val kind = streamKindFrom(streamType)
 
@@ -518,8 +543,7 @@ object NativeStreamingCoordinator {
                         "kind=$kind session=$sessionId")
                     // FGS pre-warmed — fall through to stream start below.
                 } else {
-                    activeRoomId = roomId
-                    activeSessionId = sessionId
+                    markActiveStream(roomId, sessionId)
                     val useNativeScreen =
                         kind == StreamKind.SCREEN &&
                             canUseStoredProjection(context) &&
@@ -577,8 +601,7 @@ object NativeStreamingCoordinator {
                     StreamTeardownCoordinator.abortPendingJsTeardown("new native screen cold start")
                 }
                 nativeScreenActive = false
-                activeRoomId = roomId
-                activeSessionId = sessionId
+                markActiveStream(roomId, sessionId)
                 PcpFlowLogger.log(
                     PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
                     "native capture start",
@@ -600,13 +623,12 @@ object NativeStreamingCoordinator {
             }
         }
 
-        if (activeSessionId == sessionId && activeRoomId == roomId) {
+        if (isSameSessionAlreadyLive(sessionId, roomId)) {
             return
         }
 
         stopAllStreams(context, "starting headless RN stream")
-        activeRoomId = roomId
-        activeSessionId = sessionId
+        markActiveStream(roomId, sessionId)
         StreamingHeadlessTaskService.start(context, roomId, sessionId, streamType, cameraFacing)
     }
 
@@ -703,8 +725,7 @@ object NativeStreamingCoordinator {
         Log.i(TAG, "stopAllStreams reason=$reason")
         resetActivePollMisses()
         nativeScreenActive = false
-        activeRoomId = null
-        activeSessionId = null
+        clearActiveStream()
         StreamCaptureTeardown.stopAll(context, reason)
     }
 
@@ -721,7 +742,8 @@ object NativeStreamingCoordinator {
                 }
             }
         }
-        mainHandler.post(pollRunnable!!)
+        val runnable = pollRunnable ?: return
+        mainHandler.post(runnable)
     }
 
     private fun pollSessions(context: Context) {

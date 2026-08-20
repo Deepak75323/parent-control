@@ -812,7 +812,7 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
             val map: WritableMap = Arguments.createMap()
             map.putDouble("latitude", loc.latitude)
             map.putDouble("longitude", loc.longitude)
-            if (loc.accuracyM != null) map.putDouble("accuracyM", loc.accuracyM!!.toDouble())
+            if (loc.accuracyM != null) map.putDouble("accuracyM", loc.accuracyM.toDouble())
             promise.resolve(map)
         } catch (e: Exception) {
             promise.reject("LOCATION_ERROR", e)
@@ -1717,7 +1717,8 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
             }
             reactContext.startActivity(intent)
             Handler(Looper.getMainLooper()).postDelayed({
-                val resumed = currentActivity != null && !currentActivity!!.isFinishing
+                val resumedActivity = currentActivity
+                val resumed = resumedActivity != null && !resumedActivity.isFinishing
                 PcpFlowLogger.log(
                     PcpFlowLogger.Category.PERMISSION_FLOW,
                     "ensureForeground result",

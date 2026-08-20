@@ -81,7 +81,16 @@ const PairingCompleteContext = createContext<PairingContextValue | null>(null);
 export function usePairingComplete() {
   const ctx = useContext(PairingCompleteContext);
   if (!ctx) {
-    throw new Error('usePairingComplete must be used within RootNavigator');
+    // Reliability requirement: never crash the Child app due to a hook being rendered
+    // outside its expected provider. Instead, log and return a safe no-op context so
+    // the UI can continue operating.
+    console.error('usePairingComplete used without RootNavigator provider');
+    return {
+      markPaired: () => {},
+      markUnpaired: async () => {},
+      markRePairing: async () => {},
+      pairedParentDisplayName: null,
+    };
   }
   return ctx;
 }

@@ -30,20 +30,20 @@ object Android16ReadinessEvaluator {
         val warnings = mutableListOf<String>()
 
         checks["paired"] = MonitoringPrefs.isPaired(context)
-        if (!checks["paired"]!!) blockers.add("NOT_PAIRED")
+        if (checks["paired"] != true) blockers.add("NOT_PAIRED")
 
         checks["burstFgsPath"] = AndroidPlatform.useBurstFgs()
-        if (!checks["burstFgsPath"]!! && Build.VERSION.SDK_INT >= AndroidPlatform.SDK_ANDROID_16) {
+        if (checks["burstFgsPath"] != true && Build.VERSION.SDK_INT >= AndroidPlatform.SDK_ANDROID_16) {
             blockers.add("LEGACY_FGS_ON_API36")
         }
 
         checks["mediaProjectionConsent"] =
             MediaProjectionTokenStore.getConsentState(context) ==
                 MediaProjectionConsentState.GRANTED_ACTIVE
-        if (!checks["mediaProjectionConsent"]!!) warnings.add("MEDIA_PROJECTION_INACTIVE")
+        if (checks["mediaProjectionConsent"] != true) warnings.add("MEDIA_PROJECTION_INACTIVE")
 
         checks["accessibilityEnabled"] = AccessibilityHealthChecker.isAccessibilityEnabled(context)
-        if (!checks["accessibilityEnabled"]!!) blockers.add("ACCESSIBILITY_DISABLED")
+        if (checks["accessibilityEnabled"] != true) blockers.add("ACCESSIBILITY_DISABLED")
 
         checks["cameraPermission"] =
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -51,18 +51,18 @@ object Android16ReadinessEvaluator {
         checks["micPermission"] =
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED
-        if (!checks["cameraPermission"]!!) warnings.add("CAMERA_NOT_GRANTED")
-        if (!checks["micPermission"]!!) warnings.add("MIC_NOT_GRANTED")
+        if (checks["cameraPermission"] != true) warnings.add("CAMERA_NOT_GRANTED")
+        if (checks["micPermission"] != true) warnings.add("MIC_NOT_GRANTED")
 
         checks["notificationPermission"] = notificationGranted(context)
-        if (!checks["notificationPermission"]!!) warnings.add("NOTIFICATIONS_NOT_GRANTED")
+        if (checks["notificationPermission"] != true) warnings.add("NOTIFICATIONS_NOT_GRANTED")
 
         checks["oemSetupComplete"] = OemSetupValidator.isOemSetupComplete(context)
-        if (!checks["oemSetupComplete"]!!) warnings.add("OEM_SETUP_INCOMPLETE")
+        if (checks["oemSetupComplete"] != true) warnings.add("OEM_SETUP_INCOMPLETE")
 
         checks["workManagerRecovery"] =
             com.childmonitor.monitoring.MonitoringWorkScheduler.isScheduled(context)
-        if (!checks["workManagerRecovery"]!!) warnings.add("WORKMANAGER_NOT_SCHEDULED")
+        if (checks["workManagerRecovery"] != true) warnings.add("WORKMANAGER_NOT_SCHEDULED")
 
         // P1-08: burst path + WorkManager must coexist; degradation is expected, not a blocker.
         checks["dataSyncQuotaAware"] = AndroidPlatform.useBurstFgs()
@@ -77,7 +77,7 @@ object Android16ReadinessEvaluator {
         checks["manifestFgsTypesDeclared"] = true // validated by Android16ManifestComplianceTest
         // P2-09: gate must be wired and strict flag on for API 36 certification.
         checks["projectionGateReady"] = Android16FeatureFlags.isStrictProjectionGateEnabled(context)
-        if (!checks["projectionGateReady"]!!) warnings.add("STRICT_PROJECTION_GATE_DISABLED")
+        if (checks["projectionGateReady"] != true) warnings.add("STRICT_PROJECTION_GATE_DISABLED")
 
         var score = 0
         if (checks["paired"] == true) score += 10
