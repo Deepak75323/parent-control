@@ -2035,29 +2035,36 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
 
     @ReactMethod
     fun getDeviceAttestation(purpose: String, promise: Promise) {
-        try {
-            val ctx = reactContext.applicationContext
-            val normalizedPurpose = purpose.ifBlank { "pair" }
-            val integrityToken = PlayIntegrityHelper.requestToken(ctx, normalizedPurpose)
-            val signals = DeviceTrustSignalsCollector.collect(ctx)
-            val map = Arguments.createMap()
-            if (!integrityToken.isNullOrBlank()) {
-                map.putString("integrityToken", integrityToken)
-            }
-            val signalsMap = Arguments.createMap()
-            signalsMap.putBoolean("rootDetected", signals.rootDetected)
-            signalsMap.putBoolean("magiskDetected", signals.magiskDetected)
-            signalsMap.putBoolean("fridaDetected", signals.fridaDetected)
-            signalsMap.putBoolean("emulatorDetected", signals.emulatorDetected)
-            signalsMap.putBoolean("debuggerAttached", signals.debuggerAttached)
-            signalsMap.putBoolean("hooksDetected", signals.hooksDetected)
-            signalsMap.putBoolean("testKeysBuild", signals.testKeysBuild)
-            signalsMap.putString("collectorVersion", signals.collectorVersion)
-            map.putMap("trustSignals", signalsMap)
-            promise.resolve(map)
-        } catch (e: Exception) {
-            promise.reject("DEVICE_ATTESTATION_ERROR", e)
-        }
+        // Never block the RN native-modules thread — Play Integrity uses a latch of up to 15s
+        // and freezing that queue leaves PairingScreen stuck on "Pairing…".
+        Thread(
+            {
+                try {
+                    val ctx = reactContext.applicationContext
+                    val normalizedPurpose = purpose.ifBlank { "pair" }
+                    val integrityToken = PlayIntegrityHelper.requestToken(ctx, normalizedPurpose)
+                    val signals = DeviceTrustSignalsCollector.collect(ctx)
+                    val map = Arguments.createMap()
+                    if (!integrityToken.isNullOrBlank()) {
+                        map.putString("integrityToken", integrityToken)
+                    }
+                    val signalsMap = Arguments.createMap()
+                    signalsMap.putBoolean("rootDetected", signals.rootDetected)
+                    signalsMap.putBoolean("magiskDetected", signals.magiskDetected)
+                    signalsMap.putBoolean("fridaDetected", signals.fridaDetected)
+                    signalsMap.putBoolean("emulatorDetected", signals.emulatorDetected)
+                    signalsMap.putBoolean("debuggerAttached", signals.debuggerAttached)
+                    signalsMap.putBoolean("hooksDetected", signals.hooksDetected)
+                    signalsMap.putBoolean("testKeysBuild", signals.testKeysBuild)
+                    signalsMap.putString("collectorVersion", signals.collectorVersion)
+                    map.putMap("trustSignals", signalsMap)
+                    promise.resolve(map)
+                } catch (e: Exception) {
+                    promise.reject("DEVICE_ATTESTATION_ERROR", e)
+                }
+            },
+            "DeviceAttestation",
+        ).start()
     }
 
     companion object {
