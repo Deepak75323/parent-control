@@ -233,7 +233,8 @@ class CameraXVideoCapturer(
         val degrees = CameraOrientationHelper.webrtcFrameRotationDegrees(surfaceRotation)
         val apply = {
             try {
-                previewUseCase?.setTargetRotation(Surface.ROTATION_0)
+                // Do not call Preview.setTargetRotation here — MIUI rescales into a fixed
+                // buffer and the parent feed looks horizontally stretched. WebRTC CVO only.
                 helper.setFrameRotation(degrees)
                 Log.i(
                     TAG,

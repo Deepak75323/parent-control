@@ -3,6 +3,7 @@ package com.parentalcontrol.device.dto;
 import com.parentalcontrol.device.domain.DeviceStatus;
 import com.parentalcontrol.device.domain.DeviceTrustLevel;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
@@ -44,4 +45,14 @@ public class DeviceResponse {
   private Boolean monitoringDegraded;
   private String monitoringMode;
   private String standbyBucket;
+  /** Child heartbeat OEM diagnostics — surfaced for parent readiness checklist. */
+  private Boolean permBattery;
+  private Boolean permAutostart;
+  private Boolean permFullScreenIntent;
+  private Boolean permNotifications;
+  private Boolean permCamera;
+  private Boolean permMicrophone;
+  private Boolean permOverlay;
+  private Boolean permAccessibility;
+  private List<String> readinessFailureTags;
 }

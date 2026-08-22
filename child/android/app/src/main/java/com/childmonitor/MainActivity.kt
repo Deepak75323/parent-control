@@ -26,6 +26,11 @@ class MainActivity : ReactActivity() {
     handleStreamWakeIntent(intent)
   }
 
+  override fun onStart() {
+    super.onStart()
+    com.childmonitor.capture.AppForegroundState.onActivityVisible()
+  }
+
   override fun onResume() {
     super.onResume()
     SetupAccessNotificationHelper.sync(this)
@@ -40,6 +45,7 @@ class MainActivity : ReactActivity() {
   }
 
   override fun onStop() {
+    com.childmonitor.capture.AppForegroundState.onActivityHidden()
     StreamLifecycleLogger.log("APP_BACKGROUND", "MainActivity.onStop uiVisible=false")
     super.onStop()
   }

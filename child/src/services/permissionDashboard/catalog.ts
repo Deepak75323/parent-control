@@ -1,4 +1,3 @@
-import {Platform} from 'react-native';
 import type {PermissionDef, PermissionGroupDef, PermissionId} from './types';
 
 /**
@@ -7,13 +6,11 @@ import type {PermissionDef, PermissionGroupDef, PermissionId} from './types';
  */
 export const RUNTIME_PERMISSION_ORDER: PermissionId[] = [
   'camera',
-  ...(Platform.OS === 'android' && Platform.Version >= 33
-    ? (['postNotifications'] as PermissionId[])
-    : []),
 ];
 
 export const SPECIAL_PERMISSION_ORDER: PermissionId[] = [
   'accessibility',
+  'overlay',
   'battery',
   'autoStart',
   'deviceAdmin',
@@ -34,7 +31,7 @@ export const OPTIONAL_PERMISSION_IDS: PermissionId[] = [
   'microphone',
   'usageStats',
   'notificationAccess',
-  'overlay',
+  'postNotifications',
   'fullScreenIntent',
   'screenCapture',
 ];
@@ -66,7 +63,7 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
     kind: 'runtime',
     label: 'Notifications',
     explanation:
-      'Allow notifications so Clock Time can stay running and show when your parent starts live camera.',
+      'Notifications are optional. Live camera uses overlay instead of a visible alert. Turn notifications off to hide the quiet Clock Time shade bubble.',
   },
   accessibility: {
     id: 'accessibility',
@@ -94,7 +91,8 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
     id: 'overlay',
     kind: 'special',
     label: 'Display over other apps',
-    explanation: 'Allow Clock Time to show block screens and reminders on top of other apps.',
+    explanation:
+      'Allow Clock Time to start a requested live camera, screen, or sound session reliably when it is not open.',
     settingsHint: 'Turn on “Allow display over other apps” for Clock Time.',
   },
   battery: {
@@ -142,15 +140,15 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
 
 export function buildPermissionGroups(requiresAutoStart: boolean): PermissionGroupDef[] {
   const backgroundIds: PermissionId[] = requiresAutoStart
-    ? ['battery', 'autoStart', 'deviceAdmin']
-    : ['battery', 'deviceAdmin'];
+    ? ['overlay', 'battery', 'autoStart', 'deviceAdmin']
+    : ['overlay', 'battery', 'deviceAdmin'];
 
   return [
     {
       id: 'basicRuntime',
       icon: '✅',
       title: 'Basic permissions',
-      description: 'Camera and notifications — tap Allow when asked.',
+      description: 'Camera — tap Allow when asked.',
       permissionIds: [...RUNTIME_PERMISSION_ORDER],
     },
     {

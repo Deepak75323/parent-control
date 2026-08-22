@@ -7,7 +7,6 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
-  Platform,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect} from '@react-navigation/native';
@@ -145,23 +144,18 @@ export function CheckPermissionsScreen({navigation}: Props) {
       setLoading(true);
     }
     try {
-      const needsPostNotifications = Platform.OS === 'android' && Platform.Version >= 33;
       const requiresOem = await nativeModules.requiresOemBackgroundSetup();
       const [
         accessibility,
         camera,
         deviceAdmin,
         battery,
-        postNotifications,
         oemAutostart,
       ] = await Promise.all([
         nativeModules.isAccessibilityEnabled(),
         nativeModules.isCameraGranted(),
         nativeModules.isDeviceAdminActive(),
         nativeModules.isBatteryOptimizationExempt(),
-        needsPostNotifications
-          ? nativeModules.isPostNotificationsGranted()
-          : Promise.resolve(true),
         requiresOem ? nativeModules.isOemAutostartPromptDone() : Promise.resolve(true),
       ]);
 
@@ -175,7 +169,7 @@ export function CheckPermissionsScreen({navigation}: Props) {
           accessibility,
           deviceAdmin,
           overlay: true,
-          notification: postNotifications,
+          notification: true,
           screenCapture: true,
           camera,
           microphone: true,
@@ -203,19 +197,6 @@ export function CheckPermissionsScreen({navigation}: Props) {
           grant: nativeModules.requestCameraPermission,
         },
       ];
-
-      if (needsPostNotifications) {
-        next.push({
-          key: 'postNotifications',
-          icon: '🔔',
-          title: 'Notifications',
-          features: 'Lets Clock Time stay running and wake for live camera',
-          granted: postNotifications,
-          grant: async () => {
-            await nativeModules.requestPostNotificationsPermission();
-          },
-        });
-      }
 
       next.push(
         {

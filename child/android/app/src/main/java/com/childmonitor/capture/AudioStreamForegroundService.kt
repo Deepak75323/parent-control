@@ -69,6 +69,7 @@ class AudioStreamForegroundService : Service() {
             notificationId = NOTIFICATION_ID,
             notification = notification,
             preferredTypes = ForegroundServiceCrashGuard.audioPromotionTypes(),
+            allowUntypedFallback = false,
         )
         if (!promoted) {
             foregroundActive = false

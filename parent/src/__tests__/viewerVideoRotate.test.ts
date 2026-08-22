@@ -7,6 +7,7 @@ import {
   prevViewerRotateDeg,
   rnViewerVideoRotateStyle,
   androidViewerVideoLayout,
+  androidViewerContainVideoLayout,
   viewerRotateFitScale,
   formatViewerZoomLabel,
   scaleToViewerZoomPercent,
@@ -72,5 +73,13 @@ describe('viewerVideoRotate (parent)', () => {
     expect(rotated.width).toBe(400);
     expect(rotated.height).toBe(800);
     expect(rotated.left).toBe(0);
+  });
+
+  it('letterboxes Android contain layout using video aspect', () => {
+    const contained = androidViewerContainVideoLayout(400, 800, 3 / 4);
+    expect(contained.width).toBe(400);
+    expect(contained.height).toBeCloseTo(533.33, 1);
+    expect(contained.left).toBe(0);
+    expect(contained.top).toBeCloseTo(133.33, 1);
   });
 });

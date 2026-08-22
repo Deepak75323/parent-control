@@ -482,14 +482,49 @@ object NativeStreamingCoordinator {
                 "nativeScreenRunning=${NativeStreamPublisher.isRunning()}",
         )
 
+        val remoteStream = isBackgroundStream(streamType)
+        val requestedKind = streamKindFrom(streamType)
+
+        if (remoteStream && isSameSessionAlreadyLive(sessionId, roomId)) return
+
+        // Parent Start Screen must obtain Cast (if needed) before either JS or native publish.
+        // Never auto-consent outside this parent Start path.
+        if (requestedKind == StreamKind.SCREEN &&
+            !ensureScreenConsentForParentStart(context, sessionId)
+        ) {
+            return
+        }
+
+        if (requestedKind != null &&
+            NativeStreamingHandoffPolicy.shouldBootstrapFromResumedActivity(
+                isRemoteStream = remoteStream,
+                typedFgsActive = StreamFgsHelper.isActive(requestedKind),
+            )
+        ) {
+            markActiveStream(roomId, sessionId)
+            val useNativeScreen =
+                requestedKind == StreamKind.SCREEN &&
+                    canUseStoredProjection(context) &&
+                    !canUseJsStreaming()
+            PcpFlowLogger.log(
+                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                "stream bootstrap — launching resumed activity before typed FGS",
+                "kind=$requestedKind session=$sessionId nativeScreen=$useNativeScreen",
+            )
+            StreamBootstrapActivity.startWithBalFallback(
+                context,
+                requestedKind,
+                roomId,
+                sessionId,
+                streamType,
+                cameraFacing,
+                canUseJsStreaming(),
+                useNativeScreen,
+            )
+            return
+        }
+
         if (canUseJsStreaming()) {
-            // Parent Start Screen must obtain Cast (if needed) before JS publish — same for
-            // open/background. Never auto-consent outside this parent Start path.
-            if (streamKindFrom(streamType) == StreamKind.SCREEN &&
-                !ensureScreenConsentForParentStart(context, sessionId)
-            ) {
-                return
-            }
             if (delegateStreamRequestToJs(roomId, streamType, sessionId, cameraFacing)) {
                 return
             }
@@ -501,14 +536,9 @@ object NativeStreamingCoordinator {
         }
 
         // Remote streams never launch MainActivity — headless or silent JS only.
-        if (isBackgroundStream(streamType)) {
-            if (isSameSessionAlreadyLive(sessionId, roomId)) return
+        if (remoteStream) {
+            val kind = requestedKind
 
-            val kind = streamKindFrom(streamType)
-
-            if (kind == StreamKind.SCREEN && !ensureScreenConsentForParentStart(context, sessionId)) {
-                return
-            }
             if (kind == StreamKind.SCREEN && !canUseStoredProjection(context)) {
                 reportStreamFailure(context, sessionId, "NO_SCREEN_CAPTURE_CONSENT")
                 PcpFlowLogger.warn(
@@ -539,43 +569,6 @@ object NativeStreamingCoordinator {
                     "session=$sessionId",
                 )
                 return
-            }
-
-            if (kind != null && !StreamFgsHelper.isActive(kind)) {
-                PcpFlowLogger.transitionState(StreamState.SERVICE_STARTING, "onStreamRequestWorkerLocked",
-                    "kind=$kind session=$sessionId")
-                // Inbound parent request may legally start typed FGS even without a monitoring
-                // burst (API 35+). ensureKindReadyForStreamRequest opens the screen FGS gate.
-                if (StreamFgsPreparer.ensureKindReadyForStreamRequest(context, kind)) {
-                    PcpFlowLogger.transitionState(StreamState.SERVICE_STARTED, "onStreamRequestWorkerLocked",
-                        "kind=$kind session=$sessionId")
-                    // FGS pre-warmed — fall through to stream start below.
-                } else {
-                    markActiveStream(roomId, sessionId)
-                    val useNativeScreen =
-                        kind == StreamKind.SCREEN &&
-                            canUseStoredProjection(context) &&
-                            !canUseJsStreaming()
-                    PcpFlowLogger.log(
-                        PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                        "stream bootstrap — FGS not active",
-                        "kind=$kind session=$sessionId nativeScreen=$useNativeScreen",
-                    )
-                    // Use BAL-safe launcher: direct → accessibility → fullScreenIntent
-                    // notification.  Plain startActivity() is silently blocked by MIUI
-                    // when the app is in the background.
-                    StreamBootstrapActivity.startWithBalFallback(
-                        context,
-                        kind,
-                        roomId,
-                        sessionId,
-                        streamType,
-                        cameraFacing,
-                        canUseJsStreaming(),
-                        useNativeScreen,
-                    )
-                    return
-                }
             }
 
             if (

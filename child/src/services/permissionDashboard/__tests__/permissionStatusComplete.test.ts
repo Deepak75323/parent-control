@@ -20,7 +20,6 @@ describe('isPermissionStatusComplete', () => {
       ...keepGranted,
       location: false,
       screenCapture: false,
-      overlay: false,
       usageStats: false,
       notificationAccess: false,
     });
@@ -32,6 +31,14 @@ describe('isPermissionStatusComplete', () => {
       ALL_PERMISSION_ORDER.map(id => [id, true]),
     ) as Partial<Record<PermissionId, boolean>>;
     const status = statusWith({...keepGranted, camera: false});
+    expect(isPermissionStatusComplete(status)).toBe(false);
+  });
+
+  it('is incomplete when display-over-other-apps is missing', () => {
+    const keepGranted = Object.fromEntries(
+      ALL_PERMISSION_ORDER.map(id => [id, true]),
+    ) as Partial<Record<PermissionId, boolean>>;
+    const status = statusWith({...keepGranted, overlay: false});
     expect(isPermissionStatusComplete(status)).toBe(false);
   });
 });

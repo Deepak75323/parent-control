@@ -12,16 +12,26 @@ import com.childmonitor.MonitoringPrefs
 import com.childmonitor.StreamingHeadlessTaskService
 import com.childmonitor.debug.PcpFlowLogger
 import com.childmonitor.native.ChildMonitorNativeModule
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Invisible activity that satisfies Android 14+ eligibility to start typed foreground
  * services (camera, microphone, screen capture) without showing the child app UI.
+ *
+ * FGS promotion runs from [onResume] (not [onCreate]) so the process is already in a
+ * while-in-use eligible state before [Service.startForeground] with type camera/mic.
  */
 class StreamBootstrapActivity : Activity() {
+
+    private val bootstrapStarted = AtomicBoolean(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         overridePendingTransition(0, 0)
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
         // Cancel the stream-request notification immediately — it was only shown to obtain a
         // legal foreground window token to bypass MIUI BAL; now that the activity is alive the
         // notification heads-up must not remain visible.
@@ -42,6 +52,22 @@ class StreamBootstrapActivity : Activity() {
         if (StreamFgsHelper.isActive(kind)) {
             startStreamAfterFgs(kind, intent)
             finishImmediate()
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AppForegroundState.onActivityVisible()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isFinishing) return
+        val kind = streamKindFrom(intent.getStringExtra(EXTRA_STREAM_KIND))
+        if (StreamFgsHelper.isActive(kind)) {
+            return
+        }
+        if (!bootstrapStarted.compareAndSet(false, true)) {
             return
         }
 
@@ -53,14 +79,16 @@ class StreamBootstrapActivity : Activity() {
         PcpFlowLogger.log(
             PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
             "StreamBootstrapActivity",
-            "kind=$kind room=$roomId session=$sessionId jsActive=$jsListenerActive fgsOnly=$fgsOnly",
+            "onResume kind=$kind room=$roomId session=$sessionId jsActive=$jsListenerActive fgsOnly=$fgsOnly",
         )
 
         Thread {
-            val fgsReady = StreamFgsHelper.startAndWait(applicationContext, kind)
+            // Activity is resumed → while-in-use camera/mic FGS promotion is legal.
+            val fgsReady =
+                StreamFgsPreparer.ensureKindReadyForStreamRequest(applicationContext, kind)
             StreamFgsBootstrap.signalComplete(fgsReady)
             if (!fgsReady) {
-                Log.e(TAG, "$kind FGS bootstrap failed")
+                Log.e(TAG, "$kind FGS bootstrap failed after resume")
                 runOnUiThread { finishImmediate() }
                 return@Thread
             }
@@ -71,6 +99,11 @@ class StreamBootstrapActivity : Activity() {
             startStreamAfterFgs(kind, intent)
             runOnUiThread { finishImmediate() }
         }.start()
+    }
+
+    override fun onStop() {
+        AppForegroundState.onActivityHidden()
+        super.onStop()
     }
 
     private fun startStreamAfterFgs(kind: StreamKind, intent: Intent) {

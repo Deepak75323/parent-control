@@ -595,6 +595,15 @@ public class DeviceService {
         .monitoringDegraded(readMonitoringFlag(device, "monitoringDegraded"))
         .monitoringMode(readMonitoringString(device, "monitoringMode"))
         .standbyBucket(readMonitoringString(device, "standbyBucket"))
+        .permBattery(readDiagBoolean(device, "batteryExempt"))
+        .permAutostart(readDiagBoolean(device, "autostartPromptDone"))
+        .permFullScreenIntent(readDiagBoolean(device, "fullScreenIntentGranted"))
+        .permNotifications(readDiagBoolean(device, "notificationPermissionGranted"))
+        .permCamera(readDiagBoolean(device, "cameraGranted"))
+        .permMicrophone(readDiagBoolean(device, "microphoneGranted"))
+        .permOverlay(readDiagBoolean(device, "overlayGranted"))
+        .permAccessibility(device.isAccessibilityEnabled() && device.isAccessibilityServiceConnected())
+        .readinessFailureTags(readDiagStringList(device, "failureClassifications"))
         .build();
   }
 
@@ -619,6 +628,34 @@ public class DeviceService {
       return null;
     }
     return String.valueOf(diag.get(key));
+  }
+
+  private Boolean readDiagBoolean(Device device, String key) {
+    Map<String, Object> diag = device.getOemDiagnosticsJson();
+    if (diag == null) {
+      return null;
+    }
+    Object raw = diag.get(key);
+    if (raw instanceof Boolean b) {
+      return b;
+    }
+    if (raw == null) {
+      return null;
+    }
+    return "true".equalsIgnoreCase(String.valueOf(raw));
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<String> readDiagStringList(Device device, String key) {
+    Map<String, Object> diag = device.getOemDiagnosticsJson();
+    if (diag == null) {
+      return null;
+    }
+    Object raw = diag.get(key);
+    if (raw instanceof List<?> list) {
+      return list.stream().map(String::valueOf).toList();
+    }
+    return null;
   }
 
   private String resolveProtectionLevel(Device device) {

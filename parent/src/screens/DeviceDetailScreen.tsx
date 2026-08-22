@@ -42,6 +42,81 @@ function isRevoked(s?: string) {
   return (s ?? '').toUpperCase() === 'REVOKED';
 }
 
+type ReadinessRow = {
+  key: string;
+  label: string;
+  ok: boolean | null;
+  fixHint: string;
+};
+
+function buildRemoteCameraReadiness(device: DeviceSummary, online: boolean): ReadinessRow[] {
+  const a11yOk =
+    device.permAccessibility ??
+    (device.accessibilityEnabled === true && device.accessibilityServiceConnected === true
+      ? true
+      : device.accessibilityEnabled === false || device.accessibilityServiceConnected === false
+        ? false
+        : null);
+
+  return [
+    {
+      key: 'online',
+      label: 'Device online',
+      ok: online,
+      fixHint: 'Child phone must reach the server. Open Clock Time or wait for the next heartbeat.',
+    },
+    {
+      key: 'battery',
+      label: 'Battery unrestricted',
+      ok: device.permBattery ?? null,
+      fixHint: 'On the child phone: turn off battery optimization for Clock Time.',
+    },
+    {
+      key: 'autostart',
+      label: 'Autostart allowed',
+      ok: device.permAutostart ?? null,
+      fixHint: 'On Xiaomi and similar phones: enable Autostart for Clock Time in Security settings.',
+    },
+    {
+      key: 'a11y',
+      label: 'Accessibility service',
+      ok: a11yOk,
+      fixHint: 'On the child phone: keep the Clock Time accessibility service enabled.',
+    },
+    {
+      key: 'overlay',
+      label: 'Display over other apps',
+      ok: device.permOverlay ?? null,
+      fixHint:
+        'On the child phone: allow Clock Time to display over other apps for reliable remote camera startup.',
+    },
+    {
+      key: 'camera',
+      label: 'Camera permission',
+      ok: device.permCamera ?? null,
+      fixHint: 'On the child phone: grant camera permission to Clock Time.',
+    },
+    {
+      key: 'monitoring',
+      label: 'Background monitoring active',
+      ok:
+        device.monitoringDegraded === true
+          ? false
+          : device.monitoringDegraded === false
+            ? true
+            : null,
+      fixHint:
+        'Android limited background work. Open Clock Time on the child phone to restore monitoring.',
+    },
+  ];
+}
+
+function ReadinessStatusIcon({ok}: {ok: boolean | null}) {
+  if (ok === true) return <Text style={sc.readinessIconOk}>✓</Text>;
+  if (ok === false) return <Text style={sc.readinessIconBad}>✕</Text>;
+  return <Text style={sc.readinessIconUnknown}>?</Text>;
+}
+
 // ─── Reusable UI primitives ──────────────────────────────────────────────────
 
 function SurfaceCard({children, style}: {children: React.ReactNode; style?: object}) {
@@ -201,6 +276,10 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       ? {title: deviceAlerts[0].title, message: deviceAlerts[0].message ?? ''}
       : null;
 
+  const readinessItems = device ? buildRemoteCameraReadiness(device, online) : [];
+  const readinessIssues = readinessItems.filter(item => item.ok === false);
+  const readinessReady = readinessItems.length > 0 && readinessIssues.length === 0;
+
   const openRemoteView = (initialStream?: 'SCREEN' | 'CAMERA' | 'AUDIO') => {
     // Camera-only build: always open Live Monitoring on CAMERA.
     navigation.navigate('LiveMonitoring', {
@@ -333,6 +412,67 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                     <Text style={sc.alertChevron}>›</Text>
                   </SurfaceCard>
                 </Pressable>
+              </View>
+            ) : null}
+
+            {/* Remote camera readiness */}
+            {device ? (
+              <View style={sc.section}>
+                <View style={sc.sectionTitleRow}>
+                  <Text style={sc.sectionTitle}>Remote Camera Readiness</Text>
+                  {readinessReady ? (
+                    <View style={sc.statusChipReady}>
+                      <Text style={sc.statusChipText}>Ready</Text>
+                    </View>
+                  ) : readinessIssues.length > 0 ? (
+                    <View style={[sc.setupPill, sc.readinessIssuePill]}>
+                      <Text style={sc.readinessIssuePillText}>{readinessIssues.length} to fix</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                {readinessIssues.length > 0 ? (
+                  <View style={sc.permAlert}>
+                    <View style={sc.permAlertIcon}>
+                      <Text style={{fontSize: 18}}>⚠</Text>
+                    </View>
+                    <View style={sc.permAlertBody}>
+                      <Text style={sc.permAlertTitle}>Setup needed on child phone</Text>
+                      <Text style={sc.permAlertSub}>
+                        Remote camera may fail after long idle until these items are fixed on the device.
+                      </Text>
+                    </View>
+                  </View>
+                ) : null}
+
+                <SurfaceCard>
+                  {readinessItems.map((item, index) => (
+                    <View
+                      key={item.key}
+                      style={[
+                        sc.readinessRow,
+                        index === readinessItems.length - 1 && sc.detailRowLast,
+                      ]}>
+                      <ReadinessStatusIcon ok={item.ok} />
+                      <View style={sc.readinessBody}>
+                        <Text style={sc.readinessLabel}>{item.label}</Text>
+                        {item.ok === false ? (
+                          <Text style={sc.readinessHint}>{item.fixHint}</Text>
+                        ) : item.ok === null ? (
+                          <Text style={sc.readinessHintMuted}>
+                            Waiting for next child heartbeat…
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  ))}
+                  {device.deviceReadinessScore != null ? (
+                    <Text style={sc.readinessScore}>
+                      Device readiness score: {device.deviceReadinessScore}/100
+                      {device.oemVendor ? ` · ${device.oemVendor}` : ''}
+                    </Text>
+                  ) : null}
+                </SurfaceCard>
               </View>
             ) : null}
 
@@ -556,6 +696,25 @@ const sc = StyleSheet.create({
   permAlertSub: {fontSize: 12, color: '#92400E', marginTop: 1},
   permAlertBtn: {backgroundColor: Colors.warning, borderRadius: Radii.sm, paddingHorizontal: Spacing.md, paddingVertical: 6},
   permAlertBtnText: {fontSize: 12, fontWeight: '800', color: '#fff'},
+
+  readinessRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
+  },
+  readinessBody: {flex: 1},
+  readinessLabel: {...Typography.body, fontWeight: '600'},
+  readinessHint: {...Typography.smallLabel, color: '#92400E', marginTop: 4, lineHeight: 17},
+  readinessHintMuted: {...Typography.smallLabel, color: Colors.textTertiary, marginTop: 4},
+  readinessIconOk: {fontSize: 16, fontWeight: '800', color: Colors.primary, width: 22, textAlign: 'center'},
+  readinessIconBad: {fontSize: 16, fontWeight: '800', color: Colors.error, width: 22, textAlign: 'center'},
+  readinessIconUnknown: {fontSize: 16, fontWeight: '800', color: Colors.textTertiary, width: 22, textAlign: 'center'},
+  readinessIssuePill: {borderRadius: Radii.pill, paddingHorizontal: Spacing.sm, paddingVertical: 2},
+  readinessIssuePillText: {fontSize: 10, fontWeight: '700', color: Colors.warning},
+  readinessScore: {...Typography.smallLabel, color: Colors.textTertiary, marginTop: Spacing.md},
 
   // Alert card — 16px internal padding
   alertCard: {flexDirection: 'row', alignItems: 'center', gap: Layout.componentInternal, padding: Layout.componentInternal},

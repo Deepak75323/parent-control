@@ -12,6 +12,7 @@ import androidx.work.WorkManager
 import com.childmonitor.AccessibilityHealthChecker
 import com.childmonitor.AppBlockingAccessibilityService
 import com.childmonitor.MonitoringPrefs
+import com.childmonitor.capture.FullScreenIntentHelper
 import com.childmonitor.capture.MediaProjectionConsentState
 import com.childmonitor.capture.MediaProjectionTokenStore
 import com.childmonitor.deviceowner.DeviceOwnerManager
@@ -39,6 +40,11 @@ object OemDiagnosticsCollector {
         val exactAlarmsAllowed = canScheduleExactAlarms(context)
         val android16Report = Android16ReadinessEvaluator.evaluate(context)
         val platformCaps = AndroidPlatform.capabilities(context)
+        val fsiStatus = FullScreenIntentHelper.validate(context)
+        val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        val microphoneGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
 
         return linkedMapOf(
             "vendor" to vendor.id,
@@ -56,6 +62,10 @@ object OemDiagnosticsCollector {
             "autostartPromptDone" to autostartPromptDone,
             "oemSetupComplete" to OemSetupValidator.isOemSetupComplete(context),
             "notificationPermissionGranted" to notificationsGranted,
+            "fullScreenIntentGranted" to FullScreenIntentHelper.isGranted(context),
+            "fullScreenIntentStatus" to fsiStatus.name,
+            "cameraGranted" to cameraGranted,
+            "microphoneGranted" to microphoneGranted,
             "overlayGranted" to overlayGranted,
             "accessibilityEnabled" to a11yEnabled,
             "accessibilityServiceConnected" to a11yConnected,

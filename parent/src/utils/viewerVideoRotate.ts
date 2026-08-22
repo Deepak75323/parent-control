@@ -1,4 +1,5 @@
 import type {ViewStyle} from 'react-native';
+import {containVideoLayoutBox} from '../components/liveMonitoring/remoteControlCoords';
 
 /** Clockwise viewer-only rotation (UI transform; does not move the child camera). */
 export type ViewerRotateDeg = 0 | 90 | 180 | 270;
@@ -79,6 +80,23 @@ export function nextPinchScale(
 /** Button zoom: multiply current scale (e.g. 1.25 in, 0.8 out). */
 export function nudgePinchScale(current: number, factor: number): number {
   return clampViewerPinchScale(current * factor);
+}
+
+/** Letterboxed layout box for Android when object-fit is contain. */
+export function androidViewerContainVideoLayout(
+  containerW: number,
+  containerH: number,
+  videoAspect: number,
+  pinchScale = 1,
+): ViewStyle {
+  const box = containVideoLayoutBox(containerW, containerH, videoAspect, pinchScale);
+  return {
+    position: 'absolute',
+    width: box.width,
+    height: box.height,
+    left: box.left,
+    top: box.top,
+  };
 }
 
 /** Layout box for Android viewer zoom + rotate (parent-side only). */
