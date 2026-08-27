@@ -21,7 +21,7 @@ import {
 import {StreamTopBar} from './StreamTopBar';
 import {StreamControlBar} from './StreamControlBar';
 import {flowLog} from '../../services/streamDebug';
-import {mapContainTouchToNorm, videoAspectFromStream} from './remoteControlCoords';
+import {mapContainTouchToNorm, viewerVideoAspect} from './remoteControlCoords';
 import {nativeModules} from '../../nativeModules';
 import {config} from '../../utils/config';
 import {
@@ -30,6 +30,7 @@ import {
   nudgeViewerZoomPercent,
   rnViewerVideoRotateStyle,
   androidViewerVideoLayout,
+  androidViewerContainVideoLayout,
   VIEWER_ZOOM_STEP_PERCENT,
   type ViewerRotateDeg,
 } from '../../utils/viewerVideoRotate';
@@ -81,11 +82,13 @@ const RemoteRtcView = React.memo(
       style,
       objectFit,
       zOrder,
+      onDimensionsChange,
     }: {
       stream: MediaStream;
       style: object | object[];
       objectFit: 'contain' | 'cover';
       zOrder?: number;
+      onDimensionsChange?: (event: {nativeEvent: {width: number; height: number}}) => void;
     },
     ref: React.Ref<View>,
   ) {
@@ -109,6 +112,7 @@ const RemoteRtcView = React.memo(
         objectFit={objectFit}
         mirror={false}
         zOrder={zOrder}
+        onDimensionsChange={onDimensionsChange}
       />
     );
   }),
@@ -151,6 +155,7 @@ export function LiveStreamViewport({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewRotate, setViewRotate] = useState<ViewerRotateDeg>(0);
   const [pinchScale, setPinchScale] = useState(1);
+  const [frameSize, setFrameSize] = useState<{width: number; height: number} | null>(null);
   const [viewportSize, setViewportSize] = useState({width: window.width, height: window.height});
   const [pipPos, setPipPos] = useState(() =>
     defaultPipPosition(layout, window.width, window.height),
@@ -160,14 +165,20 @@ export function LiveStreamViewport({
   useEffect(() => {
     setViewRotate(0);
     setPinchScale(1);
+    setFrameSize(null);
   }, [streamType]);
 
   useEffect(() => {
     if (!isLive) {
       setViewRotate(0);
       setPinchScale(1);
+      setFrameSize(null);
     }
   }, [isLive]);
+
+  useEffect(() => {
+    setFrameSize(null);
+  }, [primaryStream]);
 
   const pinchScaleRef = useRef(1);
   pinchScaleRef.current = pinchScale;
@@ -265,9 +276,57 @@ export function LiveStreamViewport({
 
   const swipeStartRef = useRef<{x: number; y: number} | null>(null);
   const videoAspect = useMemo(
-    () => videoAspectFromStream(primaryStream),
-    [primaryStream],
+    () => viewerVideoAspect(primaryStream, streamType, frameSize),
+    [primaryStream, streamType, frameSize],
   );
+
+  /** Camera uses contain so portrait preview matches the native camera app — cover stretches 4:3 buffers. */
+  const primaryObjectFit: 'contain' | 'cover' =
+    pinchScale > 1 || isFullscreen || (streamType === 'SCREEN' && !remoteControlEnabled)
+      ? 'cover'
+      : 'contain';
+
+  const onPrimaryDimensionsChange = useCallback(
+    (event: {nativeEvent: {width: number; height: number}}) => {
+      const {width, height} = event.nativeEvent;
+      if (width > 0 && height > 0) {
+        setFrameSize({width, height});
+      }
+    },
+    [],
+  );
+
+  const primaryVideoStyle = useMemo(() => {
+    if (Platform.OS === 'android') {
+      if (primaryObjectFit === 'contain') {
+        return androidViewerContainVideoLayout(
+          viewportSize.width,
+          viewportSize.height,
+          videoAspect,
+          pinchScale,
+        );
+      }
+      return androidViewerVideoLayout(
+        effectiveViewRotate,
+        viewportSize.width,
+        viewportSize.height,
+        pinchScale,
+      );
+    }
+    return rnViewerVideoRotateStyle(
+      effectiveViewRotate,
+      viewportSize.width,
+      viewportSize.height,
+      pinchScale,
+    );
+  }, [
+    primaryObjectFit,
+    effectiveViewRotate,
+    pinchScale,
+    viewportSize.width,
+    viewportSize.height,
+    videoAspect,
+  ]);
 
   const pipPanResponder = useMemo(
     () =>
@@ -391,26 +450,9 @@ export function LiveStreamViewport({
             <RemoteRtcView
               ref={primaryRtcRef}
               stream={primaryStream}
-              style={[
-                Platform.OS === 'android'
-                  ? androidViewerVideoLayout(
-                      effectiveViewRotate,
-                      viewportSize.width,
-                      viewportSize.height,
-                      pinchScale,
-                    )
-                  : rnViewerVideoRotateStyle(
-                      effectiveViewRotate,
-                      viewportSize.width,
-                      viewportSize.height,
-                      pinchScale,
-                    ),
-              ]}
-              objectFit={
-                pinchScale > 1 || streamType === 'CAMERA' || isFullscreen || !remoteControlEnabled
-                  ? 'cover'
-                  : 'contain'
-              }
+              style={primaryVideoStyle}
+              objectFit={primaryObjectFit}
+              onDimensionsChange={onPrimaryDimensionsChange}
               zOrder={0}
             />
             <View
@@ -491,8 +533,8 @@ export function LiveStreamViewport({
           pipVisible={pipVisible}
           isFullscreen={isFullscreen}
           bottomInset={bottomInset}
-          audioMuted={streamType !== 'AUDIO' ? audioMuted : undefined}
-          onToggleAudioMute={streamType !== 'AUDIO' ? onToggleAudioMute : undefined}
+          audioMuted={audioMuted}
+          onToggleAudioMute={onToggleAudioMute}
           recording={recording}
           recordingSupported={recordingSupported}
           onToggleRecording={onToggleRecording}
