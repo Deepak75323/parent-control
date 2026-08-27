@@ -67,7 +67,7 @@ export function LiveStreamPanel({deviceId}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoWrapRef = useRef<HTMLDivElement>(null);
   const roomIdRef = useRef<string | null>(null);
-  const [streamType, setStreamType] = useState<StreamType>('SCREEN');
+  const [streamType, setStreamType] = useState<StreamType>('CAMERA');
   const [pin, setPin] = useState('');
   const [pinNeeded, setPinNeeded] = useState(false);
   const [status, setStatus] = useState('Idle');

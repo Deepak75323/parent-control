@@ -280,6 +280,7 @@ export function LiveStreamViewport({
     [primaryStream, streamType, frameSize],
   );
 
+  /** Camera uses contain so portrait preview matches the native camera app — cover stretches 4:3 buffers. */
   const primaryObjectFit: 'contain' | 'cover' =
     pinchScale > 1 || isFullscreen || (streamType === 'SCREEN' && !remoteControlEnabled)
       ? 'cover'
@@ -294,6 +295,38 @@ export function LiveStreamViewport({
     },
     [],
   );
+
+  const primaryVideoStyle = useMemo(() => {
+    if (Platform.OS === 'android') {
+      if (primaryObjectFit === 'contain') {
+        return androidViewerContainVideoLayout(
+          viewportSize.width,
+          viewportSize.height,
+          videoAspect,
+          pinchScale,
+        );
+      }
+      return androidViewerVideoLayout(
+        effectiveViewRotate,
+        viewportSize.width,
+        viewportSize.height,
+        pinchScale,
+      );
+    }
+    return rnViewerVideoRotateStyle(
+      effectiveViewRotate,
+      viewportSize.width,
+      viewportSize.height,
+      pinchScale,
+    );
+  }, [
+    primaryObjectFit,
+    effectiveViewRotate,
+    pinchScale,
+    viewportSize.width,
+    viewportSize.height,
+    videoAspect,
+  ]);
 
   const pipPanResponder = useMemo(
     () =>
@@ -417,28 +450,7 @@ export function LiveStreamViewport({
             <RemoteRtcView
               ref={primaryRtcRef}
               stream={primaryStream}
-              style={[
-                Platform.OS === 'android'
-                  ? primaryObjectFit === 'contain'
-                    ? androidViewerContainVideoLayout(
-                        viewportSize.width,
-                        viewportSize.height,
-                        videoAspect,
-                        pinchScale,
-                      )
-                    : androidViewerVideoLayout(
-                        effectiveViewRotate,
-                        viewportSize.width,
-                        viewportSize.height,
-                        pinchScale,
-                      )
-                  : rnViewerVideoRotateStyle(
-                      effectiveViewRotate,
-                      viewportSize.width,
-                      viewportSize.height,
-                      pinchScale,
-                    ),
-              ]}
+              style={primaryVideoStyle}
               objectFit={primaryObjectFit}
               onDimensionsChange={onPrimaryDimensionsChange}
               zOrder={0}
@@ -480,7 +492,7 @@ export function LiveStreamViewport({
           <RemoteRtcView
             stream={pipStream}
             style={styles.pipVideo}
-            objectFit="contain"
+            objectFit="cover"
             zOrder={2}
           />
           <View style={styles.pipBadge}>

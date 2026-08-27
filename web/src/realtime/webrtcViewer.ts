@@ -1,5 +1,10 @@
 import {monitoringApi, signalingApi} from '../api/services';
 import type {StreamType} from '../types/api';
+import {useRealtimeStore} from './realtimeStore';
+import {
+  subscribeSignalingRoom,
+  unsubscribeSignalingRoom,
+} from './signalingWebSocket';
 
 export type ViewerCallbacks = {
   onRemoteStream: (stream: MediaStream) => void;
@@ -29,6 +34,24 @@ function parseSdp(payload: string): RTCSessionDescriptionInit {
   } catch {
     return {type: 'offer', sdp: payload};
   }
+}
+
+function orderedSignalingMessages<T extends {id: string}>(messages: T[] = []): T[] {
+  return [...messages];
+}
+
+function shouldAbortOfferWait(): boolean {
+  if (!activeRoomId) {
+    return false;
+  }
+  const streaming = useRealtimeStore.getState().streamingState;
+  if (!streaming || streaming.status !== 'FAILED') {
+    return false;
+  }
+  if (streaming.roomId && streaming.roomId !== activeRoomId) {
+    return false;
+  }
+  return true;
 }
 
 async function loadIceServers(sessionId?: string): Promise<RTCIceServer[]> {
@@ -74,7 +97,6 @@ async function applyOffer(payload: string, messageId: string): Promise<boolean> 
     return false;
   }
   if (pc.remoteDescription?.type === 'offer' && pc.localDescription?.type === 'answer') {
-    // Child re-offer: rebuild peer
     const roomId = activeRoomId;
     const sessionId = activeSessionId;
     seenIds.clear();
@@ -141,7 +163,7 @@ async function pollSignaling(): Promise<boolean> {
   }
   try {
     const {data} = await signalingApi.recent(activeRoomId);
-    const messages = data.data ?? [];
+    const messages = orderedSignalingMessages(data.data ?? []);
     let latestOffer: SignalingPayload | null = null;
     for (const msg of messages) {
       const payload: SignalingPayload = {
@@ -169,8 +191,26 @@ async function pollSignaling(): Promise<boolean> {
 
 async function waitForOffer(timeoutMs = 60000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
+  let subscribedToSignaling = false;
+
   while (Date.now() < deadline && pc && !pc.remoteDescription) {
-    if (await pollSignaling()) {
+    if (shouldAbortOfferWait()) {
+      return false;
+    }
+
+    const applied = await pollSignaling();
+    if (applied || pc?.remoteDescription) {
+      if (!subscribedToSignaling && activeRoomId) {
+        subscribeSignalingRoom(activeRoomId, payload => {
+          void handleMessage({
+            id: payload.id as string | undefined,
+            messageType: String(payload.messageType ?? ''),
+            payload: String(payload.payload ?? ''),
+            senderRole: String(payload.senderRole ?? ''),
+          });
+        });
+        subscribedToSignaling = true;
+      }
       return true;
     }
     await new Promise(r => setTimeout(r, 400));
@@ -180,6 +220,8 @@ async function waitForOffer(timeoutMs = 60000): Promise<boolean> {
 
 async function waitForIce(timeoutMs = 60000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
+  let disconnectedSince: number | null = null;
+
   while (Date.now() < deadline && pc) {
     const state = pc.iceConnectionState;
     if (state === 'connected' || state === 'completed') {
@@ -187,6 +229,15 @@ async function waitForIce(timeoutMs = 60000): Promise<boolean> {
     }
     if (state === 'failed') {
       return false;
+    }
+    if (state === 'disconnected') {
+      if (!disconnectedSince) {
+        disconnectedSince = Date.now();
+      } else if (Date.now() - disconnectedSince > 8000) {
+        return false;
+      }
+    } else {
+      disconnectedSince = null;
     }
     await new Promise(r => setTimeout(r, 250));
   }
@@ -276,7 +327,7 @@ export async function connectBrowserViewer(
   }
   pollTimer = setInterval(() => {
     void pollSignaling();
-  }, 2000);
+  }, 1000);
 
   const iceOk = await waitForIce();
   if (!iceOk) {
@@ -290,6 +341,9 @@ export async function disconnectBrowserViewer(): Promise<void> {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
+  }
+  if (activeRoomId) {
+    unsubscribeSignalingRoom(activeRoomId);
   }
   if (pc) {
     pc.close();
