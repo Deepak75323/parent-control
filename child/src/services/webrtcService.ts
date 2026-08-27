@@ -1447,16 +1447,13 @@ export async function switchCamera(): Promise<void> {
             : nextFacing;
       currentCameraFacing = actualFacing;
 
-      // If native reported a no-op (already on requested facing), force the other side once.
-      if (result?.noop === true || result?.switchSuccessful === false || actualFacing === fromFacing) {
-        const forced = actualFacing === 'environment' ? 'user' : 'environment';
-        slog('CAMERA', 'native switch no-op — forcing opposite', {from: actualFacing, to: forced});
-        const forcedResult = await nativeModules.switchHiddenCameraFacing(forced);
-        if (forcedResult?.facingMode === 'environment' || forcedResult?.facingMode === 'user') {
-          currentCameraFacing = forcedResult.facingMode;
-        } else {
-          currentCameraFacing = forced;
-        }
+      // Native may have already flipped (STOMP path) before JS runs — treat no-op as success.
+      if (result?.noop === true || actualFacing === fromFacing) {
+        slog('CAMERA', 'native switch no-op — already on target facing', {
+          facing: actualFacing,
+          requested: nextFacing,
+        });
+        return;
       }
 
       slog('CAMERA', 'native switch done', {
