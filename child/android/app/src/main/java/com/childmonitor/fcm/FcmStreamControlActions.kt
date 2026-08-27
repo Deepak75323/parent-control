@@ -6,7 +6,8 @@ package com.childmonitor.fcm
  */
 object FcmStreamControlActions {
 
-    const val DEDUP_WINDOW_MS = 1_500L
+    /** STOMP and FCM for the same parent flip can arrive several seconds apart. */
+    const val DEDUP_WINDOW_MS = 8_000L
 
     @Volatile
     private var lastAcceptedAtMs = 0L
