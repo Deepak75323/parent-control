@@ -108,9 +108,8 @@
             android:launchMode="singleInstance"
             android:noHistory="true"
             android:showWhenLocked="true"
-            android:turnScreenOn="true"
             android:taskAffinity=""
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@android:style/Theme.NoDisplay" />
 
         <service
             android:name="com.childmonitor.capture.CameraStreamForegroundService"

@@ -12,6 +12,7 @@ import com.childmonitor.MonitoringPrefs
 import com.childmonitor.StreamingHeadlessTaskService
 import com.childmonitor.debug.PcpFlowLogger
 import com.childmonitor.native.ChildMonitorNativeModule
+import com.childmonitor.sync.NativeStreamingCoordinator
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -28,9 +29,14 @@ class StreamBootstrapActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         overridePendingTransition(0, 0)
         super.onCreate(savedInstanceState)
+        val kind = streamKindFrom(intent.getStringExtra(EXTRA_STREAM_KIND))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
-            setTurnScreenOn(true)
+            // Only screen capture may need to wake the display; camera/audio bootstrap must
+            // stay invisible so parent monitoring does not flash over YouTube / games.
+            if (kind == StreamKind.SCREEN) {
+                setTurnScreenOn(true)
+            }
         }
         // Cancel the stream-request notification immediately — it was only shown to obtain a
         // legal foreground window token to bypass MIUI BAL; now that the activity is alive the
@@ -41,7 +47,6 @@ class StreamBootstrapActivity : Activity() {
             return
         }
 
-        val kind = streamKindFrom(intent.getStringExtra(EXTRA_STREAM_KIND))
         if (!hasPermissionFor(kind)) {
             Log.e(TAG, "Missing permission for $kind — abort bootstrap")
             finishImmediate()
@@ -111,7 +116,6 @@ class StreamBootstrapActivity : Activity() {
         val sessionId = intent.getStringExtra(EXTRA_SESSION_ID).orEmpty()
         val streamType = intent.getStringExtra(EXTRA_STREAM_TYPE) ?: kind.name
         val cameraFacing = intent.getStringExtra(EXTRA_CAMERA_FACING)
-        val jsListenerActive = intent.getBooleanExtra(EXTRA_JS_LISTENER_ACTIVE, false)
         val useNativeScreen =
             intent.getBooleanExtra(EXTRA_USE_NATIVE_SCREEN, false) &&
                 kind == StreamKind.SCREEN
@@ -121,9 +125,10 @@ class StreamBootstrapActivity : Activity() {
             ScreenCaptureForegroundService.startStream(applicationContext, roomId, sessionId)
             return
         }
-        if (jsListenerActive &&
+        if (ChildMonitorNativeModule.canDeliverStreamToJs() &&
             ChildMonitorNativeModule.emitStreamWake(roomId, streamType, sessionId, cameraFacing)
         ) {
+            NativeStreamingCoordinator.onJsWakeEmitted(roomId, streamType, sessionId, cameraFacing)
             return
         }
         StreamingHeadlessTaskService.start(
@@ -247,6 +252,7 @@ class StreamBootstrapActivity : Activity() {
             putExtra(EXTRA_JS_LISTENER_ACTIVE, jsListenerActive)
             putExtra(EXTRA_USE_NATIVE_SCREEN, useNativeScreen)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
