@@ -12,16 +12,32 @@ import com.childmonitor.MonitoringPrefs
 import com.childmonitor.StreamingHeadlessTaskService
 import com.childmonitor.debug.PcpFlowLogger
 import com.childmonitor.native.ChildMonitorNativeModule
+import com.childmonitor.sync.NativeStreamingCoordinator
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Invisible activity that satisfies Android 14+ eligibility to start typed foreground
  * services (camera, microphone, screen capture) without showing the child app UI.
+ *
+ * FGS promotion runs from [onResume] (not [onCreate]) so the process is already in a
+ * while-in-use eligible state before [Service.startForeground] with type camera/mic.
  */
 class StreamBootstrapActivity : Activity() {
+
+    private val bootstrapStarted = AtomicBoolean(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         overridePendingTransition(0, 0)
         super.onCreate(savedInstanceState)
+        val kind = streamKindFrom(intent.getStringExtra(EXTRA_STREAM_KIND))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            // Only screen capture may need to wake the display; camera/audio bootstrap must
+            // stay invisible so parent monitoring does not flash over YouTube / games.
+            if (kind == StreamKind.SCREEN) {
+                setTurnScreenOn(true)
+            }
+        }
         // Cancel the stream-request notification immediately — it was only shown to obtain a
         // legal foreground window token to bypass MIUI BAL; now that the activity is alive the
         // notification heads-up must not remain visible.
@@ -31,7 +47,6 @@ class StreamBootstrapActivity : Activity() {
             return
         }
 
-        val kind = streamKindFrom(intent.getStringExtra(EXTRA_STREAM_KIND))
         if (!hasPermissionFor(kind)) {
             Log.e(TAG, "Missing permission for $kind — abort bootstrap")
             finishImmediate()
@@ -42,6 +57,22 @@ class StreamBootstrapActivity : Activity() {
         if (StreamFgsHelper.isActive(kind)) {
             startStreamAfterFgs(kind, intent)
             finishImmediate()
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AppForegroundState.onActivityVisible()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isFinishing) return
+        val kind = streamKindFrom(intent.getStringExtra(EXTRA_STREAM_KIND))
+        if (StreamFgsHelper.isActive(kind)) {
+            return
+        }
+        if (!bootstrapStarted.compareAndSet(false, true)) {
             return
         }
 
@@ -53,27 +84,16 @@ class StreamBootstrapActivity : Activity() {
         PcpFlowLogger.log(
             PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
             "StreamBootstrapActivity",
-            "kind=$kind room=$roomId session=$sessionId jsActive=$jsListenerActive fgsOnly=$fgsOnly",
+            "onResume kind=$kind room=$roomId session=$sessionId jsActive=$jsListenerActive fgsOnly=$fgsOnly",
         )
 
         Thread {
-            // Camera-with-sound: start mic FGS inside this eligible activity window first.
-            // Background mic→camera pre-warm often fails SecurityException on Android 14+/MIUI.
-            if (kind == StreamKind.CAMERA &&
-                ContextCompat.checkSelfPermission(
-                    applicationContext,
-                    android.Manifest.permission.RECORD_AUDIO,
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-                if (!StreamFgsHelper.isActive(StreamKind.AUDIO)) {
-                    val audioReady = StreamFgsHelper.startAndWait(applicationContext, StreamKind.AUDIO)
-                    Log.i(TAG, "CAMERA bootstrap pre-started AUDIO FGS ready=$audioReady")
-                }
-            }
-            val fgsReady = StreamFgsHelper.startAndWait(applicationContext, kind)
+            // Activity is resumed → while-in-use camera/mic FGS promotion is legal.
+            val fgsReady =
+                StreamFgsPreparer.ensureKindReadyForStreamRequest(applicationContext, kind)
             StreamFgsBootstrap.signalComplete(fgsReady)
             if (!fgsReady) {
-                Log.e(TAG, "$kind FGS bootstrap failed")
+                Log.e(TAG, "$kind FGS bootstrap failed after resume")
                 runOnUiThread { finishImmediate() }
                 return@Thread
             }
@@ -86,12 +106,16 @@ class StreamBootstrapActivity : Activity() {
         }.start()
     }
 
+    override fun onStop() {
+        AppForegroundState.onActivityHidden()
+        super.onStop()
+    }
+
     private fun startStreamAfterFgs(kind: StreamKind, intent: Intent) {
         val roomId = intent.getStringExtra(EXTRA_ROOM_ID).orEmpty()
         val sessionId = intent.getStringExtra(EXTRA_SESSION_ID).orEmpty()
         val streamType = intent.getStringExtra(EXTRA_STREAM_TYPE) ?: kind.name
         val cameraFacing = intent.getStringExtra(EXTRA_CAMERA_FACING)
-        val jsListenerActive = intent.getBooleanExtra(EXTRA_JS_LISTENER_ACTIVE, false)
         val useNativeScreen =
             intent.getBooleanExtra(EXTRA_USE_NATIVE_SCREEN, false) &&
                 kind == StreamKind.SCREEN
@@ -101,9 +125,10 @@ class StreamBootstrapActivity : Activity() {
             ScreenCaptureForegroundService.startStream(applicationContext, roomId, sessionId)
             return
         }
-        if (jsListenerActive &&
+        if (ChildMonitorNativeModule.canDeliverStreamToJs() &&
             ChildMonitorNativeModule.emitStreamWake(roomId, streamType, sessionId, cameraFacing)
         ) {
+            NativeStreamingCoordinator.onJsWakeEmitted(roomId, streamType, sessionId, cameraFacing)
             return
         }
         StreamingHeadlessTaskService.start(
@@ -227,6 +252,7 @@ class StreamBootstrapActivity : Activity() {
             putExtra(EXTRA_JS_LISTENER_ACTIVE, jsListenerActive)
             putExtra(EXTRA_USE_NATIVE_SCREEN, useNativeScreen)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }

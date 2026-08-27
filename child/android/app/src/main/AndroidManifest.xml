@@ -107,14 +107,15 @@
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
             android:noHistory="true"
+            android:showWhenLocked="true"
             android:taskAffinity=""
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@android:style/Theme.NoDisplay" />
 
         <service
             android:name="com.childmonitor.capture.CameraStreamForegroundService"
             android:exported="false"
             android:stopWithTask="false"
-            android:foregroundServiceType="camera|microphone" />
+            android:foregroundServiceType="camera" />
 
         <service
             android:name="com.childmonitor.capture.AudioStreamForegroundService"

@@ -189,6 +189,9 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
                 sessionId,
                 roomId,
             )
+            if (ok) {
+                NativeStreamingCoordinator.onJsWakeAcknowledged(sessionId)
+            }
             promise.resolve(ok)
         } catch (e: Exception) {
             promise.reject("SESSION_ACQUIRE_ERROR", e)
