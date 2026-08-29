@@ -13,6 +13,7 @@ import android.provider.Settings
 import android.util.Log
 import com.childmonitor.AccessibilityHealthChecker
 import com.childmonitor.AppBlockingAccessibilityService
+import com.childmonitor.DeviceReadinessSyncObserver
 import com.childmonitor.MainActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -2112,6 +2113,10 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         @JvmStatic
         fun emitPermissionStateChanged(): Boolean {
             val ctx = eventContext ?: return false
+            val app = ctx.applicationContext
+            if (MonitoringPrefs.isPaired(app)) {
+                DeviceReadinessSyncObserver.scheduleHeartbeat(app, "permission_state_changed")
+            }
             if (!ctx.hasActiveReactInstance()) return false
             ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
                 .emit("permissionStateChanged", null)

@@ -7,12 +7,15 @@ import android.util.Size
 import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.camera.core.AspectRatio
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
-import androidx.camera.core.resolutionselector.ResolutionStrategy
+import androidx.camera.camera2.interop.Camera2Interop
+import android.hardware.camera2.CaptureRequest
 import androidx.camera.lifecycle.ProcessCameraProvider
+import kotlin.math.abs
 import androidx.core.content.ContextCompat
 import org.webrtc.CameraVideoCapturer
 import org.webrtc.CapturerObserver
@@ -56,31 +59,141 @@ class CameraXVideoCapturer(
         internal fun isRebindGenerationCurrent(scheduledGeneration: Long, currentGeneration: Long): Boolean =
             scheduledGeneration == currentGeneration
 
+        /** True when [size] is ~16:9 (landscape listing). */
+        internal fun isSixteenNine(size: Size): Boolean {
+            val ratio = size.width.toDouble() / size.height.toDouble()
+            return abs(ratio - 16.0 / 9.0) < 0.05
+        }
+
+        /**
+         * Stock Camera front preview is 16:9 full-screen (e.g. 1920×1080), not max 4:3 sensor.
+         */
+        internal fun selectNativeLikeFrontPreviewSize(supportedSizes: List<Size>): Size {
+            if (supportedSizes.isEmpty()) {
+                return Size(1920, 1080)
+            }
+            val normalized = supportedSizes.map(::normalizeLandscape)
+            val sixteenNine = normalized.filter(::isSixteenNine)
+            val pool =
+                when {
+                    sixteenNine.isNotEmpty() -> sixteenNine
+                    normalized.any(::isExactFourThree) -> normalized.filter(::isExactFourThree)
+                    else -> normalized
+                }
+            pool.firstOrNull { it.width == 1920 && it.height == 1080 }?.let { return it }
+            pool.firstOrNull { it.width == 1280 && it.height == 720 }?.let { return it }
+            val capped = pool.filter { it.width <= 1920 && it.height <= 1080 }
+            if (capped.isNotEmpty()) {
+                return capped.maxByOrNull { it.width.toLong() * it.height }!!
+            }
+            return pool.maxByOrNull { it.width.toLong() * it.height }
+                ?: Size(1920, 1080)
+        }
+
+        /** Native 1× — display crop on the parent handles fill like PreviewView FILL_CENTER. */
+        internal fun previewZoomRatio(useFrontCamera: Boolean, minZoom: Float, maxZoom: Float): Float {
+            return 1.0f.coerceIn(minZoom, maxZoom)
+        }
+
         /**
          * Map WebRTC constraints to 4:3 dimensions. Forcing 16:9 (e.g. 1280×720) center-crops
          * typical phone sensors and looks zoomed vs stock Camera ~1× preview.
          */
         internal fun widestFovCaptureDimensions(width: Int, height: Int): Pair<Int, Int> {
-            val baseWidth = maxOf(width, (height * 4 + 2) / 3).coerceIn(640, 1920)
+            val baseWidth = maxOf(width, (height * 4 + 2) / 3).coerceIn(640, 3264)
             return baseWidth to (baseWidth * 3 / 4)
         }
 
-        internal fun buildPreviewResolutionSelector(width: Int, height: Int): ResolutionSelector {
-            val (targetWidth, targetHeight) = widestFovCaptureDimensions(width, height)
+        /** Exact 4:3 (avoids MIUI sizes like 1440×1088 that crop vs stock Camera). */
+        internal fun isExactFourThree(size: Size): Boolean =
+            size.width * 3 == size.height * 4 || size.height * 3 == size.width * 4
+
+        /** True when [size] is ~4:3 or ~3:4 (portrait listing). */
+        internal fun isFourThreeAspect(size: Size): Boolean {
+            if (isExactFourThree(size)) return true
+            val ratio = size.width.toDouble() / size.height.toDouble()
+            return abs(ratio - 4.0 / 3.0) < 0.05 || abs(ratio - 3.0 / 4.0) < 0.05
+        }
+
+        internal fun normalizeLandscape(size: Size): Size =
+            if (size.width >= size.height) size else Size(size.height, size.width)
+
+        internal fun matchesLandscapeSize(candidate: Size, target: Size): Boolean {
+            val normalized = normalizeLandscape(candidate)
+            return normalized.width == target.width && normalized.height == target.height
+        }
+
+        /**
+         * Pick the largest exact 4:3 preview size (widest sensor FOV on most phones).
+         * MIUI often exposes 1440×1088 (non-standard) — prefer exact 4:3 like 1920×1440.
+         */
+        internal fun selectWidestFourThreeSize(supportedSizes: List<Size>): Size {
+            if (supportedSizes.isEmpty()) {
+                return Size(1920, 1440)
+            }
+            val normalized = supportedSizes.map(::normalizeLandscape)
+            val exactFourThree = normalized.filter(::isExactFourThree)
+            if (exactFourThree.isNotEmpty()) {
+                return exactFourThree.maxByOrNull { it.width.toLong() * it.height }!!
+            }
+            val approxFourThree = normalized.filter(::isFourThreeAspect)
+            val pool = if (approxFourThree.isNotEmpty()) approxFourThree else normalized
+            return pool.maxByOrNull { it.width.toLong() * it.height } ?: normalized.first()
+        }
+
+        internal fun buildPreviewResolutionSelector(frontCamera: Boolean): ResolutionSelector {
+            val aspect =
+                if (frontCamera) AspectRatio.RATIO_16_9 else AspectRatio.RATIO_4_3
             return ResolutionSelector.Builder()
                 .setAspectRatioStrategy(
                     AspectRatioStrategy(
-                        AspectRatio.RATIO_4_3,
+                        aspect,
                         AspectRatioStrategy.FALLBACK_RULE_AUTO,
                     ),
                 )
-                .setResolutionStrategy(
-                    ResolutionStrategy(
-                        Size(targetWidth, targetHeight),
-                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
-                    ),
-                )
+                .setResolutionFilter { supportedSizes, _ ->
+                    val chosen =
+                        if (frontCamera) {
+                            selectNativeLikeFrontPreviewSize(supportedSizes)
+                        } else {
+                            selectWidestFourThreeSize(supportedSizes)
+                        }
+                    Log.i(
+                        TAG,
+                        "Resolution filter chose ${chosen.width}x${chosen.height} " +
+                            "front=$frontCamera from ${supportedSizes.size} supported sizes",
+                    )
+                    listOf(chosen)
+                }
                 .build()
+        }
+
+        internal fun applyStockCameraCaptureHints(previewBuilder: Preview.Builder) {
+            try {
+                val extender = Camera2Interop.Extender(previewBuilder)
+                extender.setCaptureRequestOption(
+                    CaptureRequest.CONTROL_MODE,
+                    CaptureRequest.CONTROL_MODE_AUTO,
+                )
+                extender.setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AE_MODE,
+                    CaptureRequest.CONTROL_AE_MODE_ON,
+                )
+                extender.setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AWB_MODE,
+                    CaptureRequest.CONTROL_AWB_MODE_AUTO,
+                )
+                extender.setCaptureRequestOption(
+                    CaptureRequest.NOISE_REDUCTION_MODE,
+                    CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY,
+                )
+                extender.setCaptureRequestOption(
+                    CaptureRequest.EDGE_MODE,
+                    CaptureRequest.EDGE_MODE_HIGH_QUALITY,
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Camera2 capture hints skipped", e)
+            }
         }
     }
 
@@ -102,10 +215,14 @@ class CameraXVideoCapturer(
     private var capturerObserver: CapturerObserver? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var previewUseCase: Preview? = null
+    private var boundCamera: Camera? = null
     private var orientationListener: OrientationEventListener? = null
 
-    private var captureWidth = 1280
-    private var captureHeight = 960
+    /** Called when CameraX picks the real buffer size — sync WebRTC to avoid center-crop zoom. */
+    var onActualOutputSize: ((width: Int, height: Int) -> Unit)? = null
+
+    private var captureWidth = 1920
+    private var captureHeight = 1440
     private var captureFps = 30
 
     override fun initialize(
@@ -137,10 +254,11 @@ class CameraXVideoCapturer(
 
         CameraAccessManager.initialize(appContext)
 
-        if (!CameraAccessManager.forceCameraAccess(cameraId)) {
-            Log.w(TAG, "Failed to force camera access, proceeding with normal flow")
-        } else {
-            Log.i(TAG, "Successfully forced camera access from other apps")
+        if (!CameraAccessManager.ensureCameraReadyForCapture(cameraId)) {
+            Log.e(TAG, "Failed to prepare camera access — another app may be using the camera")
+            started.set(false)
+            observer.onCapturerStarted(false)
+            return
         }
 
         val future = ProcessCameraProvider.getInstance(appContext)
@@ -148,7 +266,12 @@ class CameraXVideoCapturer(
             try {
                 lifecycleOwner.markStarted()
                 cameraProvider = future.get()
-                bindPreview(helper)
+                if (!bindPreviewWithDisplacementFallback(helper, cameraId)) {
+                    started.set(false)
+                    lifecycleOwner.markStopped()
+                    observer.onCapturerStarted(false)
+                    return@addListener
+                }
                 helper.startListening(this@CameraXVideoCapturer)
                 startOrientationTracking(helper)
                 Log.i(TAG, "CameraX capture started, startListening registered front=$useFrontCamera ${width}x$height")
@@ -162,21 +285,55 @@ class CameraXVideoCapturer(
         }, ContextCompat.getMainExecutor(appContext))
     }
 
+    private fun bindPreviewWithDisplacementFallback(
+        helper: SurfaceTextureHelper,
+        cameraId: String,
+    ): Boolean {
+        try {
+            bindPreview(helper)
+            return true
+        } catch (first: Exception) {
+            if (!CameraAccessManager.lastProbeWasSkipped()) {
+                Log.e(TAG, "CameraX bind failed", first)
+                return false
+            }
+            Log.w(TAG, "CameraX bind failed after skipped probe — displacing and retrying once", first)
+            if (!CameraAccessManager.displaceForCapture(cameraId)) {
+                Log.e(TAG, "Camera displacement retry failed")
+                return false
+            }
+            try {
+                bindPreview(helper)
+                return true
+            } catch (second: Exception) {
+                Log.e(TAG, "CameraX bind failed after displacement retry", second)
+                return false
+            }
+        }
+    }
+
     private fun bindPreview(helper: SurfaceTextureHelper) {
         val provider = cameraProvider ?: return
         provider.unbindAll()
+        // Keep CameraX buffer at ROTATION_0 — hidden/background capture has no reliable
+        // display rotation and bind-time setTargetRotation + frame rotation double-applies
+        // on MIUI → black parent feed. Upright output uses WebRTC frame rotation only.
         val initialRotation = Surface.ROTATION_0
         val (targetWidth, targetHeight) = widestFovCaptureDimensions(captureWidth, captureHeight)
-        val preview = Preview.Builder()
-            .setResolutionSelector(buildPreviewResolutionSelector(captureWidth, captureHeight))
+        val previewBuilder = Preview.Builder()
+            .setResolutionSelector(buildPreviewResolutionSelector(useFrontCamera))
             .setTargetRotation(initialRotation)
-            .build()
+        applyStockCameraCaptureHints(previewBuilder)
+        val preview = previewBuilder.build()
         preview.setSurfaceProvider { request ->
             val w = request.resolution.width
             val h = request.resolution.height
             val texture = helper.surfaceTexture
             texture.setDefaultBufferSize(w, h)
             helper.setTextureSize(w, h)
+            captureWidth = w
+            captureHeight = h
+            onActualOutputSize?.invoke(w, h)
             Log.i(TAG, "SurfaceTextureHelper texture size set ${w}x$h cameraXRotation=$initialRotation")
             val surface = Surface(texture)
             request.provideSurface(surface, ContextCompat.getMainExecutor(appContext)) {
@@ -188,16 +345,45 @@ class CameraXVideoCapturer(
         } else {
             CameraSelector.DEFAULT_BACK_CAMERA
         }
-        provider.bindToLifecycle(lifecycleOwner, selector, preview)
+        boundCamera = provider.bindToLifecycle(lifecycleOwner, selector, preview)
         previewUseCase = preview
-        // Keep CameraX buffer in a stable target rotation. Dynamic CameraX
-        // setTargetRotation on some OEMs (e.g. MIUI) rescales into a fixed buffer
-        // → sideways + stretched video in browser viewers.
-        // WebRTC frame rotation / CVO carries upright orientation to parents.
-        Log.i(TAG, "Preview bound ${targetWidth}x$targetHeight (4:3 FOV) from request ${captureWidth}x$captureHeight")
+        resetZoomToNativeOneX(boundCamera)
+        appliedSurfaceRotation.set(initialRotation)
         helper.setFrameRotation(
             CameraOrientationHelper.webrtcFrameRotationDegrees(appliedSurfaceRotation.get()),
         )
+        Log.i(
+            TAG,
+            "Preview bound ${targetWidth}x$targetHeight (4:3 FOV) from request ${captureWidth}x$captureHeight",
+        )
+    }
+
+    /**
+     * Match stock Camera "1×" — zoom ratio 1.0, not [ZoomState.minZoomRatio].
+     * MIUI/HyperOS front cameras often expose ultra-wide below 1.0; min zoom adds fisheye
+     * and a circular vignette haze that native Camera at 1× does not show.
+     */
+    private fun resetZoomToNativeOneX(camera: Camera?) {
+        if (camera == null) return
+        try {
+            val zoomState = camera.cameraInfo.zoomState.value
+            val min = zoomState?.minZoomRatio ?: 1.0f
+            val max = zoomState?.maxZoomRatio ?: 1.0f
+            val target = previewZoomRatio(useFrontCamera, min, max)
+            camera.cameraControl.setZoomRatio(target)
+            Log.i(
+                TAG,
+                "Zoom set to ${target}x (front=$useFrontCamera, range ${min}–${max})",
+            )
+        } catch (e: Exception) {
+            try {
+                val fallback = previewZoomRatio(useFrontCamera, 1.0f, 1.0f)
+                camera.cameraControl.setZoomRatio(fallback)
+                Log.i(TAG, "Zoom reset to ${fallback}x fallback")
+            } catch (e2: Exception) {
+                Log.w(TAG, "Failed to reset preview zoom", e2)
+            }
+        }
     }
 
     private fun startOrientationTracking(helper: SurfaceTextureHelper) {
@@ -268,6 +454,7 @@ class CameraXVideoCapturer(
         surfaceTextureHelper?.stopListening()
         Log.i(TAG, "CameraX stopCapture — stopListening called")
         previewUseCase = null
+        boundCamera = null
         val latch = CountDownLatch(1)
         val future = ProcessCameraProvider.getInstance(appContext)
         future.addListener({

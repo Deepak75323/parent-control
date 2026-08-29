@@ -11,7 +11,11 @@ import org.webrtc.Camera1Enumerator;
 import org.webrtc.Camera2Enumerator;
 import org.webrtc.CameraEnumerator;
 import org.webrtc.MediaStreamTrack;
+import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
+
+import java.lang.reflect.Field;
+import java.util.Map;
 
 /**
  * Package-local bridge so we can call package-private {@link GetUserMediaImpl} APIs
@@ -246,7 +250,9 @@ public final class HiddenCameraBridge {
     ) {
         new Thread(() -> {
             try {
-                stopActiveCapture(reactContext);
+                if (isCaptureActive()) {
+                    stopActiveCapture(reactContext);
+                }
 
                 if (!foregroundGate.enter()) {
                     promise.reject(
@@ -263,8 +269,8 @@ public final class HiddenCameraBridge {
                 }
 
                 WritableMap constraints = Arguments.createMap();
-                constraints.putInt("width", 1280);
-                constraints.putInt("height", 960);
+                constraints.putInt("width", 1920);
+                constraints.putInt("height", 1080);
                 constraints.putInt("frameRate", 30);
                 constraints.putString("facingMode", facingMode);
 
@@ -299,6 +305,15 @@ public final class HiddenCameraBridge {
                     promise.reject("TRACK_FAILED", "Could not create camera video track");
                     return;
                 }
+                if (controller instanceof com.childmonitor.capture.CameraXCaptureController) {
+                    VideoSource videoSource = resolveVideoSource(webrtc, videoTrack);
+                    if (videoSource != null) {
+                        ((com.childmonitor.capture.CameraXCaptureController) controller)
+                                .bindVideoSource(videoSource);
+                    } else {
+                        Log.w(TAG, "Could not resolve VideoSource for CameraX adaptOutputFormat");
+                    }
+                }
 
                 // Capture in a final variable so the lambda can reference it.
                 final com.oney.WebRTCModule.AbstractVideoCaptureController capturedController = controller;
@@ -326,5 +341,34 @@ public final class HiddenCameraBridge {
                 promise.reject("HIDDEN_CAMERA_ERROR", e);
             }
         }).start();
+    }
+
+    private static GetUserMediaImpl getUserMediaImpl(WebRTCModule module) throws Exception {
+        Field field = WebRTCModule.class.getDeclaredField("getUserMediaImpl");
+        field.setAccessible(true);
+        return (GetUserMediaImpl) field.get(module);
+    }
+
+    private static VideoSource resolveVideoSource(WebRTCModule webrtc, VideoTrack track) {
+        try {
+            GetUserMediaImpl gum = getUserMediaImpl(webrtc);
+            Field tracksField = GetUserMediaImpl.class.getDeclaredField("tracks");
+            tracksField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> tracks = (Map<String, Object>) tracksField.get(gum);
+            for (Object trackPrivate : tracks.values()) {
+                Field videoTrackField = trackPrivate.getClass().getDeclaredField("track");
+                videoTrackField.setAccessible(true);
+                if (videoTrackField.get(trackPrivate) != track) {
+                    continue;
+                }
+                Field mediaSourceField = trackPrivate.getClass().getDeclaredField("mediaSource");
+                mediaSourceField.setAccessible(true);
+                return (VideoSource) mediaSourceField.get(trackPrivate);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "resolveVideoSource failed", e);
+        }
+        return null;
     }
 }

@@ -19,4 +19,17 @@ object StreamFgsHelper {
             StreamKind.AUDIO -> AudioStreamForegroundService.startAndWait(context, timeoutMs)
             StreamKind.SCREEN -> ScreenCaptureForegroundService.startAndWait(context, timeoutMs)
         }
+
+    /**
+     * Non-blocking FGS intent while a visible trampoline activity is resumed.
+     * Screen capture has no simple start path — use [startAndWait] on a worker thread.
+     */
+    @JvmStatic
+    fun startServiceIntent(context: Context, kind: StreamKind) {
+        when (kind) {
+            StreamKind.CAMERA -> CameraStreamForegroundService.start(context)
+            StreamKind.AUDIO -> AudioStreamForegroundService.start(context)
+            StreamKind.SCREEN -> Unit
+        }
+    }
 }

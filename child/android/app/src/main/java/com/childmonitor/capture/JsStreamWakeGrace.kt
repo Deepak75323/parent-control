@@ -18,7 +18,8 @@ object JsStreamWakeGrace {
     )
 
     const val GRACE_MS = 90_000L
-    const val FALLBACK_MS = 5_000L
+    /** Headless capture if JS does not ack wake — keep short so parent session is still alive. */
+    const val FALLBACK_MS = 2_500L
 
     @Volatile
     private var pending: PendingWake? = null
