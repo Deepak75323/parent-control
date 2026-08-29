@@ -7,6 +7,7 @@ import com.childmonitor.capture.StreamFgsPreparer
 import com.childmonitor.capture.StreamLifecycleLogger
 import com.childmonitor.debug.PcpFlowLogger
 import com.childmonitor.platform.Android16CompatibilityLayer
+import com.childmonitor.sync.HeartbeatSyncManager
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -37,6 +38,9 @@ class MainActivity : ReactActivity() {
     StreamLifecycleLogger.log("APP_FOREGROUND", "MainActivity.onResume")
     ScreenFgsStartupGate.scheduleMarkReady()
     ensureStreamForegroundServices()
+    if (MonitoringPrefs.isPaired(this)) {
+      Thread { HeartbeatSyncManager.syncNow(applicationContext) }.start()
+    }
   }
 
   override fun onPause() {

@@ -33,7 +33,7 @@ object OemDiagnosticsCollector {
         val notificationsGranted = notificationPermissionGranted(context)
         val overlayGranted = Settings.canDrawOverlays(context)
         val a11yEnabled = AccessibilityHealthChecker.isAccessibilityEnabled(context)
-        val a11yConnected = AppBlockingAccessibilityService.instance != null
+        val a11yConnected = a11yEnabled
         val projectionState = MediaProjectionTokenStore.getConsentState(context)
         val projectionGranted = projectionState == MediaProjectionConsentState.GRANTED_ACTIVE
         val workManagerReady = isWorkManagerAvailable(context)
@@ -83,6 +83,8 @@ object OemDiagnosticsCollector {
             "android16Checks" to android16Report.checks,
             "platformCapabilities" to platformCaps,
             "failureClassifications" to OemSetupValidator.classifyFailures(context),
+            "lastUncaughtCrashAtMs" to MonitoringPrefs.lastUncaughtCrashAtMs(context).takeIf { it > 0L },
+            "lastUncaughtCrashSummary" to MonitoringPrefs.lastUncaughtCrashSummary(context),
             "monitoringP108" to com.childmonitor.monitoring.MonitoringDegradationController.heartbeatFields(context),
         )
     }

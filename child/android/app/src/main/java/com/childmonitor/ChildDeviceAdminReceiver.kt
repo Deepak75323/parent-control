@@ -25,6 +25,7 @@ class ChildDeviceAdminReceiver : DeviceAdminReceiver() {
         if (MonitoringPrefs.isHideLauncherEnabled(context)) {
             TamperProtectionManager.setHideLauncher(context, true)
         }
+        DeviceReadinessSyncObserver.scheduleHeartbeat(context, "device_admin_enabled")
     }
 
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
@@ -43,6 +44,7 @@ class ChildDeviceAdminReceiver : DeviceAdminReceiver() {
             TamperApiClient.reportAdminDisabled(context.applicationContext)
         }.start()
         TamperProtectionManager.onDeviceAdminDisabled(context)
+        DeviceReadinessSyncObserver.scheduleHeartbeat(context, "device_admin_disabled")
         Log.i(TAG, "Device administrator deactivated")
     }
 

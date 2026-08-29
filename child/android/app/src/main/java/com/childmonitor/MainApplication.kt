@@ -53,6 +53,7 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    ProcessCrashReporter.install(this)
     // Use ScreenCaptureForegroundService (mediaProjection FGS) only — WebRTC's
     // MediaProjectionService crashes on Android 14+ when started alongside it.
     WebRTCModuleOptions.getInstance().enableMediaProjectionService = false
@@ -88,6 +89,7 @@ class MainApplication : Application(), ReactApplication {
         else -> { }
     }
     PresenceHeartbeatScheduler.schedule(applicationContext)
+    DeviceReadinessSyncObserver.register(applicationContext)
     // Start network connectivity monitoring for immediate offline detection
     NetworkConnectivityMonitor.startMonitoring(applicationContext)
     MonitoringServiceLauncher.requestMonitoring(
