@@ -27,7 +27,21 @@ import {Colors, Typography, Spacing, Radii, Elevation, Layout} from '../theme/de
 import {useFadeSlideIn, useOpacityPulse} from '../utils/animations';
 import {useFocusEffect} from '@react-navigation/native';
 import {getApiErrorMessage} from '../utils/apiError';
-import {isDevicePresentOnline} from '../utils/devicePresence';
+import {
+  buildStaleReadinessMessage,
+  formatLastHeardAgo,
+  hasAgedReadinessSnapshot,
+  hasStaleGrantedReadiness,
+  isDevicePresentOnline,
+} from '../utils/devicePresence';
+import {
+  buildRemoteCameraReadinessRows,
+  hasScoreReadinessMismatch,
+  hasUnknownReadinessRows,
+  hasUntrustedReadinessSnapshot,
+  isReadinessFullyGranted,
+} from '../utils/deviceReadiness';
+import {mergeDeviceWithLiveStatus} from '../utils/mergeDeviceLiveStatus';
 import {usePresenceClock} from '../hooks/usePresenceClock';
 import {track} from '../services/telemetry';
 import {TelemetryEvents} from '../services/telemetryEvents';
@@ -42,74 +56,7 @@ function isRevoked(s?: string) {
   return (s ?? '').toUpperCase() === 'REVOKED';
 }
 
-type ReadinessRow = {
-  key: string;
-  label: string;
-  ok: boolean | null;
-  fixHint: string;
-};
-
-function buildRemoteCameraReadiness(device: DeviceSummary, online: boolean): ReadinessRow[] {
-  const a11yOk =
-    device.permAccessibility ??
-    (device.accessibilityEnabled === true && device.accessibilityServiceConnected === true
-      ? true
-      : device.accessibilityEnabled === false || device.accessibilityServiceConnected === false
-        ? false
-        : null);
-
-  return [
-    {
-      key: 'online',
-      label: 'Device online',
-      ok: online,
-      fixHint: 'Child phone must reach the server. Open Clock Time or wait for the next heartbeat.',
-    },
-    {
-      key: 'battery',
-      label: 'Battery unrestricted',
-      ok: device.permBattery ?? null,
-      fixHint: 'On the child phone: turn off battery optimization for Clock Time.',
-    },
-    {
-      key: 'autostart',
-      label: 'Autostart allowed',
-      ok: device.permAutostart ?? null,
-      fixHint: 'On Xiaomi and similar phones: enable Autostart for Clock Time in Security settings.',
-    },
-    {
-      key: 'a11y',
-      label: 'Accessibility service',
-      ok: a11yOk,
-      fixHint: 'On the child phone: keep the Clock Time accessibility service enabled.',
-    },
-    {
-      key: 'overlay',
-      label: 'Display over other apps',
-      ok: device.permOverlay ?? null,
-      fixHint:
-        'On the child phone: allow Clock Time to display over other apps for reliable remote camera startup.',
-    },
-    {
-      key: 'camera',
-      label: 'Camera permission',
-      ok: device.permCamera ?? null,
-      fixHint: 'On the child phone: grant camera permission to Clock Time.',
-    },
-    {
-      key: 'monitoring',
-      label: 'Background monitoring active',
-      ok:
-        device.monitoringDegraded === true
-          ? false
-          : device.monitoringDegraded === false
-            ? true
-            : null,
-      fixHint:
-        'Android limited background work. Open Clock Time on the child phone to restore monitoring.',
-    },
-  ];
-}
+type ReadinessRowLocal = import('../utils/deviceReadiness').ReadinessRow;
 
 function ReadinessStatusIcon({ok}: {ok: boolean | null}) {
   if (ok === true) return <Text style={sc.readinessIconOk}>✓</Text>;
@@ -194,9 +141,12 @@ export function DeviceDetailScreen({navigation, route}: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      void loadDevice();
-      void loadRequests();
-    }, [loadDevice, loadRequests]),
+      void deviceApi.wake(deviceId).catch(() => undefined);
+      if (!loading) {
+        void loadDevice();
+        void loadRequests();
+      }
+    }, [deviceId, loadDevice, loadRequests, loading]),
   );
 
   const sendCommand = async (
@@ -265,6 +215,9 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const lastSeen = live?.lastSeenAt ?? device?.lastSeenAt;
   const online = isDevicePresentOnline(status, lastSeen, presenceNowMs);
   const revoked = isRevoked(status);
+  const effectiveDevice: DeviceSummary | null = device
+    ? mergeDeviceWithLiveStatus(device, live)
+    : null;
   const deviceName = device?.deviceName ?? 'Child Device';
   const initials = deviceName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
@@ -276,9 +229,24 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       ? {title: deviceAlerts[0].title, message: deviceAlerts[0].message ?? ''}
       : null;
 
-  const readinessItems = device ? buildRemoteCameraReadiness(device, online) : [];
+  const readinessItemsRaw = effectiveDevice
+    ? buildRemoteCameraReadinessRows(effectiveDevice, online)
+    : [];
+  const readinessItems = readinessItemsRaw;
   const readinessIssues = readinessItems.filter(item => item.ok === false);
-  const readinessReady = readinessItems.length > 0 && readinessIssues.length === 0;
+  const readinessUnknown = hasUnknownReadinessRows(readinessItems);
+  const readinessReady = isReadinessFullyGranted(readinessItems);
+  const staleReadinessMessage =
+    !readinessUnknown &&
+    (hasStaleGrantedReadiness(online, readinessItems) ||
+      hasUntrustedReadinessSnapshot(readinessItems, effectiveDevice?.readinessFailureTags) ||
+      hasAgedReadinessSnapshot(online, lastSeen, readinessItems, presenceNowMs) ||
+      (effectiveDevice ? hasScoreReadinessMismatch(effectiveDevice, readinessItems) : false))
+      ? buildStaleReadinessMessage(lastSeen, presenceNowMs)
+      : null;
+  const recentChildCrash = (effectiveDevice?.readinessFailureTags ?? []).includes(
+    'PROCESS_CRASH_RECENT',
+  );
 
   const openRemoteView = (initialStream?: 'SCREEN' | 'CAMERA' | 'AUDIO') => {
     // Camera-only build: always open Live Monitoring on CAMERA.
@@ -428,8 +396,39 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                     <View style={[sc.setupPill, sc.readinessIssuePill]}>
                       <Text style={sc.readinessIssuePillText}>{readinessIssues.length} to fix</Text>
                     </View>
+                  ) : readinessUnknown ? (
+                    <View style={[sc.setupPill, sc.readinessPendingPill]}>
+                      <Text style={sc.readinessPendingPillText}>Checking…</Text>
+                    </View>
                   ) : null}
                 </View>
+
+                {recentChildCrash ? (
+                  <View style={sc.crashAlert}>
+                    <View style={sc.crashAlertIcon}>
+                      <Text style={{fontSize: 18}}>⚠️</Text>
+                    </View>
+                    <View style={sc.crashAlertBody}>
+                      <Text style={sc.crashAlertTitle}>Clock Time crashed recently</Text>
+                      <Text style={sc.crashAlertSub}>
+                        The child app stopped unexpectedly in the last 24 hours. Open Clock Time on
+                        the child phone and leave Autostart enabled so monitoring can recover.
+                      </Text>
+                    </View>
+                  </View>
+                ) : null}
+
+                {staleReadinessMessage ? (
+                  <View style={sc.staleAlert}>
+                    <View style={sc.staleAlertIcon}>
+                      <Text style={{fontSize: 18}}>ℹ️</Text>
+                    </View>
+                    <View style={sc.staleAlertBody}>
+                      <Text style={sc.staleAlertTitle}>Status may be outdated</Text>
+                      <Text style={sc.staleAlertSub}>{staleReadinessMessage}</Text>
+                    </View>
+                  </View>
+                ) : null}
 
                 {readinessIssues.length > 0 ? (
                   <View style={sc.permAlert}>
@@ -460,16 +459,18 @@ export function DeviceDetailScreen({navigation, route}: Props) {
                           <Text style={sc.readinessHint}>{item.fixHint}</Text>
                         ) : item.ok === null ? (
                           <Text style={sc.readinessHintMuted}>
-                            Waiting for next child heartbeat…
+                            {online
+                              ? 'Syncing permission status from child phone…'
+                              : 'Waiting for next child heartbeat…'}
                           </Text>
                         ) : null}
                       </View>
                     </View>
                   ))}
-                  {device.deviceReadinessScore != null ? (
+                  {effectiveDevice?.deviceReadinessScore != null ? (
                     <Text style={sc.readinessScore}>
-                      Device readiness score: {device.deviceReadinessScore}/100
-                      {device.oemVendor ? ` · ${device.oemVendor}` : ''}
+                      Device readiness score: {effectiveDevice.deviceReadinessScore}/100
+                      {effectiveDevice.oemVendor ? ` · ${effectiveDevice.oemVendor}` : ''}
                     </Text>
                   ) : null}
                 </SurfaceCard>
@@ -697,6 +698,52 @@ const sc = StyleSheet.create({
   permAlertBtn: {backgroundColor: Colors.warning, borderRadius: Radii.sm, paddingHorizontal: Spacing.md, paddingVertical: 6},
   permAlertBtnText: {fontSize: 12, fontWeight: '800', color: '#fff'},
 
+  staleAlert: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderRadius: Radii.md,
+    padding: Layout.componentInternal,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.primary,
+    marginBottom: Spacing.sm,
+  },
+  staleAlertIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: Radii.sm,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.sm,
+  },
+  staleAlertBody: {flex: 1},
+  staleAlertTitle: {fontSize: 13, fontWeight: '700', color: Colors.primary},
+  staleAlertSub: {fontSize: 12, color: '#1E3A8A', marginTop: 1, lineHeight: 17},
+
+  crashAlert: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderRadius: Radii.md,
+    padding: Layout.componentInternal,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.error,
+    marginBottom: Spacing.sm,
+  },
+  crashAlertIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: Radii.sm,
+    backgroundColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.sm,
+  },
+  crashAlertBody: {flex: 1},
+  crashAlertTitle: {fontSize: 13, fontWeight: '700', color: Colors.error},
+  crashAlertSub: {fontSize: 12, color: '#991B1B', marginTop: 1, lineHeight: 17},
+
   readinessRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -714,6 +761,8 @@ const sc = StyleSheet.create({
   readinessIconUnknown: {fontSize: 16, fontWeight: '800', color: Colors.textTertiary, width: 22, textAlign: 'center'},
   readinessIssuePill: {borderRadius: Radii.pill, paddingHorizontal: Spacing.sm, paddingVertical: 2},
   readinessIssuePillText: {fontSize: 10, fontWeight: '700', color: Colors.warning},
+  readinessPendingPill: {borderRadius: Radii.pill, paddingHorizontal: Spacing.sm, paddingVertical: 2, backgroundColor: Colors.borderLight},
+  readinessPendingPillText: {fontSize: 10, fontWeight: '700', color: Colors.textTertiary},
   readinessScore: {...Typography.smallLabel, color: Colors.textTertiary, marginTop: Spacing.md},
 
   // Alert card — 16px internal padding

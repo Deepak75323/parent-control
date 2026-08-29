@@ -21,7 +21,7 @@ import {
 import {StreamTopBar} from './StreamTopBar';
 import {StreamControlBar} from './StreamControlBar';
 import {flowLog} from '../../services/streamDebug';
-import {mapContainTouchToNorm, viewerVideoAspect} from './remoteControlCoords';
+import {mapContainTouchToNorm, resolveCameraObjectFit, viewerVideoAspect} from './remoteControlCoords';
 import {nativeModules} from '../../nativeModules';
 import {config} from '../../utils/config';
 import {
@@ -31,6 +31,7 @@ import {
   rnViewerVideoRotateStyle,
   androidViewerVideoLayout,
   androidViewerContainVideoLayout,
+  androidViewerCoverVideoLayout,
   VIEWER_ZOOM_STEP_PERCENT,
   type ViewerRotateDeg,
 } from '../../utils/viewerVideoRotate';
@@ -280,11 +281,17 @@ export function LiveStreamViewport({
     [primaryStream, streamType, frameSize],
   );
 
-  /** Camera uses contain so portrait preview matches the native camera app — cover stretches 4:3 buffers. */
+  /** Camera: cover fills viewport like native PreviewView FILL_CENTER. */
   const primaryObjectFit: 'contain' | 'cover' =
-    pinchScale > 1 || isFullscreen || (streamType === 'SCREEN' && !remoteControlEnabled)
-      ? 'cover'
-      : 'contain';
+    streamType === 'CAMERA'
+      ? resolveCameraObjectFit(frameSize, pinchScale)
+      : pinchScale > 1 || isFullscreen || !remoteControlEnabled
+        ? 'cover'
+        : 'contain';
+
+  // Manual contain layout on Android — RTCView objectFit ignores WebRTC frame rotation.
+  const useContainLayout =
+    Platform.OS === 'android' && primaryObjectFit === 'contain';
 
   const onPrimaryDimensionsChange = useCallback(
     (event: {nativeEvent: {width: number; height: number}}) => {
@@ -296,9 +303,37 @@ export function LiveStreamViewport({
     [],
   );
 
+  // Android camera uses manual layout boxes — RTCView objectFit must stay contain or cover applies twice.
+  const rtcObjectFit: 'contain' | 'cover' =
+    Platform.OS === 'android' && streamType === 'CAMERA' ? 'contain' : primaryObjectFit;
+
   const primaryVideoStyle = useMemo(() => {
+    if (streamType === 'CAMERA') {
+      if (Platform.OS === 'android') {
+        if (pinchScale <= 1) {
+          return androidViewerContainVideoLayout(
+            viewportSize.width,
+            viewportSize.height,
+            videoAspect,
+            pinchScale,
+          );
+        }
+        return androidViewerCoverVideoLayout(
+          viewportSize.width,
+          viewportSize.height,
+          videoAspect,
+          pinchScale,
+        );
+      }
+      return rnViewerVideoRotateStyle(
+        effectiveViewRotate,
+        viewportSize.width,
+        viewportSize.height,
+        pinchScale,
+      );
+    }
     if (Platform.OS === 'android') {
-      if (primaryObjectFit === 'contain') {
+      if (useContainLayout) {
         return androidViewerContainVideoLayout(
           viewportSize.width,
           viewportSize.height,
@@ -320,11 +355,13 @@ export function LiveStreamViewport({
       pinchScale,
     );
   }, [
-    primaryObjectFit,
+    streamType,
+    useContainLayout,
     effectiveViewRotate,
     pinchScale,
     viewportSize.width,
     viewportSize.height,
+    primaryObjectFit,
     videoAspect,
   ]);
 
@@ -451,7 +488,7 @@ export function LiveStreamViewport({
               ref={primaryRtcRef}
               stream={primaryStream}
               style={primaryVideoStyle}
-              objectFit={primaryObjectFit}
+              objectFit={rtcObjectFit}
               onDimensionsChange={onPrimaryDimensionsChange}
               zOrder={0}
             />
@@ -584,6 +621,9 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     overflow: 'hidden',
+  },
+  cameraVideoFill: {
+    ...StyleSheet.absoluteFillObject,
   },
   gestureOverlay: {
     ...StyleSheet.absoluteFillObject,
