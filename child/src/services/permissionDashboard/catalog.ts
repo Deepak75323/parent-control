@@ -1,34 +1,39 @@
-import {Platform} from 'react-native';
 import type {PermissionDef, PermissionGroupDef, PermissionId} from './types';
 
+/**
+ * Camera-only + tamper keep list.
+ * Still defined in PERMISSION_DEFS for status sync, but not shown/required in setup.
+ */
 export const RUNTIME_PERMISSION_ORDER: PermissionId[] = [
-  'location',
-  'microphone',
   'camera',
-  ...(Platform.OS === 'android' && Platform.Version >= 33
-    ? (['postNotifications'] as PermissionId[])
-    : []),
 ];
 
 export const SPECIAL_PERMISSION_ORDER: PermissionId[] = [
   'accessibility',
-  'usageStats',
-  'notificationAccess',
   'overlay',
   'battery',
   'autoStart',
   'deviceAdmin',
-  ...(Platform.OS === 'android' && Platform.Version >= 34
-    ? (['fullScreenIntent'] as PermissionId[])
-    : []),
 ];
 
-export const SCREEN_CAPTURE_ORDER: PermissionId[] = ['screenCapture'];
+/** Screen share removed from camera-only setup. */
+export const SCREEN_CAPTURE_ORDER: PermissionId[] = [];
 
 export const ALL_PERMISSION_ORDER: PermissionId[] = [
   ...RUNTIME_PERMISSION_ORDER,
   ...SPECIAL_PERMISSION_ORDER,
   ...SCREEN_CAPTURE_ORDER,
+];
+
+/** Permissions intentionally not required for camera-only + tamper. */
+export const OPTIONAL_PERMISSION_IDS: PermissionId[] = [
+  'location',
+  'microphone',
+  'usageStats',
+  'notificationAccess',
+  'postNotifications',
+  'fullScreenIntent',
+  'screenCapture',
 ];
 
 export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
@@ -45,7 +50,7 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
     id: 'microphone',
     kind: 'runtime',
     label: 'Microphone',
-    explanation: 'Allow the microphone so your parent can listen during live listening.',
+    explanation: 'Allow the microphone for live listening (not used for live camera).',
   },
   camera: {
     id: 'camera',
@@ -57,14 +62,15 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
     id: 'postNotifications',
     kind: 'runtime',
     label: 'Notifications',
-    explanation: 'Allow notifications so Clock Time can show important setup reminders.',
+    explanation:
+      'Notifications are optional. Live camera uses overlay instead of a visible alert. Turn notifications off to hide the quiet Clock Time shade bubble.',
   },
   accessibility: {
     id: 'accessibility',
     kind: 'special',
     label: 'Required device feature',
     explanation:
-      'Turn on Clock Time in the next settings list. This helps block apps, manage screen time, and finish screen sharing smoothly.',
+      'Turn on Clock Time in the next settings list. This protects Clock Time from being turned off or removed without a parent password.',
     settingsHint: 'Find “Clock Time” in the list and turn it on.',
   },
   usageStats: {
@@ -85,7 +91,8 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
     id: 'overlay',
     kind: 'special',
     label: 'Display over other apps',
-    explanation: 'Allow Clock Time to show block screens and reminders on top of other apps.',
+    explanation:
+      'Allow Clock Time to start a requested live camera, screen, or sound session reliably when it is not open.',
     settingsHint: 'Turn on “Allow display over other apps” for Clock Time.',
   },
   battery: {
@@ -133,40 +140,23 @@ export const PERMISSION_DEFS: Record<PermissionId, PermissionDef> = {
 
 export function buildPermissionGroups(requiresAutoStart: boolean): PermissionGroupDef[] {
   const backgroundIds: PermissionId[] = requiresAutoStart
-    ? ['battery', 'autoStart', 'deviceAdmin']
-    : ['battery', 'deviceAdmin'];
+    ? ['overlay', 'battery', 'autoStart', 'deviceAdmin']
+    : ['overlay', 'battery', 'deviceAdmin'];
 
   return [
     {
       id: 'basicRuntime',
       icon: '✅',
       title: 'Basic permissions',
-      description: 'Location, microphone, camera, and notifications — tap Allow when asked.',
+      description: 'Camera — tap Allow when asked.',
       permissionIds: [...RUNTIME_PERMISSION_ORDER],
     },
     {
-      id: 'usageLimits',
+      id: 'tamperProtection',
       icon: '🛡️',
-      title: 'Usage limits',
-      description: 'Limit apps and screen time on this phone.',
-      permissionIds: ['accessibility', 'overlay'],
-    },
-    {
-      id: 'syncNotifications',
-      icon: '📢',
-      title: 'App alerts',
-      description: 'Let your parent see notifications from this phone.',
-      permissionIds:
-        Platform.OS === 'android' && Platform.Version >= 34
-          ? (['notificationAccess', 'fullScreenIntent'] as PermissionId[])
-          : (['notificationAccess'] as PermissionId[]),
-    },
-    {
-      id: 'usageReport',
-      icon: '📊',
-      title: 'Usage reports',
-      description: 'Share screen time and app usage with your parent.',
-      permissionIds: ['usageStats'],
+      title: 'Uninstall protection',
+      description: 'Keep Clock Time from being turned off or removed without a parent password.',
+      permissionIds: ['accessibility'],
     },
     {
       id: 'background',
@@ -174,13 +164,6 @@ export function buildPermissionGroups(requiresAutoStart: boolean): PermissionGro
       title: 'Keep Clock Time running',
       description: 'Help Clock Time keep working after restart and when it isn’t open.',
       permissionIds: backgroundIds,
-    },
-    {
-      id: 'screenShare',
-      icon: '📺',
-      title: 'Screen sharing',
-      description: 'Allow your parent to view this phone’s screen when needed.',
-      permissionIds: ['screenCapture'],
     },
   ];
 }

@@ -36,10 +36,8 @@ object TamperGateController {
                 openAfterUnlock(context, ACTION_ACCESSIBILITY)
             }
             return
+            return
         }
-        Thread {
-            TamperApiClient.reportDisableAttempt(context.applicationContext, target)
-        }.start()
         launchGate(context, afterUnlock, target)
     }
 

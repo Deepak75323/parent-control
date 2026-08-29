@@ -7,6 +7,7 @@ import {
   prevViewerRotateDeg,
   rnViewerVideoRotateStyle,
   androidViewerVideoLayout,
+  androidViewerContainVideoLayout,
   viewerRotateFitScale,
   formatViewerZoomLabel,
   scaleToViewerZoomPercent,
@@ -39,8 +40,9 @@ describe('viewerVideoRotate (parent)', () => {
 
   it('clamps pinch zoom and multiplies it after rotate-fit', () => {
     expect(clampViewerPinchScale(0.2)).toBe(1);
-    expect(clampViewerPinchScale(9)).toBe(4);
-    expect(nextPinchScale(1, 100, 200)).toBe(2);
+    expect(clampViewerPinchScale(9)).toBe(3);
+    expect(nextPinchScale(1, 100, 200)).toBeCloseTo(1.4);
+    expect(nextPinchScale(1, 100, 200, 1)).toBe(2);
     const style = rnViewerVideoRotateStyle(0, 360, 700, 2);
     expect(style.transform).toEqual([{scale: 2}]);
   });
@@ -48,18 +50,18 @@ describe('viewerVideoRotate (parent)', () => {
   it('nudges zoom with buttons and clamps at limits', () => {
     expect(nudgePinchScale(1, 1.25)).toBe(1.25);
     expect(nudgePinchScale(1.25, 0.8)).toBe(1);
-    expect(nudgePinchScale(4, 1.25)).toBe(4);
+    expect(nudgePinchScale(4, 1.25)).toBe(3);
     expect(nudgePinchScale(1, 0.5)).toBe(1);
   });
 
-  it('uses percentage zoom labels and 10% steps', () => {
+  it('uses percentage zoom labels and 5% steps', () => {
     expect(formatViewerZoomLabel(1)).toBe('100%');
     expect(formatViewerZoomLabel(1.5)).toBe('150%');
-    expect(scaleToViewerZoomPercent(4)).toBe(400);
-    expect(nudgeViewerZoomPercent(1, VIEWER_ZOOM_STEP_PERCENT)).toBe(1.1);
-    expect(nudgeViewerZoomPercent(1.1, -VIEWER_ZOOM_STEP_PERCENT)).toBe(1);
+    expect(scaleToViewerZoomPercent(3)).toBe(300);
+    expect(nudgeViewerZoomPercent(1, VIEWER_ZOOM_STEP_PERCENT)).toBe(1.05);
+    expect(nudgeViewerZoomPercent(1.05, -VIEWER_ZOOM_STEP_PERCENT)).toBe(1);
     expect(viewerZoomPercentToScale(250)).toBe(2.5);
-    expect(viewerZoomPercentToScale(450)).toBe(4);
+    expect(viewerZoomPercentToScale(450)).toBe(3);
   });
 
   it('sizes Android layout box for parent-side zoom', () => {
@@ -72,5 +74,13 @@ describe('viewerVideoRotate (parent)', () => {
     expect(rotated.width).toBe(400);
     expect(rotated.height).toBe(800);
     expect(rotated.left).toBe(0);
+  });
+
+  it('letterboxes Android contain layout using video aspect', () => {
+    const contained = androidViewerContainVideoLayout(400, 800, 3 / 4);
+    expect(contained.width).toBe(400);
+    expect(contained.height).toBeCloseTo(533.33, 1);
+    expect(contained.left).toBe(0);
+    expect(contained.top).toBeCloseTo(133.33, 1);
   });
 });

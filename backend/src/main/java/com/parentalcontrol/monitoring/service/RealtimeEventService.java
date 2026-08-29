@@ -10,6 +10,7 @@ import com.parentalcontrol.monitoring.dto.DeviceStatusEvent;
 import com.parentalcontrol.monitoring.dto.LocationRealtimeEvent;
 import com.parentalcontrol.monitoring.dto.NotificationRealtimeEvent;
 import com.parentalcontrol.monitoring.dto.UsageStatsRealtimeEvent;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -89,6 +90,18 @@ public class RealtimeEventService {
             .monitoringDegraded(readDiagBool(device, "monitoringDegraded"))
             .monitoringMode(readDiagString(device, "monitoringMode"))
             .standbyBucket(readDiagString(device, "standbyBucket"))
+            .accessibilityEnabled(device.isAccessibilityEnabled())
+            .accessibilityServiceConnected(device.isAccessibilityServiceConnected())
+            .permAccessibility(resolvePermAccessibility(device))
+            .permBattery(readDiagBool(device, "batteryExempt"))
+            .permAutostart(readDiagBool(device, "autostartPromptDone"))
+            .permOverlay(readDiagBool(device, "overlayGranted"))
+            .permCamera(readDiagBool(device, "cameraGranted"))
+            .permMicrophone(readDiagBool(device, "microphoneGranted"))
+            .permNotifications(readDiagBool(device, "notificationPermissionGranted"))
+            .permFullScreenIntent(readDiagBool(device, "fullScreenIntentGranted"))
+            .deviceReadinessScore(device.getDeviceReadinessScore())
+            .readinessFailureTags(resolveReadinessFailureTags(device))
             .build();
 
     messagingTemplate.convertAndSend("/topic/device/" + device.getId() + "/status", event);
@@ -121,6 +134,41 @@ public class RealtimeEventService {
       return null;
     }
     return String.valueOf(diag.get(key));
+  }
+
+  private Boolean resolvePermAccessibility(Device device) {
+    List<String> tags = resolveReadinessFailureTags(device);
+    if (tags != null && tags.contains("ACCESSIBILITY_DISABLED")) {
+      return false;
+    }
+    Boolean enabledDiag = readDiagBool(device, "accessibilityEnabled");
+    if (Boolean.TRUE.equals(enabledDiag) || device.isAccessibilityEnabled()) {
+      return true;
+    }
+    if (Boolean.FALSE.equals(enabledDiag) || !device.isAccessibilityEnabled()) {
+      return false;
+    }
+    Boolean connectedDiag = readDiagBool(device, "accessibilityServiceConnected");
+    if (connectedDiag != null) {
+      return Boolean.TRUE.equals(connectedDiag);
+    }
+    return device.isAccessibilityEnabled();
+  }
+
+  private List<String> resolveReadinessFailureTags(Device device) {
+    if (device.getOemFailureClassifications() != null
+        && !device.getOemFailureClassifications().isEmpty()) {
+      return device.getOemFailureClassifications();
+    }
+    Map<String, Object> diag = device.getOemDiagnosticsJson();
+    if (diag == null) {
+      return null;
+    }
+    Object raw = diag.get("failureClassifications");
+    if (raw instanceof List<?> list) {
+      return list.stream().map(String::valueOf).toList();
+    }
+    return null;
   }
 
   public void publishLocation(Device device, LocationHistory entry) {

@@ -21,13 +21,11 @@ class ForegroundServiceCrashGuardTest {
     }
 
     @Test
-    fun cameraPromotionTypesFallbackWhenPermissionMissing() {
-        assertArrayEquals(
-            intArrayOf(
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
-            ),
-            ForegroundServiceCrashGuard.cameraPromotionTypes(hasCameraPermission = false),
+    fun cameraPromotionTypesEmptyWhenPermissionMissing() {
+        // Do not fall through to microphone — RECORD_AUDIO may be denied.
+        assertEquals(
+            0,
+            ForegroundServiceCrashGuard.cameraPromotionTypes(hasCameraPermission = false).size,
         )
     }
 

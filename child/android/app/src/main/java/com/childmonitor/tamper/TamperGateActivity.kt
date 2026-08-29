@@ -19,6 +19,7 @@ class TamperGateActivity : AppCompatActivity() {
     private var mode = Mode.PIN
     private var busy = false
     private var tamperTarget: String? = null
+    private var codeAlreadySent = false
 
     private lateinit var title: TextView
     private lateinit var modeLink: TextView
@@ -52,8 +53,12 @@ class TamperGateActivity : AppCompatActivity() {
         modeLink.setOnClickListener {
             mode = if (mode == Mode.PIN) Mode.CODE else Mode.PIN
             applyMode()
-            if (mode == Mode.CODE) {
+            if (mode == Mode.CODE && !codeAlreadySent) {
                 requestCodeFromServer()
+            } else if (mode == Mode.CODE && codeAlreadySent) {
+                status.visibility = View.VISIBLE
+                status.setTextColor(getColor(android.R.color.holo_green_dark))
+                status.setText(R.string.tamper_gate_code_sent)
             }
         }
         requestCodeBtn.setOnClickListener { requestCodeFromServer() }
@@ -117,6 +122,7 @@ class TamperGateActivity : AppCompatActivity() {
         Thread {
             when (val outcome = TamperApiClient.reportDisableAttemptDetailed(applicationContext, tamperTarget)) {
                     is TamperApiClient.AttemptOutcome.Success -> runOnUiThread {
+                    codeAlreadySent = true
                     status.visibility = View.VISIBLE
                     status.setTextColor(getColor(android.R.color.holo_green_dark))
                     if (!outcome.result.parentPinConfigured && mode == Mode.PIN) {
@@ -141,6 +147,12 @@ class TamperGateActivity : AppCompatActivity() {
 
     private fun requestCodeFromServer() {
         if (busy) return
+        if (codeAlreadySent) {
+            status.visibility = View.VISIBLE
+            status.setTextColor(getColor(android.R.color.holo_green_dark))
+            status.setText(R.string.tamper_gate_code_sent)
+            return
+        }
         busy = true
         requestCodeBtn.isEnabled = false
         Thread {
@@ -151,6 +163,7 @@ class TamperGateActivity : AppCompatActivity() {
                 status.visibility = View.VISIBLE
                 when (outcome) {
                     is TamperApiClient.AttemptOutcome.Success -> {
+                        codeAlreadySent = true
                         status.setTextColor(getColor(android.R.color.holo_green_dark))
                         status.setText(R.string.tamper_gate_code_sent)
                     }

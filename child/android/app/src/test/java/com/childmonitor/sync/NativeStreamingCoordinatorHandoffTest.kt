@@ -77,4 +77,24 @@ class NativeStreamingCoordinatorHandoffTest {
             ),
         )
     }
+
+    @Test
+    fun remoteRequestBootstrapsFromResumedActivityWhenTypedFgsIsInactive() {
+        assertTrue(
+            NativeStreamingHandoffPolicy.shouldBootstrapFromResumedActivity(
+                isRemoteStream = true,
+                typedFgsActive = false,
+            ),
+        )
+    }
+
+    @Test
+    fun activeTypedFgsDoesNotLaunchAnotherBootstrapActivity() {
+        assertFalse(
+            NativeStreamingHandoffPolicy.shouldBootstrapFromResumedActivity(
+                isRemoteStream = true,
+                typedFgsActive = true,
+            ),
+        )
+    }
 }

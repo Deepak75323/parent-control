@@ -2,9 +2,17 @@ import {Client, type IMessage} from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import {useAuthStore} from '../auth/authStore';
 import {useRealtimeStore} from './realtimeStore';
+import {
+  clearSignalingSubscriptions,
+  resubscribeSignalingRooms,
+} from './signalingWebSocket';
 import type {AlertItem, NotificationItem, LocationPoint} from '../types/api';
 
 let client: Client | null = null;
+
+export function getWebSocketClient(): Client | null {
+  return client;
+}
 
 function parseJson<T>(message: IMessage): T {
   return JSON.parse(message.body) as T;
@@ -39,6 +47,9 @@ export function connectWebSocket(): void {
     heartbeatOutgoing: 10000,
     onConnect: () => {
       useRealtimeStore.getState().setWsConnected(true);
+      if (client) {
+        resubscribeSignalingRooms(client);
+      }
 
       client?.subscribe('/user/queue/device-status', msg => {
         const event = parseJson<{
@@ -153,6 +164,7 @@ export function connectWebSocket(): void {
 }
 
 export function disconnectWebSocket(): void {
+  clearSignalingSubscriptions();
   if (client) {
     void client.deactivate();
     client = null;

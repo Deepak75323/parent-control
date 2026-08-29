@@ -115,6 +115,18 @@ export function connectWebSocket(): void {
           monitoringDegraded?: boolean;
           monitoringMode?: string;
           standbyBucket?: string;
+          accessibilityEnabled?: boolean;
+          accessibilityServiceConnected?: boolean;
+          permAccessibility?: boolean;
+          permBattery?: boolean;
+          permAutostart?: boolean;
+          permOverlay?: boolean;
+          permCamera?: boolean;
+          permMicrophone?: boolean;
+          permNotifications?: boolean;
+          permFullScreenIntent?: boolean;
+          deviceReadinessScore?: number;
+          readinessFailureTags?: string[];
         }>(msg);
         const deviceId = normalizeDeviceId(event.deviceId);
         const store = useRealtimeStore.getState();
@@ -149,6 +161,18 @@ export function connectWebSocket(): void {
           monitoringDegraded: event.monitoringDegraded,
           monitoringMode: event.monitoringMode,
           standbyBucket: event.standbyBucket,
+          accessibilityEnabled: event.accessibilityEnabled,
+          accessibilityServiceConnected: event.accessibilityServiceConnected,
+          permAccessibility: event.permAccessibility,
+          permBattery: event.permBattery,
+          permAutostart: event.permAutostart,
+          permOverlay: event.permOverlay,
+          permCamera: event.permCamera,
+          permMicrophone: event.permMicrophone,
+          permNotifications: event.permNotifications,
+          permFullScreenIntent: event.permFullScreenIntent,
+          deviceReadinessScore: event.deviceReadinessScore,
+          readinessFailureTags: event.readinessFailureTags,
         });
       });
 

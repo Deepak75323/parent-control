@@ -18,6 +18,7 @@ import com.facebook.react.uimanager.UIManagerHelper
 import androidx.fragment.app.FragmentActivity
 import com.parentscaffold.BuildConfig
 import com.parentscaffold.capture.StreamRecorder
+import com.parentscaffold.security.ParentBiometricAuth
 import com.parentscaffold.security.ParentSecureAuthStore
 import org.webrtc.VideoFrame
 import org.webrtc.VideoSink
@@ -191,6 +192,20 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun authenticateBiometric(promise: Promise) {
+        val activity = currentActivity as? FragmentActivity
+        if (activity == null) {
+            promise.resolve("unavailable")
+            return
+        }
+        try {
+            ParentBiometricAuth.authenticate(activity, promise)
+        } catch (e: Exception) {
+            promise.reject("BIOMETRIC", e)
+        }
+    }
+
+    @ReactMethod
     fun setViewerAudioMode(enabled: Boolean, promise: Promise) {
         try {
             val audioManager =
@@ -248,12 +263,15 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun stopStreamRecording(streamType: String, promise: Promise) {
-        try {
-            val uri = StreamRecorder.stop(reactContext.applicationContext, streamType)
-            promise.resolve(uri)
-        } catch (e: Exception) {
-            promise.reject("RECORD_STOP", e)
-        }
+        // EGL/MediaRecorder shutdown can block several seconds — keep off the RN module thread.
+        Thread {
+            try {
+                val uri = StreamRecorder.stop(reactContext.applicationContext, streamType)
+                promise.resolve(uri)
+            } catch (e: Exception) {
+                promise.reject("RECORD_STOP", e)
+            }
+        }.start()
     }
 
     private fun boostMusicVolume(audioManager: AudioManager) {

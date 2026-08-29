@@ -24,7 +24,7 @@ class FcmStreamControlActionsTest {
     fun dropsDuplicateFlipWithinWindow() {
         FcmStreamControlActions.resetForTests()
         assertTrue(FcmStreamControlActions.acceptFlip(1_000L))
-        assertFalse(FcmStreamControlActions.acceptFlip(1_000L + 400L))
+        assertFalse(FcmStreamControlActions.acceptFlip(1_000L + 2_000L))
         assertTrue(FcmStreamControlActions.acceptFlip(1_000L + FcmStreamControlActions.DEDUP_WINDOW_MS))
     }
 }

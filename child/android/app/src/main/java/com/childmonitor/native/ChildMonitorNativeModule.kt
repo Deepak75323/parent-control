@@ -13,6 +13,7 @@ import android.provider.Settings
 import android.util.Log
 import com.childmonitor.AccessibilityHealthChecker
 import com.childmonitor.AppBlockingAccessibilityService
+import com.childmonitor.DeviceReadinessSyncObserver
 import com.childmonitor.MainActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -189,6 +190,9 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
                 sessionId,
                 roomId,
             )
+            if (ok) {
+                NativeStreamingCoordinator.onJsWakeAcknowledged(sessionId)
+            }
             promise.resolve(ok)
         } catch (e: Exception) {
             promise.reject("SESSION_ACQUIRE_ERROR", e)
@@ -701,13 +705,7 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         runtimeChainIndex = 0
         inRuntimeChain = true
         runtimeChainSteps.clear()
-        runtimeChainSteps.add { LocationReader.hasPermission(reactContext) }
-        runtimeChainSteps.add {
-            ContextCompat.checkSelfPermission(
-                reactContext,
-                android.Manifest.permission.RECORD_AUDIO,
-            ) == PackageManager.PERMISSION_GRANTED
-        }
+        // Camera-only keep list: camera → notifications (no mic / location).
         runtimeChainSteps.add {
             ContextCompat.checkSelfPermission(
                 reactContext,
@@ -726,12 +724,6 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
     }
 
     private fun allRuntimePermissionsGranted(): Boolean {
-        if (!LocationReader.hasPermission(reactContext)) return false
-        if (ContextCompat.checkSelfPermission(reactContext, android.Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            return false
-        }
         if (ContextCompat.checkSelfPermission(reactContext, android.Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -759,10 +751,8 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
             return
         }
         when (runtimeChainIndex) {
-            0 -> requestLocationPermissionInternal(chainAdvancePromise)
-            1 -> requestMicrophonePermission(chainAdvancePromise)
-            2 -> requestCameraPermission(chainAdvancePromise)
-            3 -> requestPostNotificationsPermission(chainAdvancePromise)
+            0 -> requestCameraPermission(chainAdvancePromise)
+            1 -> requestPostNotificationsPermission(chainAdvancePromise)
             else -> {
                 runtimeChainIndex++
                 runtimeChainAdvance()
@@ -2123,6 +2113,10 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         @JvmStatic
         fun emitPermissionStateChanged(): Boolean {
             val ctx = eventContext ?: return false
+            val app = ctx.applicationContext
+            if (MonitoringPrefs.isPaired(app)) {
+                DeviceReadinessSyncObserver.scheduleHeartbeat(app, "permission_state_changed")
+            }
             if (!ctx.hasActiveReactInstance()) return false
             ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
                 .emit("permissionStateChanged", null)

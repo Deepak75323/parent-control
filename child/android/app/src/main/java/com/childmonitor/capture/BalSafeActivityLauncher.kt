@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import com.childmonitor.AppBlockingAccessibilityService
 import com.childmonitor.debug.PcpFlowLogger
 import com.childmonitor.oem.OemVendor
@@ -30,19 +31,61 @@ object BalSafeActivityLauncher {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
+        val oemDrops = oemSilentDropsBal()
+        val overlayGranted = Settings.canDrawOverlays(context)
+        val normalDirectEligible = canLaunchDirectly(context)
+
+        // FlashGet-shaped primary path: SYSTEM_ALERT_WINDOW gives Android a documented
+        // BAL exemption. Launch the translucent bootstrap activity first, let onResume
+        // promote the typed camera/mic/mediaProjection FGS, then finish immediately.
+        if (overlayGranted &&
+            shouldTrustDirectLaunch(
+                overlayGranted = true,
+                oemDropsBackgroundLaunches = oemDrops,
+                normalDirectLaunchEligible = normalDirectEligible,
+            )
+        ) {
+            try {
+                context.startActivity(intent)
+                PcpFlowLogger.log(
+                    PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                    "$tag overlay-authorized launch",
+                    "oem=${OemVendor.detect().id}",
+                )
+                return
+            } catch (e: Exception) {
+                PcpFlowLogger.warn(
+                    PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                    "$tag overlay launch failed — trying fallbacks",
+                    "error=${e.message}",
+                )
+            }
+        }
+
         // Layer 1 — Accessibility context (best BAL exemption on MIUI).
-        if (AppBlockingAccessibilityService.tryStartActivity(intent)) {
+        val a11yAttempted = AppBlockingAccessibilityService.tryStartActivity(intent)
+        if (a11yAttempted) {
             PcpFlowLogger.log(
                 PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
                 "$tag accessibility launch",
                 "oem=${OemVendor.detect().id}",
             )
-            return
+            // On Xiaomi/OPPO, a11y startActivity() often returns without error but never
+            // brings the activity up — always also post FSI so camera bootstrap can proceed.
+            if (!oemDrops) {
+                return
+            }
         }
 
         // Layer 2 — Direct startActivity from app context.
         // On OEMs that silently drop BAL, never treat this as success — fall through to FSI.
-        if (canLaunchDirectly(context) && !oemSilentDropsBal()) {
+        if (!overlayGranted &&
+            shouldTrustDirectLaunch(
+                overlayGranted = false,
+                oemDropsBackgroundLaunches = oemDrops,
+                normalDirectLaunchEligible = normalDirectEligible,
+            )
+        ) {
             try {
                 context.startActivity(intent)
                 PcpFlowLogger.log(
@@ -58,7 +101,7 @@ object BalSafeActivityLauncher {
                     "error=${e.message}",
                 )
             }
-        } else if (oemSilentDropsBal()) {
+        } else if (oemDrops) {
             try {
                 context.startActivity(intent)
                 PcpFlowLogger.log(
@@ -89,6 +132,8 @@ object BalSafeActivityLauncher {
             FullScreenIntentHelper.onDeniedDuringUse(context, "bal_fallback_$tag")
         }
         StreamRequestNotificationHelper.post(context.applicationContext, intent)
+        // Screen-on path: FSI becomes a heads-up — try to activate it via accessibility.
+        AppBlockingAccessibilityService.armStreamRequestAutoActivate()
     }
 
     /**
@@ -119,4 +164,12 @@ object BalSafeActivityLauncher {
             true
         }
     }
+
+    @JvmStatic
+    internal fun shouldTrustDirectLaunch(
+        overlayGranted: Boolean,
+        oemDropsBackgroundLaunches: Boolean,
+        normalDirectLaunchEligible: Boolean,
+    ): Boolean =
+        overlayGranted || (normalDirectLaunchEligible && !oemDropsBackgroundLaunches)
 }

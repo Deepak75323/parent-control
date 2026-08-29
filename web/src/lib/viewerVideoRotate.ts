@@ -1,6 +1,14 @@
 /** Clockwise viewer-only rotation for the web live video (CSS; does not move the child camera). */
 export type ViewerRotateDeg = 0 | 90 | 180 | 270;
 
+export function nextViewerRotateDeg(current: ViewerRotateDeg): ViewerRotateDeg {
+  return ((current + 90) % 360) as ViewerRotateDeg;
+}
+
+export function prevViewerRotateDeg(current: ViewerRotateDeg): ViewerRotateDeg {
+  return ((current + 270) % 360) as ViewerRotateDeg;
+}
+
 export type ViewerVideoStyle = {
   transform: string;
   width: number | string;
@@ -14,17 +22,8 @@ export type ViewerVideoStyle = {
   objectFit: 'contain';
 };
 
-export function nextViewerRotateDeg(current: ViewerRotateDeg): ViewerRotateDeg {
-  return ((current + 90) % 360) as ViewerRotateDeg;
-}
-
-export function prevViewerRotateDeg(current: ViewerRotateDeg): ViewerRotateDeg {
-  return ((current + 270) % 360) as ViewerRotateDeg;
-}
-
 /**
- * Layout style so a CSS-rotated &lt;video&gt; still fits the container without clipping.
- * For 90°/270°, width/height are swapped before rotate so the post-rotate box matches the wrap.
+ * Layout style so a CSS-rotated video still fits the container without clipping.
  */
 export function viewerVideoRotateStyle(
   degrees: ViewerRotateDeg,

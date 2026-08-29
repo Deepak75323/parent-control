@@ -53,6 +53,7 @@ public class TamperService {
   private final PasswordEncoder passwordEncoder;
   private final DevMasterPinSupport devMasterPinSupport;
   private final AuditService auditService;
+  private final com.parentalcontrol.common.security.RateLimitService rateLimitService;
   private final SecureRandom secureRandom = new SecureRandom();
 
   private enum AuthMethod {
@@ -79,6 +80,18 @@ public class TamperService {
         "device:" + device.getId(),
         device.getId(),
         Map.of("target", target));
+
+    Instant now = Instant.now();
+    boolean hadActiveCode =
+        tamperUnlockCodeRepository
+            .findFirstByDeviceIdAndUsedAtIsNullAndExpiresAtAfterOrderByCreatedAtDesc(
+                device.getId(), now)
+            .isPresent();
+    // Only rate-limit when issuing a *new* code — re-taps while a code is still valid
+    // should reuse ensureActiveCode() without burning the per-minute budget.
+    if (!hadActiveCode) {
+      rateLimitService.checkTamperAttempt(device.getId().toString());
+    }
 
     TamperUnlockCode activeCode = ensureActiveCode(device);
     alertService.checkDeviceAdminDisableAttempt(

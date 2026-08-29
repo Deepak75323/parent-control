@@ -19,6 +19,7 @@ import com.childmonitor.security.DeviceTrustSignalsCollector
 import com.childmonitor.telemetry.MobileTelemetryReporter
 import com.childmonitor.TamperProtectionManager
 import org.json.JSONObject
+import org.json.JSONArray
 import com.childmonitor.constants.ApiPaths
 
 /**
@@ -38,8 +39,11 @@ object HeartbeatSyncManager {
         val consentState = MediaProjectionTokenStore.getConsentState(context)
         val projectionGranted = consentState == MediaProjectionConsentState.GRANTED_ACTIVE
         val accessibilityEnabled = AccessibilityHealthChecker.isAccessibilityEnabled(context)
+        // WorkManager heartbeats often run while the a11y binder is idle on MIUI/HyperOS.
+        // System settings are the durable grant signal; explicit connect/disconnect events
+        // still push overrides via syncAccessibilityServiceState().
         val accessibilityServiceConnected = accessibilityServiceConnectedOverride
-            ?: (AppBlockingAccessibilityService.instance != null)
+            ?: accessibilityEnabled
         val telemetry = DeviceTelemetryReader.read(context)
         val foregroundApp = ForegroundAppTracker.current()
         val fcmToken = FcmTokenRegistrar.tokenForHeartbeat(context)
@@ -47,6 +51,7 @@ object HeartbeatSyncManager {
         val trustSignals = DeviceTrustSignalsCollector.collect(context)
         val oemDiagnostics = OemDiagnosticsCollector.collect(context)
         val readinessScore = OemSetupValidator.computeReadinessScore(context)
+        val failureClassifications = OemSetupValidator.classifyFailures(context)
         val monitoring = MonitoringDegradationController.heartbeatFields(context)
 
         return JSONObject()
@@ -92,10 +97,17 @@ object HeartbeatSyncManager {
                 put("oemVendor", oemDiagnostics["vendor"])
                 put("androidSdkInt", oemDiagnostics["sdkInt"])
                 put("deviceReadinessScore", readinessScore)
+                put("failureClassifications", JSONArray(failureClassifications))
                 put("android16ReadinessScore", oemDiagnostics["android16ReadinessScore"])
                 put("android16Blockers", oemDiagnostics["android16Blockers"])
                 put("platformSdkTarget", AndroidPlatform.SDK_ANDROID_16)
                 put("oemSetupComplete", oemDiagnostics["oemSetupComplete"])
+                put("batteryExempt", oemDiagnostics["batteryExempt"])
+                put("autostartPromptDone", oemDiagnostics["autostartPromptDone"])
+                put("overlayGranted", oemDiagnostics["overlayGranted"])
+                put("cameraGranted", oemDiagnostics["cameraGranted"])
+                put("notificationPermissionGranted", oemDiagnostics["notificationPermissionGranted"])
+                put("fullScreenIntentGranted", oemDiagnostics["fullScreenIntentGranted"])
                 put("oemDiagnostics", OemDiagnosticsCollector.toJson(context))
             }
     }

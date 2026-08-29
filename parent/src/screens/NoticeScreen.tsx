@@ -6,10 +6,6 @@ import {RootStackParamList} from '../navigation/RootNavigator';
 import {
   alertsApi,
   AlertItem,
-  deviceApi,
-  DeviceSummary,
-  monitoringApi,
-  NotificationItem,
   timeExtensionApi,
   TimeExtensionRequestItem,
 } from '../services/api';
@@ -22,8 +18,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 type NoticeItem =
   | {kind: 'request'; data: TimeExtensionRequestItem}
-  | {kind: 'alert'; data: AlertItem}
-  | {kind: 'notification'; data: NotificationItem & {deviceId?: string}};
+  | {kind: 'alert'; data: AlertItem};
 
 function fmtTime(iso: string) {
   const d = new Date(iso);
@@ -104,70 +99,20 @@ function AlertCard({item}: {item: AlertItem}) {
   );
 }
 
-function NotifCard({
-  item,
-  onOpen,
-}: {
-  item: NotificationItem & {deviceId?: string};
-  onOpen?: () => void;
-}) {
-  return (
-    <Pressable style={styles.notifCard} onPress={onOpen} disabled={!onOpen}>
-      <View style={styles.notifIconWrap}><Text style={{fontSize: 18}}>🔔</Text></View>
-      <View style={styles.notifBody}>
-        <Text style={styles.notifPkg} numberOfLines={1}>
-          {appDisplayName({
-            title: item.title,
-            packageName: item.packageName,
-            fallback: 'App notification',
-          })}
-        </Text>
-        <Text style={styles.notifTitle}>{item.title ?? 'Notification'}</Text>
-        {item.body ? <Text style={styles.notifMsg} numberOfLines={1}>{item.body}</Text> : null}
-      </View>
-      <Text style={styles.notifTime}>{fmtTime(item.postedAt)}</Text>
-    </Pressable>
-  );
-}
-
-export function NoticeScreen({navigation}: {navigation: Nav}) {
+export function NoticeScreen(_props: {navigation: Nav}) {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [requests, setRequests] = useState<TimeExtensionRequestItem[]>([]);
-  const [historyNotifs, setHistoryNotifs] = useState<Array<NotificationItem & {deviceId?: string}>>([]);
-  const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const liveAlerts = useRealtimeStore(s => s.liveAlerts);
-  const liveNotifications = useRealtimeStore(s => s.liveNotifications);
   const headerAnim = useFadeSlideIn(0);
 
   const load = useCallback(async () => {
-    const [a, r, d] = await Promise.allSettled([
+    const [a, r] = await Promise.allSettled([
       alertsApi.list(0, 30),
       timeExtensionApi.listPending(),
-      deviceApi.list(),
     ]);
     if (a.status === 'fulfilled') setAlerts(a.value.data.data.content);
     if (r.status === 'fulfilled') setRequests(r.value.data.data);
-    const deviceList =
-      d.status === 'fulfilled' ? (d.value.data.data ?? []) : [];
-    setDevices(deviceList);
-
-    if (deviceList.length === 0) {
-      setHistoryNotifs([]);
-      return;
-    }
-    const perDevice = await Promise.allSettled(
-      deviceList.slice(0, 5).map(async device => {
-        const res = await monitoringApi.notifications(device.id, 0, 20);
-        return (res.data.data.content ?? []).map(n => ({...n, deviceId: device.id}));
-      }),
-    );
-    const merged: Array<NotificationItem & {deviceId?: string}> = [];
-    perDevice.forEach(result => {
-      if (result.status === 'fulfilled') merged.push(...result.value);
-    });
-    merged.sort((x, y) => new Date(y.postedAt).getTime() - new Date(x.postedAt).getTime());
-    setHistoryNotifs(merged.slice(0, 40));
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -182,21 +127,10 @@ export function NoticeScreen({navigation}: {navigation: Nav}) {
     return Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [alerts, liveAlerts]);
 
-  const mergedNotifs = useMemo(() => {
-    const map = new Map<string, NotificationItem & {deviceId?: string}>();
-    historyNotifs.forEach(n => map.set(n.id, n));
-    liveNotifications.forEach(n => map.set(n.id, n));
-    return Array.from(map.values())
-      .sort((a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime())
-      .slice(0, 25);
-  }, [historyNotifs, liveNotifications]);
-
-  const primaryDeviceId = devices[0]?.id;
-
+  // Camera-only branch: do not show mirrored child phone notifications.
   const items: NoticeItem[] = [
     ...requests.map(d => ({kind: 'request' as const, data: d})),
     ...mergedAlerts.map(d => ({kind: 'alert' as const, data: d})),
-    ...mergedNotifs.map(d => ({kind: 'notification' as const, data: d})),
   ];
 
   const total = items.length;
@@ -216,13 +150,6 @@ export function NoticeScreen({navigation}: {navigation: Nav}) {
             <Text style={styles.headerBadgeText}>{total}</Text>
           </View>
         </View>
-        {primaryDeviceId ? (
-          <Pressable
-            style={styles.childNotifLink}
-            onPress={() => navigation.navigate('Notifications', {deviceId: primaryDeviceId})}>
-            <Text style={styles.childNotifLinkText}>Child notifications ›</Text>
-          </Pressable>
-        ) : null}
       </Animated.View>
 
       <FlatList
@@ -239,22 +166,14 @@ export function NoticeScreen({navigation}: {navigation: Nav}) {
               onNo={() => respondRequest(item.data.id, false, item.data.requestedMinutes)}
             />
           );
-          if (item.kind === 'alert') return <AlertCard item={item.data} />;
-          const notif = item.data;
-          const openId = notif.deviceId ?? primaryDeviceId;
-          return (
-            <NotifCard
-              item={notif}
-              onOpen={openId ? () => navigation.navigate('Notifications', {deviceId: openId}) : undefined}
-            />
-          );
+          return <AlertCard item={item.data} />;
         }}
         ListEmptyComponent={
           <View style={styles.empty}>
             <View style={styles.emptyIcon}><Text style={{fontSize: 40}}>✅</Text></View>
             <Text style={styles.emptyTitle}>All clear!</Text>
             <Text style={styles.emptyBody}>
-              No alerts yet. Child phone notifications appear here after Clock Time syncs — open a device → Child notifications for full history.
+              No alerts yet. Safety alerts and requests from your child devices will show up here.
             </Text>
           </View>
         }

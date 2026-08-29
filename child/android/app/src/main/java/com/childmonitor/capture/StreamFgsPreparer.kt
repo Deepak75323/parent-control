@@ -86,12 +86,6 @@ object StreamFgsPreparer {
                 return false
             }
         }
-        if (kind == StreamKind.CAMERA) {
-            // Video call always needs the mic FGS alongside camera (Android 14+).
-            if (!StreamFgsHelper.isActive(StreamKind.AUDIO)) {
-                ensureKindReady(context, StreamKind.AUDIO, timeoutMs)
-            }
-        }
         val ready = StreamFgsHelper.startAndWait(appContext, kind, timeoutMs)
         if (ready) {
             Log.i(TAG, "$kind FGS started for inbound stream request")
