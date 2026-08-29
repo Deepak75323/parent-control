@@ -36,6 +36,7 @@ import com.childmonitor.capture.StreamCaptureTeardown
 import com.childmonitor.capture.StreamLifecycleLogger
 import com.childmonitor.capture.StreamTeardownCoordinator
 import com.childmonitor.capture.JsViewerPresenceTracker
+import com.childmonitor.capture.JsHiddenStreamRuntime
 import com.childmonitor.capture.JsStreamWakeGrace
 import com.childmonitor.capture.StreamSessionRegistry
 import com.childmonitor.capture.StreamSessionWatchdog
@@ -858,22 +859,18 @@ object NativeStreamingCoordinator {
     }
 
     private fun pollSessions(context: Context) {
-        // jsPeerActive must reflect the JS publisher / capture path, NOT the wake-listener flag.
-        // Backgrounding pauses the STOMP wake listener (jsListenerActive=false) while the hidden
-        // screen PC + FGS stay alive — treating that as "JS peer dead" false-orphans the session.
-        val jsPeerAlive =
-            (
-                StreamSessionRegistry.activeOwner() == StreamSessionRegistry.Owner.JS_HIDDEN &&
-                    ScreenCaptureForegroundService.isForegroundActive()
-            ) ||
-                (
-                    jsListenerActive.get() &&
-                        ChildMonitorNativeModule.canDeliverStreamToJs()
-                )
-        StreamSessionRegistry.reconcile(
-            NativeStreamPublisher.isRunning(),
-            jsPeerAlive,
-        )
+        // jsPeerActive must reflect live capture/FGS — not React availability alone.
+        // After teardown React may still be foreground (canDeliverStreamToJs=true) while
+        // capture is stopped; treating that as "alive" leaves JS_HIDDEN stuck and blocks
+        // new sessions. Background screen/camera/audio paths are covered by FGS + bridges.
+        val jsPeerAlive = JsHiddenStreamRuntime.isCapturePipelineLive()
+        if (!StreamSessionRegistry.reconcile(
+                NativeStreamPublisher.isRunning(),
+                jsPeerAlive,
+            )
+        ) {
+            StreamCaptureTeardown.stopAll(context, "session_orphan")
+        }
         try {
             StreamSessionWatchdog.tick(context)
         } catch (e: Exception) {

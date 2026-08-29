@@ -12,6 +12,7 @@ import androidx.work.WorkManager
 import com.childmonitor.AccessibilityHealthChecker
 import com.childmonitor.AppBlockingAccessibilityService
 import com.childmonitor.MonitoringPrefs
+import com.childmonitor.capture.FullScreenIntentHelper
 import com.childmonitor.capture.MediaProjectionConsentState
 import com.childmonitor.capture.MediaProjectionTokenStore
 import com.childmonitor.deviceowner.DeviceOwnerManager
@@ -32,13 +33,18 @@ object OemDiagnosticsCollector {
         val notificationsGranted = notificationPermissionGranted(context)
         val overlayGranted = Settings.canDrawOverlays(context)
         val a11yEnabled = AccessibilityHealthChecker.isAccessibilityEnabled(context)
-        val a11yConnected = AppBlockingAccessibilityService.instance != null
+        val a11yConnected = a11yEnabled
         val projectionState = MediaProjectionTokenStore.getConsentState(context)
         val projectionGranted = projectionState == MediaProjectionConsentState.GRANTED_ACTIVE
         val workManagerReady = isWorkManagerAvailable(context)
         val exactAlarmsAllowed = canScheduleExactAlarms(context)
         val android16Report = Android16ReadinessEvaluator.evaluate(context)
         val platformCaps = AndroidPlatform.capabilities(context)
+        val fsiStatus = FullScreenIntentHelper.validate(context)
+        val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        val microphoneGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
 
         return linkedMapOf(
             "vendor" to vendor.id,
@@ -56,6 +62,10 @@ object OemDiagnosticsCollector {
             "autostartPromptDone" to autostartPromptDone,
             "oemSetupComplete" to OemSetupValidator.isOemSetupComplete(context),
             "notificationPermissionGranted" to notificationsGranted,
+            "fullScreenIntentGranted" to FullScreenIntentHelper.isGranted(context),
+            "fullScreenIntentStatus" to fsiStatus.name,
+            "cameraGranted" to cameraGranted,
+            "microphoneGranted" to microphoneGranted,
             "overlayGranted" to overlayGranted,
             "accessibilityEnabled" to a11yEnabled,
             "accessibilityServiceConnected" to a11yConnected,
@@ -73,6 +83,8 @@ object OemDiagnosticsCollector {
             "android16Checks" to android16Report.checks,
             "platformCapabilities" to platformCaps,
             "failureClassifications" to OemSetupValidator.classifyFailures(context),
+            "lastUncaughtCrashAtMs" to MonitoringPrefs.lastUncaughtCrashAtMs(context).takeIf { it > 0L },
+            "lastUncaughtCrashSummary" to MonitoringPrefs.lastUncaughtCrashSummary(context),
             "monitoringP108" to com.childmonitor.monitoring.MonitoringDegradationController.heartbeatFields(context),
         )
     }

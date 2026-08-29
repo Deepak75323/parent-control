@@ -1,11 +1,10 @@
-import {Platform} from 'react-native';
 import {nativeModules} from '../nativeModules';
 import {flowLog} from './flowLogger';
 
-/** Camera-with-sound + tamper setup keys (no location / screen share / usage / overlay). */
+/** Camera-only + tamper setup keys (no location / screen share / usage / notifications). */
 export type SetupPermissionKey =
   | 'accessibility'
-  | 'notification'
+  | 'overlay'
   | 'camera'
   | 'battery'
   | 'oemBackground'
@@ -45,19 +44,6 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
     },
   ];
 
-  if (Platform.OS === 'android' && Platform.Version >= 33) {
-    steps.push({
-      key: 'notification',
-      title: 'Notifications',
-      check: () => nativeModules.isPostNotificationsGranted(),
-      open: async () => ({
-        mode: 'in_app',
-        granted: await nativeModules.requestPostNotificationsPermission(),
-      }),
-      inApp: true,
-    });
-  }
-
   steps.push(
     {
       key: 'accessibility',
@@ -67,6 +53,16 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
         (await nativeModules.isAccessibilityServiceConnected()),
       open: async () => {
         await nativeModules.openAccessibilitySettings();
+        return {mode: 'settings'};
+      },
+      manual: true,
+    },
+    {
+      key: 'overlay',
+      title: 'Display over other apps',
+      check: () => nativeModules.isOverlayGranted(),
+      open: async () => {
+        await nativeModules.openOverlaySettings();
         return {mode: 'settings'};
       },
       manual: true,
@@ -175,15 +171,11 @@ export async function confirmOemBackgroundSetup(): Promise<boolean> {
 /** Camera-with-sound + tamper — every required setup permission must be granted. */
 export async function isSetupPermissionsComplete(): Promise<boolean> {
   const requiresOem = await nativeModules.requiresOemBackgroundSetup();
-  const needsPostNotifications = Platform.OS === 'android' && Platform.Version >= 33;
-  const [camera, mic, postNotifications, accessibility, battery, oemBackground, deviceAdmin] =
+  const [camera, accessibility, overlay, battery, oemBackground, deviceAdmin] =
     await Promise.all([
       nativeModules.isCameraGranted(),
-      nativeModules.isMicGranted(),
-      needsPostNotifications
-        ? nativeModules.isPostNotificationsGranted()
-        : Promise.resolve(true),
       nativeModules.isAccessibilityEnabled(),
+      nativeModules.isOverlayGranted(),
       nativeModules.isBatteryOptimizationExempt(),
       requiresOem ? nativeModules.isOemAutostartPromptDone() : Promise.resolve(true),
       nativeModules.isDeviceAdminActive(),
@@ -195,10 +187,9 @@ export async function isSetupPermissionsComplete(): Promise<boolean> {
 
   return (
     camera &&
-    mic &&
-    postNotifications &&
     accessibility &&
     accessibilityConnected &&
+    overlay &&
     battery &&
     oemBackground &&
     deviceAdmin

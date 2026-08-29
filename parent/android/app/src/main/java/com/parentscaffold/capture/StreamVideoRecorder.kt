@@ -10,12 +10,15 @@ import com.oney.WebRTCModule.EglUtils
 import com.oney.WebRTCModule.WebRTCModule
 import org.webrtc.EglBase
 import org.webrtc.EglRenderer
+import org.webrtc.GlRectDrawer
 import org.webrtc.MediaStreamTrack
 import org.webrtc.VideoTrack
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -29,6 +32,7 @@ object StreamVideoRecorder {
 
     private var videoTrack: VideoTrack? = null
     private var eglRenderer: EglRenderer? = null
+    private var glDrawer: GlRectDrawer? = null
     private var mediaRecorder: MediaRecorder? = null
     private var tempFile: File? = null
     private var includeRemoteAudio = false
@@ -83,8 +87,9 @@ object StreamVideoRecorder {
         val eglContext =
             EglUtils.getRootEglBaseContext()
                 ?: throw IllegalStateException("WebRTC renderer is not ready yet")
+        val drawer = GlRectDrawer()
         val renderer = EglRenderer("pcp-recorder")
-        renderer.init(eglContext, EglBase.CONFIG_PLAIN, null)
+        renderer.init(eglContext, EglBase.CONFIG_PLAIN, drawer)
         renderer.createEglSurface(recorder.surface)
 
         this.includeRemoteAudio = includeRemoteAudio && StreamPlaybackAudioCapture.isSupported()
@@ -97,6 +102,7 @@ object StreamVideoRecorder {
 
         videoTrack = video
         eglRenderer = renderer
+        glDrawer = drawer
         mediaRecorder = recorder
         tempFile = out
         running.set(true)
@@ -110,32 +116,74 @@ object StreamVideoRecorder {
 
         val track = videoTrack
         val renderer = eglRenderer
+        val drawer = glDrawer
         val recorder = mediaRecorder
         val file = tempFile
         val captureAudio = includeRemoteAudio
         includeRemoteAudio = false
 
+        // Tear down on the EglRenderer thread. Calling release() from the bridge thread while
+        // renderFrameOnRenderThread is still active nulls GlDrawer and crashes the app.
         try {
             if (track != null && renderer != null) {
                 track.removeSink(renderer)
             }
         } catch (_: Exception) {
         }
-        try {
-            renderer?.release()
-        } catch (_: Exception) {
+
+        val shutdownLatch = CountDownLatch(1)
+        if (renderer != null) {
+            try {
+                renderer.pauseVideo()
+            } catch (_: Exception) {
+            }
+            try {
+                renderer.releaseEglSurface {
+                    try {
+                        recorder?.stop()
+                    } catch (_: Exception) {
+                    }
+                    try {
+                        recorder?.release()
+                    } catch (_: Exception) {
+                    }
+                    try {
+                        renderer.release()
+                    } catch (_: Exception) {
+                    }
+                    try {
+                        drawer?.release()
+                    } catch (_: Exception) {
+                    }
+                    shutdownLatch.countDown()
+                }
+            } catch (_: Exception) {
+                try {
+                    recorder?.stop()
+                } catch (_: Exception) {
+                }
+                try {
+                    recorder?.release()
+                } catch (_: Exception) {
+                }
+                shutdownLatch.countDown()
+            }
+        } else {
+            try {
+                recorder?.stop()
+            } catch (_: Exception) {
+            }
+            try {
+                recorder?.release()
+            } catch (_: Exception) {
+            }
+            shutdownLatch.countDown()
         }
-        try {
-            recorder?.stop()
-        } catch (_: Exception) {
-        }
-        try {
-            recorder?.release()
-        } catch (_: Exception) {
-        }
+        shutdownLatch.await(8, TimeUnit.SECONDS)
 
         videoTrack = null
         eglRenderer = null
+        glDrawer = null
         mediaRecorder = null
         tempFile = null
 

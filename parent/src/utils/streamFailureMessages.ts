@@ -46,6 +46,11 @@ export function streamFailureMessage(reason?: string | null): string {
       return (
         'Camera view couldn’t start on the child phone. Open Clock Time briefly, then try again.'
       );
+    case 'CAMERA_IN_USE_BY_OTHER_APP':
+      return (
+        'Another app is using the camera on the child phone (for example a video call). ' +
+        'End the call or close that app, then tap Reconnect.'
+      );
     case 'NO_CAPTURE_FRAMES':
       return (
         'The child phone connected, but no screen picture arrived. ' +

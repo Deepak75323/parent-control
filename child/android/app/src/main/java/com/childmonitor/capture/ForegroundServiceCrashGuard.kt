@@ -44,6 +44,7 @@ object ForegroundServiceCrashGuard {
         notificationId: Int,
         notification: android.app.Notification,
         preferredTypes: IntArray,
+        allowUntypedFallback: Boolean = true,
     ): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             return promoteLegacy(service, notificationId, notification)
@@ -60,6 +61,12 @@ object ForegroundServiceCrashGuard {
                 )
             }
         }
+        // Camera/mic services declare typed FGS in the manifest. An untyped
+        // startForeground() still resolves to that while-in-use type and fails the
+        // same background eligibility check. Skip that dead end.
+        if (!allowUntypedFallback) {
+            return false
+        }
         return promoteLegacy(service, notificationId, notification)
     }
 
@@ -67,13 +74,11 @@ object ForegroundServiceCrashGuard {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             return IntArray(0)
         }
+        // Never fall through to microphone — CameraStream FGS must not require RECORD_AUDIO.
         return if (hasCameraPermission) {
             intArrayOf(ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
         } else {
-            intArrayOf(
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
-            )
+            IntArray(0)
         }
     }
 

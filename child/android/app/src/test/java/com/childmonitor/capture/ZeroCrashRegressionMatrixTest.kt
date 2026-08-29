@@ -105,9 +105,9 @@ class ZeroCrashRegressionMatrixTest {
     }
 
     @Test
-    fun fgsPermissionRevoked_usesMicrophoneFallbackType() {
+    fun cameraPermissionRevoked_neverFallsBackToMicrophoneType() {
         repeat(100) {
-            assertTrue(
+            assertFalse(
                 ForegroundServiceCrashGuard.cameraPromotionTypes(hasCameraPermission = false)
                     .contains(ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE),
             )

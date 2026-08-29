@@ -30,4 +30,16 @@ public class DeviceStatusEvent {
   private Boolean monitoringDegraded;
   private String monitoringMode;
   private String standbyBucket;
+  private boolean accessibilityEnabled;
+  private boolean accessibilityServiceConnected;
+  private Boolean permAccessibility;
+  private Boolean permBattery;
+  private Boolean permAutostart;
+  private Boolean permOverlay;
+  private Boolean permCamera;
+  private Boolean permMicrophone;
+  private Boolean permNotifications;
+  private Boolean permFullScreenIntent;
+  private Integer deviceReadinessScore;
+  private java.util.List<String> readinessFailureTags;
 }

@@ -1,14 +1,17 @@
 import type {ViewStyle} from 'react-native';
+import {containVideoLayoutBox, coverVideoLayoutBox} from '../components/liveMonitoring/remoteControlCoords';
 
 /** Clockwise viewer-only rotation (UI transform; does not move the child camera). */
 export type ViewerRotateDeg = 0 | 90 | 180 | 270;
 
 export const MIN_VIEWER_PINCH = 1;
-export const MAX_VIEWER_PINCH = 4;
+export const MAX_VIEWER_PINCH = 3;
 export const MIN_VIEWER_ZOOM_PERCENT = 100;
-export const MAX_VIEWER_ZOOM_PERCENT = 400;
+export const MAX_VIEWER_ZOOM_PERCENT = 300;
 /** Button step and display granularity for viewer zoom. */
-export const VIEWER_ZOOM_STEP_PERCENT = 10;
+export const VIEWER_ZOOM_STEP_PERCENT = 5;
+/** Lower = slower pinch zoom (0.4 → a 2× finger spread ≈ 1.4× video zoom). */
+export const VIEWER_PINCH_SENSITIVITY = 0.4;
 
 export function scaleToViewerZoomPercent(scale: number): number {
   const clamped = clampViewerPinchScale(scale);
@@ -69,16 +72,53 @@ export function nextPinchScale(
   startScale: number,
   startDistance: number,
   currentDistance: number,
+  sensitivity: number = VIEWER_PINCH_SENSITIVITY,
 ): number {
   if (startDistance <= 0 || currentDistance <= 0) {
     return clampViewerPinchScale(startScale);
   }
-  return clampViewerPinchScale(startScale * (currentDistance / startDistance));
+  const rawRatio = currentDistance / startDistance;
+  const dampedRatio = 1 + (rawRatio - 1) * sensitivity;
+  return clampViewerPinchScale(startScale * dampedRatio);
 }
 
 /** Button zoom: multiply current scale (e.g. 1.25 in, 0.8 out). */
 export function nudgePinchScale(current: number, factor: number): number {
   return clampViewerPinchScale(current * factor);
+}
+
+/** Letterboxed layout box for Android when object-fit is contain. */
+export function androidViewerContainVideoLayout(
+  containerW: number,
+  containerH: number,
+  videoAspect: number,
+  pinchScale = 1,
+): ViewStyle {
+  const box = containVideoLayoutBox(containerW, containerH, videoAspect, pinchScale);
+  return {
+    position: 'absolute',
+    width: box.width,
+    height: box.height,
+    left: box.left,
+    top: box.top,
+  };
+}
+
+/** Cover layout for Android — RTCView objectFit ignores WebRTC frame rotation. */
+export function androidViewerCoverVideoLayout(
+  containerW: number,
+  containerH: number,
+  videoAspect: number,
+  pinchScale = 1,
+): ViewStyle {
+  const box = coverVideoLayoutBox(containerW, containerH, videoAspect, pinchScale);
+  return {
+    position: 'absolute',
+    width: box.width,
+    height: box.height,
+    left: box.left,
+    top: box.top,
+  };
 }
 
 /** Layout box for Android viewer zoom + rotate (parent-side only). */

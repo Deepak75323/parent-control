@@ -35,6 +35,7 @@ import {
   syncFromNativeSnapshot,
 } from './streamSessionOwner';
 import {isStreamingSessionEndedError} from './signalingOfferErrors';
+import {shouldSuppressBackendSessionTeardown} from './streamBootstrapGrace';
 
 /** Silent background poll — backup if WebSocket push is missed. */
 const POLL_MS = 3000;
@@ -336,6 +337,10 @@ async function startStream(pending: PendingSession): Promise<void> {
   lastStartAttemptAt = Date.now();
   activeRoom = pending.signalingRoomId;
   activeSessionId = pending.sessionId;
+  // Ack wake early so native cancels headless fallback and poll grace applies before WebRTC connects.
+  void nativeModules
+    .acquireJsStreamSession(pending.sessionId, pending.signalingRoomId)
+    .catch(() => undefined);
   slog('STREAM', 'starting RN WebRTC', pending);
 
   if (pending.streamType !== 'SCREEN') {
@@ -383,6 +388,9 @@ async function startStream(pending: PendingSession): Promise<void> {
       void deviceApi.reportStreamFailure(pending.sessionId, String(err)).catch(() => undefined);
     } else {
       slog('STREAM', 'start aborted — session already ended by parent', pending.sessionId);
+    }
+    if (!isStreamActive()) {
+      await disconnectStream().catch(() => undefined);
     }
     slog('STREAM', 'start failed', String(err));
     throw err;
@@ -486,6 +494,27 @@ async function pollPendingStreams(): Promise<void> {
         await stopActiveStream('parent viewer gone (ICE closed)');
         return;
       }
+      return;
+    }
+
+    if (
+      shouldSuppressBackendSessionTeardown({
+        activeSessionId,
+        activeRoom,
+        starting,
+        connecting: isStreamConnecting(),
+        streamActive: isStreamActive(),
+        hasNativePublisherOwner: hasNativePublisherOwner(),
+        lastStartAttemptAt,
+        backendActive: active ?? null,
+      })
+    ) {
+      slog('POLL', 'suppressing teardown — session bootstrap grace', {
+        activeSessionId,
+        backendActive: active?.sessionId ?? null,
+        starting,
+        connecting: isStreamConnecting(),
+      });
       return;
     }
 

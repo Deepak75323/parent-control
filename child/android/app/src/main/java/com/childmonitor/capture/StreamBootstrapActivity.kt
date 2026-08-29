@@ -70,9 +70,11 @@ class StreamBootstrapActivity : Activity() {
         if (isFinishing) return
         val kind = streamKindFrom(intent.getStringExtra(EXTRA_STREAM_KIND))
         if (StreamFgsHelper.isActive(kind)) {
+            finishImmediate()
             return
         }
         if (!bootstrapStarted.compareAndSet(false, true)) {
+            finishImmediate()
             return
         }
 
@@ -87,23 +89,37 @@ class StreamBootstrapActivity : Activity() {
             "onResume kind=$kind room=$roomId session=$sessionId jsActive=$jsListenerActive fgsOnly=$fgsOnly",
         )
 
-        Thread {
-            // Activity is resumed → while-in-use camera/mic FGS promotion is legal.
-            val fgsReady =
-                StreamFgsPreparer.ensureKindReadyForStreamRequest(applicationContext, kind)
-            StreamFgsBootstrap.signalComplete(fgsReady)
-            if (!fgsReady) {
-                Log.e(TAG, "$kind FGS bootstrap failed after resume")
-                runOnUiThread { finishImmediate() }
-                return@Thread
+        // Android 14+ trampoline activities must call finish() before onResume() returns.
+        // Never block the main thread here — that triggers ANR and IllegalStateException on Android 16.
+        val bootstrapIntent = intent
+        val fgsAlreadyActive = StreamFgsHelper.isActive(kind)
+        if (!fgsAlreadyActive) {
+            StreamFgsHelper.startServiceIntent(applicationContext, kind)
+        }
+        Thread({
+            var fgsReady = fgsAlreadyActive
+            try {
+                if (!fgsReady) {
+                    fgsReady =
+                        StreamFgsPreparer.ensureKindReadyForStreamRequest(applicationContext, kind)
+                }
+                if (!fgsReady) {
+                    Log.e(TAG, "$kind FGS bootstrap failed after resume")
+                } else if (!fgsOnly && roomId.isNotBlank()) {
+                    startStreamAfterFgs(kind, bootstrapIntent)
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "$kind FGS bootstrap crashed", t)
+            } finally {
+                StreamFgsBootstrap.signalComplete(fgsReady)
             }
-            if (fgsOnly || roomId.isBlank()) {
-                runOnUiThread { finishImmediate() }
-                return@Thread
-            }
-            startStreamAfterFgs(kind, intent)
-            runOnUiThread { finishImmediate() }
-        }.start()
+        }, "stream-bootstrap-fgs").start()
+        finishImmediate()
+    }
+
+    override fun onStop() {
+        AppForegroundState.onActivityHidden()
+        super.onStop()
     }
 
     override fun onStop() {

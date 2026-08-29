@@ -36,6 +36,8 @@ object MonitoringPrefs {
     private const val KEY_SKIP_AUTO_RELOCK_UNTIL = "skip_auto_relock_until_ms"
     private const val KEY_DEVICE_ADMIN_SETUP_GRACE_UNTIL = "device_admin_setup_grace_until_ms"
     private const val KEY_ACCESSIBILITY_TAMPER_PROTECTION = "accessibility_tamper_protection_enabled"
+    private const val KEY_LAST_UNCAUGHT_CRASH_AT = "last_uncaught_crash_at_ms"
+    private const val KEY_LAST_UNCAUGHT_CRASH_SUMMARY = "last_uncaught_crash_summary"
 
     /** Arm Accessibility auto-tap for MediaProjection dialog (sideload child APK). */
     fun armScreenCaptureAutoApprove(context: Context, windowMs: Long = 45_000L) {
@@ -406,5 +408,26 @@ object MonitoringPrefs {
                 putString(KEY_WIZARD_PERSISTENCE_JSON, json)
             }
         }.commit()
+    }
+
+    fun recordUncaughtCrash(context: Context, error: Throwable) {
+        val summary = "${error.javaClass.simpleName}: ${error.message ?: "unknown"}"
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putLong(KEY_LAST_UNCAUGHT_CRASH_AT, System.currentTimeMillis())
+            .putString(KEY_LAST_UNCAUGHT_CRASH_SUMMARY, summary.take(200))
+            .apply()
+    }
+
+    fun lastUncaughtCrashAtMs(context: Context): Long =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getLong(KEY_LAST_UNCAUGHT_CRASH_AT, 0L)
+
+    fun lastUncaughtCrashSummary(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_LAST_UNCAUGHT_CRASH_SUMMARY, null)
+
+    fun hasRecentUncaughtCrash(context: Context, maxAgeMs: Long): Boolean {
+        val at = lastUncaughtCrashAtMs(context)
+        return at > 0L && System.currentTimeMillis() - at <= maxAgeMs
     }
 }

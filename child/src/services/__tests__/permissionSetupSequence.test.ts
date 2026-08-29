@@ -6,6 +6,7 @@ jest.mock('../../nativeModules', () => ({
     isPostNotificationsGranted: jest.fn(),
     isAccessibilityEnabled: jest.fn(),
     isAccessibilityServiceConnected: jest.fn(),
+    isOverlayGranted: jest.fn(),
     isBatteryOptimizationExempt: jest.fn(),
     isOemAutostartPromptDone: jest.fn(),
     isDeviceAdminActive: jest.fn(),
@@ -22,6 +23,7 @@ const mockNative = nativeModules as unknown as {
   isPostNotificationsGranted: jest.Mock;
   isAccessibilityEnabled: jest.Mock;
   isAccessibilityServiceConnected: jest.Mock;
+  isOverlayGranted: jest.Mock;
   isBatteryOptimizationExempt: jest.Mock;
   isOemAutostartPromptDone: jest.Mock;
   isDeviceAdminActive: jest.Mock;
@@ -36,6 +38,7 @@ describe('isSetupPermissionsComplete (camera-with-sound)', () => {
     mockNative.isPostNotificationsGranted.mockResolvedValue(true);
     mockNative.isAccessibilityEnabled.mockResolvedValue(true);
     mockNative.isAccessibilityServiceConnected.mockResolvedValue(true);
+    mockNative.isOverlayGranted.mockResolvedValue(true);
     mockNative.isBatteryOptimizationExempt.mockResolvedValue(true);
     mockNative.isOemAutostartPromptDone.mockResolvedValue(true);
     mockNative.isDeviceAdminActive.mockResolvedValue(true);
@@ -51,8 +54,19 @@ describe('isSetupPermissionsComplete (camera-with-sound)', () => {
     await expect(isSetupPermissionsComplete()).resolves.toBe(false);
   });
 
+  it('is complete without notification permission', async () => {
+    mockNative.isPostNotificationsGranted.mockResolvedValue(false);
+    await expect(isSetupPermissionsComplete()).resolves.toBe(true);
+    expect(mockNative.isPostNotificationsGranted).not.toHaveBeenCalled();
+  });
+
   it('is incomplete without device admin', async () => {
     mockNative.isDeviceAdminActive.mockResolvedValue(false);
+    await expect(isSetupPermissionsComplete()).resolves.toBe(false);
+  });
+
+  it('is incomplete without display-over-other-apps', async () => {
+    mockNative.isOverlayGranted.mockResolvedValue(false);
     await expect(isSetupPermissionsComplete()).resolves.toBe(false);
   });
 });

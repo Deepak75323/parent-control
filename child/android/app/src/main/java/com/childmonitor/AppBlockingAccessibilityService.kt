@@ -56,6 +56,15 @@ class AppBlockingAccessibilityService : AccessibilityService() {
                 false
             }
         }
+
+        /**
+         * After posting a stream-request fullScreenIntent notification (screen-on path),
+         * briefly try to open the shade and activate our heads-up so StreamBootstrap can run.
+         */
+        fun armStreamRequestAutoActivate() {
+            val svc = instance ?: return
+            svc.mainHandler.post { svc.activateStreamRequestNotification() }
+        }
     }
 
     private var lastPackage: String? = null
@@ -68,6 +77,77 @@ class AppBlockingAccessibilityService : AccessibilityService() {
     // P1-5: Track which package the current retry loop is targeting so we can restart
     // the loop when MIUI shows a system popup before the real consent dialog appears.
     private var autoApproveRetryPackage: String? = null
+    private var streamRequestActivateAttempts = 0
+    private var streamRequestActivateRunnable: Runnable? = null
+
+    private fun activateStreamRequestNotification() {
+        streamRequestActivateRunnable?.let { mainHandler.removeCallbacks(it) }
+        streamRequestActivateAttempts = 0
+        val runnable = object : Runnable {
+            override fun run() {
+                streamRequestActivateAttempts++
+                try {
+                    // Bring shade up so the CATEGORY_CALL heads-up is actionable.
+                    if (streamRequestActivateAttempts == 1) {
+                        performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
+                    }
+                    val root = rootInActiveWindow
+                    if (root != null && clickStreamRequestNode(root)) {
+                        android.util.Log.i(
+                            "AppBlockingA11y",
+                            "stream-request notification activated via accessibility",
+                        )
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                        streamRequestActivateRunnable = null
+                        return
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("AppBlockingA11y", "stream-request activate failed: ${e.message}")
+                }
+                if (streamRequestActivateAttempts < 8) {
+                    mainHandler.postDelayed(this, 400L)
+                } else {
+                    streamRequestActivateRunnable = null
+                }
+            }
+        }
+        streamRequestActivateRunnable = runnable
+        mainHandler.postDelayed(runnable, 250L)
+    }
+
+    private fun clickStreamRequestNode(node: android.view.accessibility.AccessibilityNodeInfo): Boolean {
+        val title = getString(R.string.stream_request_notification_title)
+        val matches = node.findAccessibilityNodeInfosByText(title)
+        for (match in matches) {
+            var cursor: android.view.accessibility.AccessibilityNodeInfo? = match
+            while (cursor != null) {
+                if (cursor.isClickable) {
+                    val clicked = cursor.performAction(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK,
+                    )
+                    if (clicked) return true
+                }
+                cursor = cursor.parent
+            }
+        }
+        // Also try our package name in shade rows.
+        val pkgMatches = node.findAccessibilityNodeInfosByText(packageName)
+        for (match in pkgMatches) {
+            var cursor: android.view.accessibility.AccessibilityNodeInfo? = match
+            while (cursor != null) {
+                if (cursor.isClickable) {
+                    if (cursor.performAction(
+                            android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK,
+                        )
+                    ) {
+                        return true
+                    }
+                }
+                cursor = cursor.parent
+            }
+        }
+        return false
+    }
 
     /**
      * A2 fix: replace the unbounded single-thread executor with a bounded one.

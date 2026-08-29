@@ -63,6 +63,7 @@ public final class StreamFailureGatePolicy {
         || r.contains("INVALID_STREAM_REQUEST")
         || r.contains("CAPTURE_BUSY")
         || r.contains("AUDIO_FOCUS_DENIED")
+        || r.contains("CAMERA_IN_USE")
         || r.contains("NO_CAPTURE_FRAMES");
   }
 }

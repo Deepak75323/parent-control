@@ -33,6 +33,12 @@ describe('streamFailureMessage', () => {
     expect(msg).not.toMatch(/FGS|service/i);
   });
 
+  it('explains camera blocked by another app', () => {
+    const msg = streamFailureMessage('CAMERA_IN_USE_BY_OTHER_APP');
+    expect(msg).toMatch(/another app/i);
+    expect(msg).toMatch(/Reconnect/i);
+  });
+
   it('explains screen start failure without capture-service jargon', () => {
     const msg = streamFailureMessage('FGS_GATE_CLOSED');
     expect(msg).toContain('Screen sharing');

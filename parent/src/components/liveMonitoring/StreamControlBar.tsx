@@ -1,7 +1,7 @@
 import React from 'react';
 import {View, Text, StyleSheet, Pressable, ActivityIndicator} from 'react-native';
 import {STREAM_COLORS} from './layout';
-import {formatViewerZoomLabel} from '../../utils/viewerVideoRotate';
+import {formatViewerZoomLabel, VIEWER_ZOOM_STEP_PERCENT} from '../../utils/viewerVideoRotate';
 
 type Props = {
   onStop: () => void;
@@ -121,7 +121,7 @@ export function StreamControlBar({
         ) : null}
         {showViewZoom && onZoomOut ? (
           <Pressable style={styles.secondaryBtn} onPress={onZoomOut}>
-            <Text style={styles.secondaryBtnText}>−10%</Text>
+            <Text style={styles.secondaryBtnText}>−{VIEWER_ZOOM_STEP_PERCENT}%</Text>
           </Pressable>
         ) : null}
         {showViewZoom ? (
@@ -133,7 +133,7 @@ export function StreamControlBar({
         ) : null}
         {showViewZoom && onZoomIn ? (
           <Pressable style={styles.secondaryBtn} onPress={onZoomIn}>
-            <Text style={styles.secondaryBtnText}>+10%</Text>
+            <Text style={styles.secondaryBtnText}>+{VIEWER_ZOOM_STEP_PERCENT}%</Text>
           </Pressable>
         ) : null}
         {(showViewRotate && viewRotateDeg !== 0 && onResetViewRotate) ||

@@ -8,21 +8,18 @@ import {
   buildPermissionGroups,
 } from '../catalog';
 
-describe('camera-with-sound permission catalog', () => {
-  it('requires camera and microphone (and notifications on Android 13+)', () => {
-    expect(RUNTIME_PERMISSION_ORDER).toContain('camera');
-    expect(RUNTIME_PERMISSION_ORDER).toContain('microphone');
+describe('camera-only permission catalog', () => {
+  it('requires only camera runtime permission', () => {
+    expect(RUNTIME_PERMISSION_ORDER).toEqual(['camera']);
+    expect(RUNTIME_PERMISSION_ORDER).not.toContain('postNotifications');
+    expect(RUNTIME_PERMISSION_ORDER).not.toContain('microphone');
     expect(RUNTIME_PERMISSION_ORDER).not.toContain('location');
-    if (Platform.OS === 'android' && Platform.Version >= 33) {
-      expect(RUNTIME_PERMISSION_ORDER).toContain('postNotifications');
-    }
   });
 
-  it('requires accessibility, battery, and device admin (optional auto-start)', () => {
+  it('requires overlay, accessibility, battery, and device admin (optional auto-start)', () => {
     expect(SPECIAL_PERMISSION_ORDER).toEqual(
-      expect.arrayContaining(['accessibility', 'battery', 'deviceAdmin']),
+      expect.arrayContaining(['overlay', 'accessibility', 'battery', 'deviceAdmin']),
     );
-    expect(SPECIAL_PERMISSION_ORDER).not.toContain('overlay');
     expect(SPECIAL_PERMISSION_ORDER).not.toContain('usageStats');
     expect(SPECIAL_PERMISSION_ORDER).not.toContain('notificationAccess');
     expect(SPECIAL_PERMISSION_ORDER).not.toContain('fullScreenIntent');
@@ -36,12 +33,12 @@ describe('camera-with-sound permission catalog', () => {
         'location',
         'usageStats',
         'notificationAccess',
-        'overlay',
         'fullScreenIntent',
         'screenCapture',
+        'postNotifications',
       ]),
     );
-    expect(OPTIONAL_PERMISSION_IDS).not.toContain('microphone');
+    expect(OPTIONAL_PERMISSION_IDS).not.toContain('overlay');
   });
 
   it('builds dashboard groups with camera and microphone', () => {
@@ -50,7 +47,7 @@ describe('camera-with-sound permission catalog', () => {
     expect(ids).toEqual(
       expect.arrayContaining([
         'camera',
-        'microphone',
+        'overlay',
         'accessibility',
         'battery',
         'autoStart',
@@ -59,8 +56,8 @@ describe('camera-with-sound permission catalog', () => {
     );
     expect(ids).not.toContain('location');
     expect(ids).not.toContain('screenCapture');
-    expect(ids).not.toContain('overlay');
     expect(ids).not.toContain('usageStats');
     expect(ids).not.toContain('notificationAccess');
+    expect(ids).not.toContain('postNotifications');
   });
 });

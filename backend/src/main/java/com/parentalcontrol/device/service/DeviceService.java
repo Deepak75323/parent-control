@@ -465,6 +465,9 @@ public class DeviceService {
     }
     if (request.getAccessibilityEnabled() != null) {
       device.setAccessibilityEnabled(request.getAccessibilityEnabled());
+      if (Boolean.FALSE.equals(request.getAccessibilityEnabled())) {
+        device.setAccessibilityServiceConnected(false);
+      }
     }
     if (request.getAccessibilityServiceConnected() != null) {
       boolean wasConnected = device.isAccessibilityServiceConnected();
@@ -595,7 +598,43 @@ public class DeviceService {
         .monitoringDegraded(readMonitoringFlag(device, "monitoringDegraded"))
         .monitoringMode(readMonitoringString(device, "monitoringMode"))
         .standbyBucket(readMonitoringString(device, "standbyBucket"))
+        .permBattery(readDiagBoolean(device, "batteryExempt"))
+        .permAutostart(readDiagBoolean(device, "autostartPromptDone"))
+        .permFullScreenIntent(readDiagBoolean(device, "fullScreenIntentGranted"))
+        .permNotifications(readDiagBoolean(device, "notificationPermissionGranted"))
+        .permCamera(readDiagBoolean(device, "cameraGranted"))
+        .permMicrophone(readDiagBoolean(device, "microphoneGranted"))
+        .permOverlay(readDiagBoolean(device, "overlayGranted"))
+        .permAccessibility(resolvePermAccessibility(device))
+        .readinessFailureTags(resolveReadinessFailureTags(device))
         .build();
+  }
+
+  private Boolean resolvePermAccessibility(Device device) {
+    if (device.getOemFailureClassifications() != null
+        && device.getOemFailureClassifications().contains("ACCESSIBILITY_DISABLED")) {
+      return false;
+    }
+    Boolean enabledDiag = readDiagBoolean(device, "accessibilityEnabled");
+    if (Boolean.TRUE.equals(enabledDiag) || device.isAccessibilityEnabled()) {
+      return true;
+    }
+    if (Boolean.FALSE.equals(enabledDiag) || !device.isAccessibilityEnabled()) {
+      return false;
+    }
+    Boolean connectedDiag = readDiagBoolean(device, "accessibilityServiceConnected");
+    if (connectedDiag != null) {
+      return Boolean.TRUE.equals(connectedDiag);
+    }
+    return device.isAccessibilityEnabled();
+  }
+
+  private List<String> resolveReadinessFailureTags(Device device) {
+    if (device.getOemFailureClassifications() != null
+        && !device.getOemFailureClassifications().isEmpty()) {
+      return device.getOemFailureClassifications();
+    }
+    return readDiagStringList(device, "failureClassifications");
   }
 
   private Boolean readMonitoringFlag(Device device, String key) {
@@ -619,6 +658,34 @@ public class DeviceService {
       return null;
     }
     return String.valueOf(diag.get(key));
+  }
+
+  private Boolean readDiagBoolean(Device device, String key) {
+    Map<String, Object> diag = device.getOemDiagnosticsJson();
+    if (diag == null) {
+      return null;
+    }
+    Object raw = diag.get(key);
+    if (raw instanceof Boolean b) {
+      return b;
+    }
+    if (raw == null) {
+      return null;
+    }
+    return "true".equalsIgnoreCase(String.valueOf(raw));
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<String> readDiagStringList(Device device, String key) {
+    Map<String, Object> diag = device.getOemDiagnosticsJson();
+    if (diag == null) {
+      return null;
+    }
+    Object raw = diag.get(key);
+    if (raw instanceof List<?> list) {
+      return list.stream().map(String::valueOf).toList();
+    }
+    return null;
   }
 
   private String resolveProtectionLevel(Device device) {
