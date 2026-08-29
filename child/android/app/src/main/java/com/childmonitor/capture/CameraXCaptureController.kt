@@ -11,6 +11,7 @@ import com.oney.WebRTCModule.AbstractVideoCaptureController
 import com.oney.WebRTCModule.ReactBridgeUtil
 import org.webrtc.CameraVideoCapturer
 import org.webrtc.VideoCapturer
+import org.webrtc.VideoSource
 
 /**
  * CameraX capture controller for [com.oney.WebRTCModule.WebRTCModule.createVideoTrack].
@@ -48,6 +49,23 @@ class CameraXCaptureController(
     private val appContext = context.applicationContext
     private var useFrontCamera: Boolean =
         ReactBridgeUtil.getMapStrValue(constraints, "facingMode") != "environment"
+    private var videoSource: VideoSource? = null
+
+    /** Wire VideoSource adaptOutputFormat to the CameraX buffer (prevents WebRTC center-crop). */
+    fun bindVideoSource(source: VideoSource) {
+        videoSource = source
+        wireCapturerOutputSync()
+    }
+
+    private fun wireCapturerOutputSync() {
+        val capturer = videoCapturer as? CameraXVideoCapturer ?: return
+        capturer.onActualOutputSize = { width, height ->
+            actualWidth = width
+            actualHeight = height
+            videoSource?.adaptOutputFormat(width, height, targetFps)
+            Log.i(TAG, "adaptOutputFormat ${width}x$height @ ${targetFps}fps (match CameraX buffer)")
+        }
+    }
 
     override fun getDeviceId(): String? = if (useFrontCamera) "0" else "1"
 
@@ -65,6 +83,11 @@ class CameraXCaptureController(
     override fun createVideoCapturer(): VideoCapturer {
         Log.i(TAG, "Creating CameraX capturer front=$useFrontCamera")
         return CameraXVideoCapturer(appContext, useFrontCamera)
+    }
+
+    override fun initializeVideoCapturer() {
+        super.initializeVideoCapturer()
+        wireCapturerOutputSync()
     }
 
     override fun applyConstraints(constraints: ReadableMap, onFinishedCallback: Consumer<Exception>?) {

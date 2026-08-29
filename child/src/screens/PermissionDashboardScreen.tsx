@@ -275,8 +275,14 @@ export function PermissionDashboardScreen({navigation}: Props) {
   );
 
   const allGranted = status ? isPermissionStatusComplete(status) : false;
-  const grantedCount = status ? Object.values(status).filter(Boolean).length : 0;
-  const totalCount = status ? Object.keys(status).length : 0;
+  const requiredIds = useMemo(
+    () => groups.flatMap(g => g.permissionIds),
+    [groups],
+  );
+  const grantedCount = status
+    ? requiredIds.filter(id => status[id]).length
+    : 0;
+  const totalCount = requiredIds.length;
 
   const continueAfterPermissions = useCallback(async () => {
     if (navigating) return;

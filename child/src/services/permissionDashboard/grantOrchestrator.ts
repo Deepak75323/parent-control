@@ -355,10 +355,10 @@ async function grantRuntime(
   }
   callbacks.onProgress({
     phase: 'runtime',
-    stepId: 'location',
+    stepId: 'camera',
     stepIndex: baseIndex + 1,
     stepTotal: total,
-    label: 'Location, microphone, camera & notifications',
+    label: 'Camera & notifications',
   });
   flowLog('PERMISSION_FLOW', 'grant runtime batch', {ids});
   await nativeModules.requestAllRuntimePermissions();

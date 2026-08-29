@@ -11,10 +11,9 @@ type Props = {
   screenDisabled?: boolean;
 };
 
+/** Camera-only build: Screen/Audio switcher options are omitted. */
 const OPTIONS: {type: StreamSource; label: string; icon: string}[] = [
-  {type: 'SCREEN', label: 'Screen', icon: '📺'},
   {type: 'CAMERA', label: 'Camera', icon: '📷'},
-  {type: 'AUDIO', label: 'Audio', icon: '🎙️'},
 ];
 
 export function StreamSourceSwitcher({active, onSelect, disabled, screenDisabled}: Props) {

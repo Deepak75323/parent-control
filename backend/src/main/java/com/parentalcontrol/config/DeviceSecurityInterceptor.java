@@ -50,9 +50,7 @@ public class DeviceSecurityInterceptor implements HandlerInterceptor {
         UUID deviceId = user.getDeviceId();
         if (ApiConstants.DEVICE_TAMPER_VERIFY.equals(path)) {
           rateLimitService.checkTamperVerify(deviceId.toString());
-        } else if (ApiConstants.DEVICE_TAMPER_ATTEMPT.equals(path)) {
-          rateLimitService.checkTamperAttempt(deviceId.toString());
-        } else {
+        } else if (!ApiConstants.DEVICE_TAMPER_ATTEMPT.equals(path)) {
           rateLimitService.checkDeviceIngest(deviceId.toString());
         }
         verifyHmac(request, deviceId, path);

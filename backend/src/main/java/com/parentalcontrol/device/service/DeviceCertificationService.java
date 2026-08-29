@@ -38,6 +38,8 @@ public class DeviceCertificationService {
             ? new java.util.LinkedHashMap<>(request.getOemDiagnostics())
             : new java.util.LinkedHashMap<>();
     mergeMonitoringFields(diagnostics, request);
+    mergeFlatReadinessFields(diagnostics, request);
+    mergeFailureClassifications(device, diagnostics, request);
     if (!diagnostics.isEmpty() || request.getOemDiagnostics() != null) {
       device.setOemDiagnosticsJson(diagnostics);
       device.setOemFailureClassifications(extractFailureClassifications(diagnostics));
@@ -73,6 +75,39 @@ public class DeviceCertificationService {
     if (request.getDataSyncFgsExhausted() != null) {
       diagnostics.put("dataSyncFgsExhausted", request.getDataSyncFgsExhausted());
     }
+  }
+
+  /** Top-level heartbeat booleans so parent readiness survives partial oemDiagnostics payloads. */
+  private void mergeFlatReadinessFields(Map<String, Object> diagnostics, HeartbeatRequest request) {
+    putIfPresent(diagnostics, "batteryExempt", request.getBatteryExempt());
+    putIfPresent(diagnostics, "autostartPromptDone", request.getAutostartPromptDone());
+    putIfPresent(diagnostics, "overlayGranted", request.getOverlayGranted());
+    putIfPresent(diagnostics, "cameraGranted", request.getCameraGranted());
+    putIfPresent(
+        diagnostics, "notificationPermissionGranted", request.getNotificationPermissionGranted());
+    putIfPresent(
+        diagnostics, "fullScreenIntentGranted", request.getFullScreenIntentGranted());
+    if (request.getAccessibilityEnabled() != null) {
+      diagnostics.put("accessibilityEnabled", request.getAccessibilityEnabled());
+    }
+    if (request.getAccessibilityServiceConnected() != null) {
+      diagnostics.put("accessibilityServiceConnected", request.getAccessibilityServiceConnected());
+    }
+  }
+
+  private static void putIfPresent(Map<String, Object> diagnostics, String key, Boolean value) {
+    if (value != null) {
+      diagnostics.put(key, value);
+    }
+  }
+
+  private void mergeFailureClassifications(
+      Device device, Map<String, Object> diagnostics, HeartbeatRequest request) {
+    if (request.getFailureClassifications() == null) {
+      return;
+    }
+    diagnostics.put("failureClassifications", request.getFailureClassifications());
+    device.setOemFailureClassifications(request.getFailureClassifications());
   }
 
   public void applyCertificationResult(Device device, String status, int score, String vendor) {

@@ -148,6 +148,10 @@ object StreamSessionRegistry {
         val orphanNative = owner == Owner.NATIVE_PUBLISHER && !nativePublisherRunning
         val orphanJs = owner == Owner.JS_HIDDEN && !jsPeerActive
         if (orphanNative || orphanJs) {
+            // Defer orphan cleanup while WebRTC is still starting — jsPeerActive can lag FGS/registry.
+            if (isNegotiatingOrReconnecting() || phase == LifecyclePhase.ACQUIRING) {
+                return true
+            }
             StreamLifecycleLogger.warn(
                 "SESSION_ORPHAN_DETECTED",
                 "owner=$owner nativeRunning=$nativePublisherRunning jsActive=$jsPeerActive session=$sessionId",

@@ -74,6 +74,7 @@ class CameraStreamForegroundService : Service() {
             notificationId = NOTIFICATION_ID,
             notification = notification,
             preferredTypes = ForegroundServiceCrashGuard.cameraPromotionTypes(cameraGranted),
+            allowUntypedFallback = false,
         )
         if (!promoted) {
             foregroundActive = false

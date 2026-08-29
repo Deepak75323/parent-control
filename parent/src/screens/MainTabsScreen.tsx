@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {useFocusEffect} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {navigateToPairingFlow} from '../navigation/pairingNavigation';
@@ -184,6 +185,19 @@ function DeviceListTab({navigation}: Props) {
 
   useEffect(() => { load(); }, [load, deviceListVersion]);
 
+  // Refresh when returning to this tab and when live sync reconnects (missed WS presence events).
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  useEffect(() => {
+    if (wsConnected) {
+      void load();
+    }
+  }, [wsConnected, load]);
+
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const {active: activeDevices, previouslyLinked} = useMemo(
@@ -317,8 +331,8 @@ export function MainTabsScreen(props: Props) {
   const {navigation} = props;
   const [activeTab, setActiveTab] = useState<Tab>('device');
   const liveAlerts = useRealtimeStore(s => s.liveAlerts);
-  const liveNotifications = useRealtimeStore(s => s.liveNotifications);
-  const noticeBadge = liveAlerts.length + liveNotifications.length;
+  // Camera-only branch: badge ignores mirrored child notifications.
+  const noticeBadge = liveAlerts.length;
 
   return (
     <SafeAreaView style={styles.root} edges={['bottom']}>

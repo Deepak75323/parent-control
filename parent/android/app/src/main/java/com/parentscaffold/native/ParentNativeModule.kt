@@ -263,12 +263,15 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun stopStreamRecording(streamType: String, promise: Promise) {
-        try {
-            val uri = StreamRecorder.stop(reactContext.applicationContext, streamType)
-            promise.resolve(uri)
-        } catch (e: Exception) {
-            promise.reject("RECORD_STOP", e)
-        }
+        // EGL/MediaRecorder shutdown can block several seconds — keep off the RN module thread.
+        Thread {
+            try {
+                val uri = StreamRecorder.stop(reactContext.applicationContext, streamType)
+                promise.resolve(uri)
+            } catch (e: Exception) {
+                promise.reject("RECORD_STOP", e)
+            }
+        }.start()
     }
 
     private fun boostMusicVolume(audioManager: AudioManager) {

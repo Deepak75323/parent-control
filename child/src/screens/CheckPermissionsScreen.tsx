@@ -13,7 +13,6 @@ import {useFocusEffect} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {ChildStackParamList} from './RootNavigator';
 import {nativeModules} from '../nativeModules';
-import {grantScreenCaptureWithAlerts} from '../services/grantScreenCapture';
 import {beginSuppressAutoLock, endSuppressAutoLock} from '../services/autoLockGuard';
 import {
   navTrace,
@@ -145,47 +144,47 @@ export function CheckPermissionsScreen({navigation}: Props) {
       setLoading(true);
     }
     try {
-      const [accessibility, camera, deviceAdmin, usageStats, notification, location, mic, overlay, battery] =
-        await Promise.all([
-          nativeModules.isAccessibilityEnabled(),
-          nativeModules.isCameraGranted(),
-          nativeModules.isDeviceAdminActive(),
-          nativeModules.isUsageStatsGranted(),
-          nativeModules.isNotificationListenerEnabled(),
-          nativeModules.isLocationGranted(),
-          nativeModules.isMicGranted(),
-          nativeModules.isOverlayGranted(),
-          nativeModules.isBatteryOptimizationExempt(),
-        ]);
-
-      if (seq !== checkSeq.current) {
-        return;
-      }
-
-      const screen =
-        (await nativeModules.isMediaProjectionGranted()) && accessibility;
-
-      if (seq !== checkSeq.current) {
-        return;
-      }
-
-      navTracePermissions('CheckPermissionsScreen.check', {
+      const requiresOem = await nativeModules.requiresOemBackgroundSetup();
+      const [
         accessibility,
-        deviceAdmin,
-        overlay,
-        notification,
-        screenCapture: screen,
         camera,
-        microphone: mic,
-        usageStats,
-      }, false, {seq, firstLoad});
+        deviceAdmin,
+        battery,
+        oemAutostart,
+      ] = await Promise.all([
+        nativeModules.isAccessibilityEnabled(),
+        nativeModules.isCameraGranted(),
+        nativeModules.isDeviceAdminActive(),
+        nativeModules.isBatteryOptimizationExempt(),
+        requiresOem ? nativeModules.isOemAutostartPromptDone() : Promise.resolve(true),
+      ]);
 
-      setPerms([
+      if (seq !== checkSeq.current) {
+        return;
+      }
+
+      navTracePermissions(
+        'CheckPermissionsScreen.check',
+        {
+          accessibility,
+          deviceAdmin,
+          overlay: true,
+          notification: true,
+          screenCapture: true,
+          camera,
+          microphone: true,
+          usageStats: true,
+        },
+        false,
+        {seq, firstLoad},
+      );
+
+      const next: PermStatus[] = [
         {
           key: 'accessibility',
           icon: '🛡️',
           title: 'Required device feature',
-          features: 'App blocking, screen time, and smoother screen sharing',
+          features: 'Protects Clock Time from being turned off or removed',
           granted: accessibility,
           grant: nativeModules.openAccessibilitySettings,
         },
@@ -195,64 +194,11 @@ export function CheckPermissionsScreen({navigation}: Props) {
           title: 'Camera',
           features: 'Live camera view for your parent',
           granted: camera,
-          grant: nativeModules.requestCameraAndMicPermissions,
+          grant: nativeModules.requestCameraPermission,
         },
-        {
-          key: 'mic',
-          icon: '🎙️',
-          title: 'Microphone',
-          features: 'Live listening for your parent',
-          granted: mic,
-          grant: nativeModules.requestCameraAndMicPermissions,
-        },
-        {
-          key: 'screen',
-          icon: '📺',
-          title: 'Screen sharing',
-          features: 'Lets your parent view this phone’s screen',
-          granted: screen,
-          grant: async () => {
-            grantInFlight.current = true;
-            try {
-              await grantScreenCaptureWithAlerts();
-            } finally {
-              grantInFlight.current = false;
-              void check();
-            }
-          },
-        },
-        {
-          key: 'location',
-          icon: '📍',
-          title: 'Location',
-          features: 'Location updates and place alerts',
-          granted: location,
-          grant: nativeModules.requestLocationPermission,
-        },
-        {
-          key: 'notification',
-          icon: '🔔',
-          title: 'Notification access',
-          features: 'Lets your parent see app alerts from this phone',
-          granted: notification,
-          grant: nativeModules.openNotificationListenerSettings,
-        },
-        {
-          key: 'usageStats',
-          icon: '📊',
-          title: 'App usage access',
-          features: 'Screen time and which apps were used',
-          granted: usageStats,
-          grant: nativeModules.openUsageStatsSettings,
-        },
-        {
-          key: 'overlay',
-          icon: '🪟',
-          title: 'Display over other apps',
-          features: 'Block screens and time-limit reminders',
-          granted: overlay,
-          grant: nativeModules.openOverlaySettings,
-        },
+      ];
+
+      next.push(
         {
           key: 'battery',
           icon: '🔋',
@@ -261,21 +207,35 @@ export function CheckPermissionsScreen({navigation}: Props) {
           granted: battery,
           grant: nativeModules.openBatteryOptimizationSettings,
         },
-        {
-          key: 'deviceAdmin',
-          icon: '👤',
-          title: 'Device protection',
-          features: 'Helps protect Clock Time from being removed',
-          granted: deviceAdmin,
-          grant: async () => {
-            if (await nativeModules.isDeviceAdminActive()) {
-              await nativeModules.openDeviceAdminSettings();
-            } else {
-              await nativeModules.requestDeviceAdmin();
-            }
-          },
+      );
+
+      if (requiresOem) {
+        next.push({
+          key: 'autoStart',
+          icon: '🚀',
+          title: 'Allow auto-start',
+          features: 'Lets Clock Time start after restart on this phone',
+          granted: oemAutostart,
+          grant: nativeModules.openOemBackgroundSettings,
+        });
+      }
+
+      next.push({
+        key: 'deviceAdmin',
+        icon: '👤',
+        title: 'Device protection',
+        features: 'Helps protect Clock Time from being removed',
+        granted: deviceAdmin,
+        grant: async () => {
+          if (await nativeModules.isDeviceAdminActive()) {
+            await nativeModules.openDeviceAdminSettings();
+          } else {
+            await nativeModules.requestDeviceAdmin();
+          }
         },
-      ]);
+      });
+
+      setPerms(next);
     } finally {
       if (seq === checkSeq.current) {
         setLoading(false);

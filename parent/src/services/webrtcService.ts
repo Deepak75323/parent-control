@@ -606,6 +606,8 @@ export async function connectParentViewer(
   slog('PC', 'creating peer', {roomId, sessionId});
   logIce('parent', 'creating peer', `${ice.iceServers.length} ice servers`);
 
+  // Yield so touch/navigation handlers finish before native RTCPeerConnection init (ANR on emulator).
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
   createPeerConnection(ice, roomId, sessionId);
 
   connectWebSocket(); // WebSocket connection is established

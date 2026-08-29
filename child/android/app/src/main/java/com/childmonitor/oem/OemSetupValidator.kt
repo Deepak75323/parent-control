@@ -1,8 +1,12 @@
 package com.childmonitor.oem
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
+import android.provider.Settings
+import androidx.core.content.ContextCompat
 import com.childmonitor.AccessibilityHealthChecker
 import com.childmonitor.MonitoringPrefs
 
@@ -123,8 +127,28 @@ object OemSetupValidator {
         if (MonitoringPrefs.fcmToken(context).isNullOrBlank()) {
             failures.add("FCM_TOKEN_MISSING")
         }
+        if (MonitoringPrefs.hasRecentUncaughtCrash(context, RECENT_CRASH_WINDOW_MS)) {
+            failures.add("PROCESS_CRASH_RECENT")
+        }
+        if (!Settings.canDrawOverlays(context)) {
+            failures.add("OVERLAY_NOT_GRANTED")
+        }
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            failures.add("CAMERA_NOT_GRANTED")
+        }
+        val monitoring = com.childmonitor.monitoring.MonitoringDegradationController.heartbeatFields(context)
+        val monitoringMode = monitoring["monitoringMode"] as? String
+        if (monitoring["monitoringDegraded"] == true &&
+            monitoringMode == com.childmonitor.monitoring.MonitoringMode.WORKMANAGER_ONLY.name
+        ) {
+            failures.add("MONITORING_DEGRADED")
+        }
         return failures
     }
+
+    private const val RECENT_CRASH_WINDOW_MS = 24 * 60 * 60 * 1000L
 
     fun diagnostics(context: Context): Map<String, Any?> = OemDiagnosticsCollector.collect(context)
 

@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.NonNull
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -18,214 +19,188 @@ import java.util.concurrent.atomic.AtomicReference
  * Can forcefully take camera access from other apps when needed.
  */
 object CameraAccessManager {
-    
+
     private const val TAG = "CameraAccessManager"
-    private const val FORCE_TAKEOVER_TIMEOUT_MS = 5000L
-    
+    private const val PROBE_OPEN_TIMEOUT_MS = 1200L
+    private const val TAKEOVER_RETRY_DELAY_MS = 400L
+    private const val TAKEOVER_MAX_ATTEMPTS = 2
+
     private val isManaging = AtomicBoolean(false)
     private val currentCameraDevice = AtomicReference<CameraDevice?>(null)
     private val cameraManager = AtomicReference<CameraManager?>(null)
-    
+    private val availabilityRegistered = AtomicBoolean(false)
+    private val cameraAvailable = ConcurrentHashMap<String, Boolean>()
+    private val lastProbeSkipped = AtomicBoolean(false)
+
+    /** Used by unit tests and capture fallback when a skipped probe was wrong. */
+    internal fun shouldSkipDisplacementProbe(reportedAvailable: Boolean?): Boolean =
+        reportedAvailable != false
+
     /**
-     * Initialize the camera access manager
+     * Initialize the camera access manager and track camera availability to avoid
+     * unnecessary open/close probes (each probe blinks the privacy indicator).
      */
     fun initialize(context: Context) {
-        cameraManager.set(context.getSystemService(Context.CAMERA_SERVICE) as CameraManager)
+        val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        cameraManager.set(manager)
+        registerAvailabilityTracking(manager)
     }
-    
+
+    private fun registerAvailabilityTracking(manager: CameraManager) {
+        if (!availabilityRegistered.compareAndSet(false, true)) {
+            return
+        }
+        try {
+            for (id in manager.cameraIdList) {
+                cameraAvailable.putIfAbsent(id, true)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not seed camera availability", e)
+        }
+        manager.registerAvailabilityCallback(
+            object : CameraManager.AvailabilityCallback() {
+                override fun onCameraAvailable(@NonNull cameraId: String) {
+                    cameraAvailable[cameraId] = true
+                    Log.d(TAG, "Camera $cameraId available")
+                }
+
+                override fun onCameraUnavailable(@NonNull cameraId: String) {
+                    cameraAvailable[cameraId] = false
+                    Log.d(TAG, "Camera $cameraId unavailable (held by another app)")
+                }
+            },
+            Handler(Looper.getMainLooper()),
+        )
+    }
+
     /**
-     * Attempts to force camera access by closing other apps' camera sessions
-     * @param cameraId The camera ID to acquire (usually "0" for back, "1" for front)
-     * @return true if camera access was successfully acquired or forced
+     * Prepare for CameraX capture with minimal privacy-indicator flicker.
+     * Skips the open/close displacement probe when the camera is not held by another app.
      */
-    fun forceCameraAccess(cameraId: String): Boolean {
+    fun ensureCameraReadyForCapture(cameraId: String): Boolean {
         if (!isManaging.compareAndSet(false, true)) {
             Log.d(TAG, "Camera access already being managed")
+            lastProbeSkipped.set(false)
             return true
         }
-        
+
         try {
             val manager = cameraManager.get() ?: run {
                 Log.e(TAG, "CameraManager not initialized")
                 isManaging.set(false)
+                lastProbeSkipped.set(false)
                 return false
             }
-            
-            Log.i(TAG, "Attempting to force camera access for camera $cameraId")
-            
-            // Open briefly to displace other apps, then release so CameraX can bind.
-            val acquired = tryNormalCameraAccess(manager, cameraId) || run {
-                Log.w(TAG, "Normal camera access failed, attempting force takeover")
-                forceCameraTakeover(manager, cameraId)
+
+            val reportedAvailable = cameraAvailable[cameraId]
+            if (shouldSkipDisplacementProbe(reportedAvailable)) {
+                lastProbeSkipped.set(true)
+                Log.i(
+                    TAG,
+                    "Camera $cameraId appears free (availability=$reportedAvailable) — " +
+                        "skipping displacement probe",
+                )
+                return true
             }
-            // Always close our probe session — holding the device blocks CameraX/WebRTC.
-            currentCameraDevice.getAndSet(null)?.close()
-            if (acquired) {
-                Log.i(TAG, "Camera $cameraId displaced other apps; released for capture pipeline")
-            }
-            return acquired
-            
+
+            lastProbeSkipped.set(false)
+            Log.i(TAG, "Camera $cameraId reported in use — displacement probe for CameraX")
+            return displaceOtherApp(manager, cameraId)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to force camera access", e)
+            Log.e(TAG, "Failed to prepare camera $cameraId", e)
             currentCameraDevice.getAndSet(null)?.close()
+            isManaging.set(false)
+            lastProbeSkipped.set(false)
+            return false
+        }
+    }
+
+    /** @deprecated Prefer [ensureCameraReadyForCapture]. Kept for RN debug APIs. */
+    fun forceCameraAccess(cameraId: String): Boolean = ensureCameraReadyForCapture(cameraId)
+
+    /** True when the last [ensureCameraReadyForCapture] skipped the displacement probe. */
+    fun lastProbeWasSkipped(): Boolean = lastProbeSkipped.get()
+
+    /**
+     * Open/close once to evict another app. Used when CameraX bind fails after a skipped probe.
+     */
+    fun displaceForCapture(cameraId: String): Boolean {
+        if (!isManaging.compareAndSet(false, true)) {
+            return true
+        }
+        val manager = cameraManager.get() ?: run {
             isManaging.set(false)
             return false
         }
+        lastProbeSkipped.set(false)
+        cameraAvailable[cameraId] = false
+        return displaceOtherApp(manager, cameraId)
     }
-    
-    /**
-     * Try normal camera access first
-     */
-    private fun tryNormalCameraAccess(manager: CameraManager, cameraId: String): Boolean {
+
+    private fun displaceOtherApp(manager: CameraManager, cameraId: String): Boolean {
+        for (attempt in 1..TAKEOVER_MAX_ATTEMPTS) {
+            if (attempt > 1) {
+                Log.i(TAG, "Camera displacement retry $attempt/$TAKEOVER_MAX_ATTEMPTS for $cameraId")
+                Thread.sleep(TAKEOVER_RETRY_DELAY_MS)
+            }
+            currentCameraDevice.getAndSet(null)?.close()
+            val acquired = tryOpenBriefly(manager, cameraId)
+            currentCameraDevice.getAndSet(null)?.close()
+            if (acquired) {
+                cameraAvailable[cameraId] = true
+                Log.i(TAG, "Camera $cameraId displaced; released for CameraX (attempt $attempt)")
+                return true
+            }
+        }
+        Log.w(TAG, "Camera displacement failed after $TAKEOVER_MAX_ATTEMPTS attempts for $cameraId")
+        isManaging.set(false)
+        return false
+    }
+
+    private fun tryOpenBriefly(manager: CameraManager, cameraId: String): Boolean {
         val latch = CountDownLatch(1)
         val success = AtomicBoolean(false)
-        
+
         try {
-            manager.openCamera(cameraId, object : CameraDevice.StateCallback() {
-                override fun onOpened(@NonNull camera: CameraDevice) {
-                    Log.d(TAG, "Camera $cameraId opened normally")
-                    currentCameraDevice.set(camera)
-                    success.set(true)
-                    latch.countDown()
-                }
-                
-                override fun onDisconnected(@NonNull camera: CameraDevice) {
-                    Log.d(TAG, "Camera $cameraId disconnected during normal open")
-                    camera.close()
-                    latch.countDown()
-                }
-                
-                override fun onError(@NonNull camera: CameraDevice, error: Int) {
-                    Log.d(TAG, "Camera $cameraId error during normal open: $error")
-                    camera.close()
-                    latch.countDown()
-                }
-            }, Handler(Looper.getMainLooper()))
-            
-            return latch.await(2000, TimeUnit.MILLISECONDS) && success.get()
-            
+            manager.openCamera(
+                cameraId,
+                object : CameraDevice.StateCallback() {
+                    override fun onOpened(@NonNull camera: CameraDevice) {
+                        Log.d(TAG, "Camera $cameraId opened for displacement")
+                        currentCameraDevice.set(camera)
+                        success.set(true)
+                        latch.countDown()
+                    }
+
+                    override fun onDisconnected(@NonNull camera: CameraDevice) {
+                        camera.close()
+                        latch.countDown()
+                    }
+
+                    override fun onError(@NonNull camera: CameraDevice, error: Int) {
+                        Log.d(TAG, "Camera $cameraId displacement open error=$error")
+                        camera.close()
+                        latch.countDown()
+                    }
+                },
+                Handler(Looper.getMainLooper()),
+            )
+            return latch.await(PROBE_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS) && success.get()
         } catch (e: CameraAccessException) {
-            Log.d(TAG, "Normal camera access failed: ${e.message}")
+            Log.d(TAG, "Displacement open failed: ${e.message}")
             return false
         }
     }
-    
-    /**
-     * Force camera takeover by using Android's camera priority system
-     */
-    private fun forceCameraTakeover(manager: CameraManager, cameraId: String): Boolean {
-        Log.i(TAG, "Forcing camera takeover for camera $cameraId")
-        
-        // Strategy 1: Open camera with high priority callback
-        val forceSuccess = AtomicBoolean(false)
-        val forceLatch = CountDownLatch(1)
-        
-        try {
-            // Register availability callback to detect when camera becomes available
-            val availabilityCallback = object : CameraManager.AvailabilityCallback() {
-                override fun onCameraAvailable(@NonNull cameraId: String) {
-                    Log.d(TAG, "Camera $cameraId became available during force takeover")
-                    // Try to grab it immediately
-                    tryImmediateCapture(manager, cameraId, forceSuccess, forceLatch)
-                }
-                
-                override fun onCameraUnavailable(@NonNull cameraId: String) {
-                    Log.d(TAG, "Camera $cameraId unavailable during force takeover")
-                }
-            }
-            
-            manager.registerAvailabilityCallback(availabilityCallback, Handler(Looper.getMainLooper()))
-            
-            // Also try immediate capture
-            tryImmediateCapture(manager, cameraId, forceSuccess, forceLatch)
-            
-            val success = forceLatch.await(FORCE_TAKEOVER_TIMEOUT_MS, TimeUnit.MILLISECONDS) && forceSuccess.get()
-            
-            // Unregister callback
-            manager.unregisterAvailabilityCallback(availabilityCallback)
-            
-            return success
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Force camera takeover failed", e)
-            return false
-        }
-    }
-    
-    /**
-     * Try to immediately capture the camera
-     */
-    private fun tryImmediateCapture(
-        manager: CameraManager,
-        cameraId: String, 
-        successFlag: AtomicBoolean,
-        latch: CountDownLatch
-    ) {
-        if (successFlag.get()) return // Already succeeded
-        
-        try {
-            manager.openCamera(cameraId, object : CameraDevice.StateCallback() {
-                override fun onOpened(@NonNull camera: CameraDevice) {
-                    Log.i(TAG, "FORCE TAKEOVER SUCCESS: Camera $cameraId acquired from other app")
-                    currentCameraDevice.set(camera)
-                    successFlag.set(true)
-                    latch.countDown()
-                }
-                
-                override fun onDisconnected(@NonNull camera: CameraDevice) {
-                    Log.d(TAG, "Camera $cameraId disconnected during force takeover")
-                    camera.close()
-                    if (!successFlag.get()) {
-                        latch.countDown()
-                    }
-                }
-                
-                override fun onError(@NonNull camera: CameraDevice, error: Int) {
-                    val errorMsg = when (error) {
-                        CameraDevice.StateCallback.ERROR_CAMERA_IN_USE -> "Camera in use by another app"
-                        CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE -> "Max cameras in use"
-                        CameraDevice.StateCallback.ERROR_CAMERA_DISABLED -> "Camera disabled"
-                        CameraDevice.StateCallback.ERROR_CAMERA_DEVICE -> "Camera device error"
-                        CameraDevice.StateCallback.ERROR_CAMERA_SERVICE -> "Camera service error"
-                        else -> "Unknown error $error"
-                    }
-                    Log.w(TAG, "Camera $cameraId error during force takeover: $errorMsg")
-                    camera.close()
-                    if (!successFlag.get()) {
-                        latch.countDown()
-                    }
-                }
-            }, Handler(Looper.getMainLooper()))
-            
-        } catch (e: CameraAccessException) {
-            Log.w(TAG, "Immediate capture failed: ${e.message}")
-            if (!successFlag.get()) {
-                latch.countDown()
-            }
-        }
-    }
-    
-    /**
-     * Release camera access
-     */
+
     fun releaseCamera() {
         Log.i(TAG, "Releasing camera access")
         currentCameraDevice.get()?.close()
         currentCameraDevice.set(null)
         isManaging.set(false)
+        lastProbeSkipped.set(false)
     }
-    
-    /**
-     * Check if we currently have camera access
-     */
-    fun hasCameraAccess(): Boolean {
-        return currentCameraDevice.get() != null
-    }
-    
-    /**
-     * Get current camera device (for integration with existing capture logic)
-     */
-    fun getCurrentCameraDevice(): CameraDevice? {
-        return currentCameraDevice.get()
-    }
+
+    fun hasCameraAccess(): Boolean = currentCameraDevice.get() != null
+
+    fun getCurrentCameraDevice(): CameraDevice? = currentCameraDevice.get()
 }

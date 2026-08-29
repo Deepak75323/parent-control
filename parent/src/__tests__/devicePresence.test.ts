@@ -1,4 +1,11 @@
-import {isDevicePresentOnline, PRESENCE_STALE_MS} from '../utils/devicePresence';
+import {
+  buildStaleReadinessMessage,
+  formatLastHeardAgo,
+  hasAgedReadinessSnapshot,
+  hasStaleGrantedReadiness,
+  isDevicePresentOnline,
+  PRESENCE_STALE_MS,
+} from '../utils/devicePresence';
 
 describe('isDevicePresentOnline', () => {
   const now = Date.parse('2026-07-26T14:40:00.000Z');
@@ -36,5 +43,66 @@ describe('isDevicePresentOnline', () => {
 
   it('returns false for OFFLINE with no lastSeen', () => {
     expect(isDevicePresentOnline('OFFLINE', null, now)).toBe(false);
+  });
+});
+
+describe('formatLastHeardAgo', () => {
+  const now = Date.parse('2026-07-26T14:40:00.000Z');
+
+  it('formats minutes ago', () => {
+    expect(formatLastHeardAgo('2026-07-26T14:35:00.000Z', now)).toBe('5 min ago');
+  });
+
+  it('returns null for invalid input', () => {
+    expect(formatLastHeardAgo(null, now)).toBeNull();
+  });
+});
+
+describe('hasStaleGrantedReadiness', () => {
+  it('is true when offline but another row is granted', () => {
+    expect(
+      hasStaleGrantedReadiness(false, [
+        {key: 'online', ok: false},
+        {key: 'camera', ok: true},
+      ]),
+    ).toBe(true);
+  });
+
+  it('is false when online', () => {
+    expect(
+      hasStaleGrantedReadiness(true, [
+        {key: 'online', ok: true},
+        {key: 'camera', ok: true},
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe('hasAgedReadinessSnapshot', () => {
+  const now = Date.parse('2026-07-26T14:40:00.000Z');
+
+  it('is true when online and lastSeen is older than one heartbeat cycle', () => {
+    const lastSeen = new Date(now - 7 * 60 * 1000).toISOString();
+    expect(
+      hasAgedReadinessSnapshot(true, lastSeen, [
+        {key: 'online', ok: true},
+        {key: 'a11y', ok: true},
+      ], now),
+    ).toBe(true);
+  });
+
+  it('is false when lastSeen is fresh', () => {
+    const lastSeen = new Date(now - 2 * 60 * 1000).toISOString();
+    expect(
+      hasAgedReadinessSnapshot(true, lastSeen, [{key: 'a11y', ok: true}], now),
+    ).toBe(false);
+  });
+});
+
+describe('buildStaleReadinessMessage', () => {
+  const now = Date.parse('2026-07-26T14:40:00.000Z');
+
+  it('includes last heard age when available', () => {
+    expect(buildStaleReadinessMessage('2026-07-26T14:30:00.000Z', now)).toContain('10 min ago');
   });
 });

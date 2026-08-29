@@ -103,7 +103,15 @@ android {
 }
 
 gradle.taskGraph.whenReady { taskGraph ->
-    def isReleaseBuild = taskGraph.allTasks.any { it.name.toLowerCase().contains('release') }
+    // Match real release packaging tasks only — not CMake clean tasks like
+    // externalNativeBuildCleanRelease (those run during `clean assembleDebug`).
+    def isReleaseBuild = taskGraph.allTasks.any { task ->
+        def n = task.name.toLowerCase()
+        n.contains('release') &&
+            !n.contains('clean') &&
+            (n.contains('assemble') || n.contains('bundle') || n.contains('install') ||
+                n.startsWith('verifyrelease'))
+    }
 
     if (isReleaseBuild && !releaseConfigured) {
         throw new GradleException(

@@ -283,7 +283,14 @@ export interface DeviceSummary {
   permMicrophone?: boolean;
   permLocation?: boolean;
   permNotificationAccess?: boolean;
+  permNotifications?: boolean;
   permDeviceAdmin?: boolean;
+  permAutostart?: boolean;
+  permFullScreenIntent?: boolean;
+  readinessFailureTags?: string[];
+  deviceReadinessScore?: number;
+  oemSetupComplete?: boolean;
+  oemVendor?: string;
   /** P1-08: Android 15+ dataSync quota / standby degradation. */
   monitoringDegraded?: boolean;
   monitoringMode?: string;

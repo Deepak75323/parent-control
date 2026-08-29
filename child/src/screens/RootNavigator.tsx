@@ -236,6 +236,15 @@ export function RootNavigator() {
           navTrace('AppState active — skip re-lock', {screen: route, reason: 'on_lock_or_diagnostics'});
           startStreamingListener();
           void nativeModules.setJsStreamingListenerActive(true);
+          // Clock lock is the normal paired home — still nudge a heartbeat so the parent
+          // flips Online promptly when the child returns to the foreground.
+          if (route === 'ClockLock') {
+            const hmacKey = await getDeviceHmacKey();
+            const name = await getParentDisplayName();
+            void startMonitoringSync(token, hmacKey ?? undefined, name ?? undefined).catch(() =>
+              undefined,
+            );
+          }
           return;
         }
         // Paired password sheet: bounce back to clock unless consent/stream is in flight.

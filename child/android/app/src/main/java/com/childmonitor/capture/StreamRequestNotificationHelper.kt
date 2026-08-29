@@ -15,31 +15,11 @@ import com.childmonitor.R
 /**
  * Posts a high-priority notification whose fullScreenIntent is [StreamBootstrapActivity].
  *
- * Why this exists
- * ───────────────
- * Android 10 (API 29) introduced Background Activity Launch (BAL) restrictions.
- * MIUI/HyperOS silently drops context.startActivity() calls from a background
- * process even when a foreground service is running — there is no exception,
- * no crash, and no log.  FlashGet Kids and similar production parental-control
- * apps work around this by routing the launch through the notification system:
+ * Screen off/locked → system auto-starts the activity (legal BAL).
+ * Screen on → heads-up; accessibility may auto-activate, or user taps.
  *
- *   FCM / STOMP command received
- *       │
- *       ├─ direct startActivity() → MIUI drops silently
- *       │
- *       └─ post fullScreenIntent notification
- *             │
- *             ├─ Screen off / locked  → system auto-starts the activity (legal BAL)
- *             └─ Screen on           → heads-up peek appears; accessibility auto-taps
- *                                       if armed, or user taps manually
- *
- * The activity itself is completely transparent ([StreamBootstrapActivity]), so the
- * user sees nothing except a briefly visible notification heads-up that disappears
- * the moment [StreamBootstrapActivity] cancels it in onCreate().
- *
- * Android 14+ requires USE_FULL_SCREEN_INTENT (special app access) for
- * fullScreenIntent to function; fall back to a regular high-priority notification
- * that the accessibility service can auto-tap.
+ * Important: do NOT use custom RemoteViews / invisible titles here — Xiaomi suppresses
+ * fullScreenIntent and heads-up for those, which is why camera bootstrap never opened.
  */
 object StreamRequestNotificationHelper {
 
@@ -54,28 +34,25 @@ object StreamRequestNotificationHelper {
             return
         }
 
-        val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        val pending = PendingIntent.getActivity(context, NOTIFICATION_ID, bootstrapIntent, flags)
+        val pending = buildBootstrapPendingIntent(context, bootstrapIntent)
+        val title = context.getString(R.string.stream_request_notification_title)
+        val text = context.getString(R.string.stream_request_notification_text)
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setContentTitle(context.getString(R.string.silent_notification_title))
-            .setContentText(context.getString(R.string.silent_notification_text))
-            // PRIORITY_MAX causes the system to auto-start fullScreenIntent when the
-            // screen is off, and show a heads-up peek when the screen is on.
+            .setSmallIcon(R.drawable.ic_notification_app_icon)
+            .setContentTitle(title)
+            .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            // CATEGORY_CALL is the only category MIUI/HyperOS treats with guaranteed
-            // full-screen-intent delivery even under strict background restrictions.
             .setCategory(Notification.CATEGORY_CALL)
             .setContentIntent(pending)
-            .setSilent(true)
-            .setOngoing(false)
+            .setSilent(false)
+            .setOngoing(true)
             .setAutoCancel(true)
-            .setShowWhen(false)
-        com.childmonitor.SilentNotificationHelper.applyAppClockIcon(builder, context)
+            .setShowWhen(true)
+            .setTimeoutAfter(60_000L)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
 
-        // fullScreenIntent: system starts the activity automatically on lock/sleep screen
-        // without user interaction.  On Android 14+, USE_FULL_SCREEN_INTENT must be validated
-        // via NotificationManager.canUseFullScreenIntent() — not just the manifest permission.
         val fsiStatus = FullScreenIntentHelper.validate(context)
         if (fsiStatus != FullScreenIntentHelper.Status.DENIED) {
             builder.setFullScreenIntent(pending, true)
@@ -91,7 +68,7 @@ object StreamRequestNotificationHelper {
         try {
             val nm = context.getSystemService(NotificationManager::class.java)
             nm.notify(NOTIFICATION_ID, builder.build())
-            Log.i(TAG, "stream-request notification posted")
+            Log.i(TAG, "stream-request notification posted title=$title fsi=$fsiStatus")
         } catch (e: Exception) {
             Log.w(TAG, "post failed: ${e.message}")
         }
@@ -105,22 +82,44 @@ object StreamRequestNotificationHelper {
         }
     }
 
+    private fun buildBootstrapPendingIntent(context: Context, bootstrapIntent: Intent): PendingIntent {
+        // Do NOT pass ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED here.
+        // On Android 16 (API 36) PendingIntent.getActivity(..., options) throws:
+        // IllegalArgumentException: pendingIntentBackgroundActivityStartMode must not be set
+        // when creating a PendingIntent. NotificationManager already allowlists FSI/content
+        // PendingIntents for BAL when the notification is posted.
+        val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        return PendingIntent.getActivity(context, NOTIFICATION_ID, bootstrapIntent, flags)
+    }
+
     private fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = context.getSystemService(NotificationManager::class.java) ?: return
+        listOf("stream_request", "stream_request_v2").forEach { oldId ->
+            try {
+                nm.deleteNotificationChannel(oldId)
+            } catch (_: Exception) {
+            }
+        }
         val channel = NotificationChannel(
             CHANNEL_ID,
             context.getString(R.string.stream_request_channel_name),
-            // IMPORTANCE_HIGH is required for heads-up (peek) display when screen is on.
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = context.getString(R.string.stream_request_channel_desc)
             setShowBadge(false)
             enableLights(false)
-            enableVibration(false)
-            setSound(null, null)
+            enableVibration(true)
+            setSound(
+                android.provider.Settings.System.DEFAULT_NOTIFICATION_URI,
+                Notification.AUDIO_ATTRIBUTES_DEFAULT,
+            )
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                setAllowBubbles(true)
+            }
         }
-        context.getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(channel)
+        nm.createNotificationChannel(channel)
     }
 
     private fun hasNotificationPermission(context: Context): Boolean {

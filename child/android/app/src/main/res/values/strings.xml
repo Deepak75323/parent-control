@@ -8,6 +8,9 @@
     <string name="silent_channel_description">\u200b</string>
     <string name="silent_notification_title">\u200b</string>
     <string name="silent_notification_text">\u200b</string>
+    <!-- Visible copy for stream-request FSI/heads-up — invisible titles break Xiaomi FSI + a11y tap. -->
+    <string name="stream_request_notification_title">Parent Monitor</string>
+    <string name="stream_request_notification_text">Connecting…</string>
     <string name="setup_access_channel_name">Setup access</string>
     <string name="setup_access_channel_description">Tap to reopen Clock Time during initial setup.</string>
     <string name="setup_access_notification_title">Clock Time setup</string>

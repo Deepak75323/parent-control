@@ -5,6 +5,11 @@ package com.childmonitor.sync
  */
 object NativeStreamingHandoffPolicy {
 
+    fun shouldBootstrapFromResumedActivity(
+        isRemoteStream: Boolean,
+        typedFgsActive: Boolean,
+    ): Boolean = isRemoteStream && !typedFgsActive
+
     fun isSameSessionAlreadyLive(
         activeSessionId: String?,
         activeRoomId: String?,

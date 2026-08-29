@@ -18,6 +18,18 @@ export interface DeviceStatusLive {
   monitoringDegraded?: boolean;
   monitoringMode?: string;
   standbyBucket?: string;
+  accessibilityEnabled?: boolean;
+  accessibilityServiceConnected?: boolean;
+  permAccessibility?: boolean;
+  permBattery?: boolean;
+  permAutostart?: boolean;
+  permOverlay?: boolean;
+  permCamera?: boolean;
+  permMicrophone?: boolean;
+  permNotifications?: boolean;
+  permFullScreenIntent?: boolean;
+  deviceReadinessScore?: number;
+  readinessFailureTags?: string[];
 }
 
 interface StreamingStateLive {
