@@ -93,6 +93,16 @@ public class HeartbeatRequest {
   private Boolean dataSyncFgsExhausted;
 
   /** Nested OEM diagnostic dump from the child — grow with OemDiagnosticsCollector fields. */
-  @Size(max = 128)
   private java.util.Map<String, Object> oemDiagnostics;
+
+  /** Flat readiness flags (mirrored from OemDiagnosticsCollector) for reliable parent checklist sync. */
+  private Boolean batteryExempt;
+  private Boolean autostartPromptDone;
+  private Boolean overlayGranted;
+  private Boolean cameraGranted;
+  private Boolean notificationPermissionGranted;
+  private Boolean fullScreenIntentGranted;
+
+  /** Explicit failure tags for parent readiness when nested oemDiagnostics is unavailable. */
+  private java.util.List<String> failureClassifications;
 }

@@ -465,6 +465,9 @@ public class DeviceService {
     }
     if (request.getAccessibilityEnabled() != null) {
       device.setAccessibilityEnabled(request.getAccessibilityEnabled());
+      if (Boolean.FALSE.equals(request.getAccessibilityEnabled())) {
+        device.setAccessibilityServiceConnected(false);
+      }
     }
     if (request.getAccessibilityServiceConnected() != null) {
       boolean wasConnected = device.isAccessibilityServiceConnected();
@@ -602,9 +605,36 @@ public class DeviceService {
         .permCamera(readDiagBoolean(device, "cameraGranted"))
         .permMicrophone(readDiagBoolean(device, "microphoneGranted"))
         .permOverlay(readDiagBoolean(device, "overlayGranted"))
-        .permAccessibility(device.isAccessibilityEnabled() && device.isAccessibilityServiceConnected())
-        .readinessFailureTags(readDiagStringList(device, "failureClassifications"))
+        .permAccessibility(resolvePermAccessibility(device))
+        .readinessFailureTags(resolveReadinessFailureTags(device))
         .build();
+  }
+
+  private Boolean resolvePermAccessibility(Device device) {
+    if (device.getOemFailureClassifications() != null
+        && device.getOemFailureClassifications().contains("ACCESSIBILITY_DISABLED")) {
+      return false;
+    }
+    Boolean enabledDiag = readDiagBoolean(device, "accessibilityEnabled");
+    if (Boolean.TRUE.equals(enabledDiag) || device.isAccessibilityEnabled()) {
+      return true;
+    }
+    if (Boolean.FALSE.equals(enabledDiag) || !device.isAccessibilityEnabled()) {
+      return false;
+    }
+    Boolean connectedDiag = readDiagBoolean(device, "accessibilityServiceConnected");
+    if (connectedDiag != null) {
+      return Boolean.TRUE.equals(connectedDiag);
+    }
+    return device.isAccessibilityEnabled();
+  }
+
+  private List<String> resolveReadinessFailureTags(Device device) {
+    if (device.getOemFailureClassifications() != null
+        && !device.getOemFailureClassifications().isEmpty()) {
+      return device.getOemFailureClassifications();
+    }
+    return readDiagStringList(device, "failureClassifications");
   }
 
   private Boolean readMonitoringFlag(Device device, String key) {

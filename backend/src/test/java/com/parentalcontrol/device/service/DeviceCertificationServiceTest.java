@@ -50,4 +50,26 @@ class DeviceCertificationServiceTest {
     verify(oemObservabilityService)
         .recordHeartbeatOem(eq("samsung"), eq(85), eq(78), eq(true), anyList());
   }
+
+  @Test
+  void applyHeartbeatOemData_mergesFlatReadinessFieldsIntoDiagnostics() {
+    Device device = new Device();
+    HeartbeatRequest request = new HeartbeatRequest();
+    request.setBatteryExempt(true);
+    request.setAutostartPromptDone(false);
+    request.setOverlayGranted(true);
+    request.setCameraGranted(true);
+    request.setAccessibilityEnabled(true);
+    request.setAccessibilityServiceConnected(true);
+
+    service.applyHeartbeatOemData(device, request);
+
+    assertThat(device.getOemDiagnosticsJson())
+        .containsEntry("batteryExempt", true)
+        .containsEntry("autostartPromptDone", false)
+        .containsEntry("overlayGranted", true)
+        .containsEntry("cameraGranted", true)
+        .containsEntry("accessibilityEnabled", true)
+        .containsEntry("accessibilityServiceConnected", true);
+  }
 }

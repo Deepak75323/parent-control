@@ -48,6 +48,19 @@ class StreamFailureGatePolicyTest {
   }
 
   @Test
+  void acceptsCameraInUseFailureInsideFairWindow() {
+    Instant now = t0.plusSeconds(1);
+    assertThat(
+            StreamFailureGatePolicy.decide(
+                now,
+                t0,
+                ScreenSessionStatus.PENDING,
+                "CAMERA_IN_USE_BY_OTHER_APP",
+                null))
+        .isEqualTo(StreamFailureGatePolicy.Decision.ACCEPT);
+  }
+
+  @Test
   void ignoresFailureWhenNewerLiveSessionExists() {
     Instant olderStart = t0;
     Instant newerStart = t0.plusSeconds(30);
