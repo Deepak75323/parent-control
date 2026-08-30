@@ -16,8 +16,8 @@ describe('cameraViewerLayout', () => {
     expect(webCameraDisplayAspect(1080, 1920)).toBeCloseTo(1080 / 1920);
   });
 
-  it('always uses cover for Discord-style remote camera', () => {
-    expect(webCameraObjectFit('user')).toBe('cover');
-    expect(webCameraObjectFit('environment')).toBe('cover');
+  it('uses contain so the full frame is visible without cropping', () => {
+    expect(webCameraObjectFit('user')).toBe('contain');
+    expect(webCameraObjectFit('environment')).toBe('contain');
   });
 });

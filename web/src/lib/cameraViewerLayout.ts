@@ -19,7 +19,7 @@ export function webCameraDisplayAspect(videoWidth: number, videoHeight: number):
   return videoWidth / videoHeight;
 }
 
-/** Discord-style remote camera: always cover-fill the viewer. */
+/** Show the full camera frame — contain avoids cropping face/head at the edges. */
 export function webCameraObjectFit(_facing: WebCameraFacing): 'contain' | 'cover' {
-  return 'cover';
+  return 'contain';
 }
