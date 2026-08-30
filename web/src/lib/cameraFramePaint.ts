@@ -65,6 +65,8 @@ export function frameCvoDegrees(frame: VideoFrameLike, fallbackLandscapeCvo = 27
  * Front-camera CVO includes mirrored-preview compensation from the sender.
  * Portrait (CVO 270) → 90°. Landscape CVO (0 or 180) uses landscape drawImage
  * pixels and needs an extra 90° CW on top of mirror compensation.
+ *
+ * CVO 0 on a portrait-sized buffer means upright pixels already (no canvas rotation).
  */
 export function displayRotationDegrees(
   frame: VideoFrameLike,
@@ -74,6 +76,9 @@ export function displayRotationDegrees(
   const cvo = frameCvoDegrees(frame, fallbackLandscapeCvo);
   if (!frontCamera) {
     return cvo;
+  }
+  if (cvo === 0 && frame.codedHeight >= frame.codedWidth) {
+    return 0;
   }
   const mirrored = normalizeDegrees(360 - cvo);
   if (frame.rotation != null && (cvo === 0 || cvo === 180)) {

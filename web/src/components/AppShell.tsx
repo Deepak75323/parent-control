@@ -5,6 +5,8 @@ import {useAuthStore} from '../auth/authStore';
 import {deviceInitials, isDevicePresentOnline} from '../lib/devicePresence';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {disconnectWebSocket} from '../realtime/websocket';
+import {LiveStreamHost} from '../livestream/LiveStreamHost';
+import {useLiveStreamStore} from '../livestream/liveStreamStore';
 import type {DeviceSummary} from '../types/api';
 
 const NAV_GROUPS = [
@@ -21,6 +23,10 @@ const NAV_GROUPS = [
       {to: '/policies', label: 'policies', icon: '#'},
       {to: '/geofences', label: 'geofences', icon: '#'},
     ],
+  },
+  {
+    label: 'Community',
+    items: [{to: '/chat', label: 'chat', icon: '💬'}],
   },
   {
     label: 'Account',
@@ -61,13 +67,23 @@ const TITLES: Record<string, {title: string; subtitle: string}> = {
     title: 'settings',
     subtitle: 'PIN, family handle, and account controls',
   },
+  '/chat': {
+    title: 'chat',
+    subtitle: 'Private rooms to chat with other parents',
+  },
+};
+
+const ROUTE_ICONS: Record<string, string> = {
+  '/chat': '💬',
+  '/settings': '⚙',
 };
 
 function channelMeta(pathname: string) {
   if (pathname.startsWith('/devices/') && pathname !== '/devices') {
-    return {title: 'device', subtitle: 'Live status, stream, and activity for this phone'};
+    return {title: 'device', subtitle: 'Live status, stream, and activity for this phone', icon: '#'};
   }
-  return TITLES[pathname] ?? {title: 'parent-control', subtitle: 'Family monitoring'};
+  const base = TITLES[pathname] ?? {title: 'parent-control', subtitle: 'Family monitoring'};
+  return {...base, icon: ROUTE_ICONS[pathname] ?? '#'};
 }
 
 function mergeLive(device: DeviceSummary): DeviceSummary {
@@ -95,6 +111,7 @@ export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const meta = channelMeta(location.pathname);
+  const isChatRoute = location.pathname === '/chat';
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -137,11 +154,14 @@ export function AppShell() {
     }
     disconnectWebSocket();
     useRealtimeStore.getState().reset();
+    void useLiveStreamStore.getState().stop();
+    useLiveStreamStore.getState().reset();
     clear();
     navigate('/login', {replace: true});
   };
 
   return (
+    <>
     <div className="dc-app">
       <aside className="dc-rail" aria-label="Workspaces">
         <Link to="/devices" className="dc-rail-pill active" title="Parent Control">
@@ -208,7 +228,7 @@ export function AppShell() {
       <div className="dc-main">
         <header className="dc-topbar">
           <div className="dc-topbar-left">
-            <span className="dc-topbar-hash">#</span>
+            <span className="dc-topbar-hash">{meta.icon}</span>
             <h1 className="dc-topbar-title">{meta.title}</h1>
             <span className="dc-topbar-divider" />
             <p className="dc-topbar-sub">{meta.subtitle}</p>
@@ -220,11 +240,12 @@ export function AppShell() {
             </span>
           </div>
         </header>
-        <main className="dc-content">
+        <main className={`dc-content${isChatRoute ? ' dc-content--chat' : ''}`}>
           <Outlet />
         </main>
       </div>
 
+      {!isChatRoute ? (
       <aside className="dc-members" aria-label="Devices">
         <div className="dc-members-cat">Online — {online.length}</div>
         {online.length === 0 ? (
@@ -265,6 +286,23 @@ export function AppShell() {
           </>
         ) : null}
       </aside>
+      ) : (
+      <aside className="dc-members dc-members--chat" aria-label="Chat help">
+        <div className="dc-members-cat">Parent chat</div>
+        <div className="chat-side-help">
+          <p>Create a room, then invite another parent by <strong>@handle</strong> or <strong>email</strong>.</p>
+          <ol>
+            <li>Create a room on the left</li>
+            <li>Invite a parent</li>
+            <li>They accept the invite</li>
+            <li>Chat in real time</li>
+          </ol>
+          <p className="muted tiny">Room owners can delete a room for everyone.</p>
+        </div>
+      </aside>
+      )}
     </div>
+    <LiveStreamHost />
+    </>
   );
 }

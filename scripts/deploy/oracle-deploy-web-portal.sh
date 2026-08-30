@@ -59,12 +59,19 @@ scp -o BatchMode=yes -i "$SSH_KEY" \
 
 ssh -o BatchMode=yes -i "$SSH_KEY" "$HOST" bash -s <<EOF
 set -euo pipefail
-sudo mkdir -p $REMOTE_WWW
+sudo mkdir -p $REMOTE_WWW /var/lib/pcp
 sudo rsync -a --delete /tmp/pcp-web-dist/ $REMOTE_WWW/
 sudo chown -R www-data:www-data $REMOTE_WWW
 sudo cp /tmp/pcp-site.conf /etc/nginx/sites-available/pcp
 sudo ln -sfn /etc/nginx/sites-available/pcp /etc/nginx/sites-enabled/pcp
 sudo rm -f /etc/nginx/sites-enabled/default
+if [[ ! -f /etc/nginx/pcp-backend-upstream.conf ]]; then
+  active_port=8080
+  if [[ -f /var/lib/pcp/backend-active-port ]]; then
+    active_port=\$(tr -d '[:space:]' </var/lib/pcp/backend-active-port)
+  fi
+  echo "server 127.0.0.1:\${active_port};" | sudo tee /etc/nginx/pcp-backend-upstream.conf >/dev/null
+fi
 sudo nginx -t
 sudo systemctl reload nginx
 curl -sS -o /dev/null -w "portal=%{http_code}\n" http://127.0.0.1/portal/

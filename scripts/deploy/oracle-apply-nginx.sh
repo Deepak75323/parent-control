@@ -34,8 +34,16 @@ run sed -i -E "s/worker_connections[[:space:]]+[0-9]+;/worker_connections ${WORK
 grep -n 'worker_connections' /etc/nginx/nginx.conf || true
 
 echo "==> Installing site config"
+run mkdir -p /var/lib/pcp
 run cp "$SITE_SRC" /etc/nginx/sites-available/pcp
 run ln -sfn /etc/nginx/sites-available/pcp /etc/nginx/sites-enabled/pcp
+if [[ ! -f /etc/nginx/pcp-backend-upstream.conf ]]; then
+  active_port=8080
+  if [[ -f /var/lib/pcp/backend-active-port ]]; then
+    active_port="$(tr -d '[:space:]' </var/lib/pcp/backend-active-port)"
+  fi
+  echo "server 127.0.0.1:${active_port};" | run tee /etc/nginx/pcp-backend-upstream.conf >/dev/null
+fi
 # Drop Ubuntu default site if it conflicts with default_server.
 if [[ -e /etc/nginx/sites-enabled/default ]]; then
   run rm -f /etc/nginx/sites-enabled/default
