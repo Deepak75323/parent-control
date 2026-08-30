@@ -1,11 +1,25 @@
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Link} from 'react-router-dom';
 import {deviceApi} from '../api/services';
 import type {DeviceSummary} from '../types/api';
 import {deviceInitials, isDevicePresentOnline} from '../lib/devicePresence';
 import {appDisplayName} from '../lib/appDisplayName';
-import {shouldDismissPairingCodeFromStatus} from '../lib/pairingDetection';
+import {shouldDismissPairingSession} from '../lib/pairingDetection';
 import {useRealtimeStore} from '../realtime/realtimeStore';
+
+type PairingBaseline = {
+  ids: Set<string>;
+  statuses: Record<string, string>;
+  startedAt: number;
+};
+
+function snapshotBaseline(list: DeviceSummary[]): PairingBaseline {
+  return {
+    ids: new Set(list.map(d => d.id)),
+    statuses: Object.fromEntries(list.map(d => [d.id, (d.status ?? '').toUpperCase()])),
+    startedAt: Date.now(),
+  };
+}
 
 function mergeLive(device: DeviceSummary) {
   const live = useRealtimeStore.getState().deviceStatuses[device.id];
@@ -31,6 +45,7 @@ export function DevicesPage() {
   const [loading, setLoading] = useState(true);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairingBusy, setPairingBusy] = useState(false);
+  const pairingBaselineRef = useRef<PairingBaseline | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const deviceStatuses = useRealtimeStore(s => s.deviceStatuses);
   const deviceListEpoch = useRealtimeStore(s => s.deviceListEpoch);
@@ -61,6 +76,48 @@ export function DevicesPage() {
     return () => window.clearInterval(id);
   }, []);
 
+  const dismissPairingIfComplete = useCallback(
+    async (list: DeviceSummary[]) => {
+      const code = pairingCode;
+      const baseline = pairingBaselineRef.current;
+      if (!code || !baseline) {
+        return false;
+      }
+      try {
+        const {data} = await deviceApi.pairingCodeStatus(code);
+        if (
+          shouldDismissPairingSession(
+            data.data,
+            list,
+            baseline.ids,
+            baseline.statuses,
+            baseline.startedAt,
+          )
+        ) {
+          setPairingCode(null);
+          pairingBaselineRef.current = null;
+          return true;
+        }
+      } catch {
+        if (
+          shouldDismissPairingSession(
+            null,
+            list,
+            baseline.ids,
+            baseline.statuses,
+            baseline.startedAt,
+          )
+        ) {
+          setPairingCode(null);
+          pairingBaselineRef.current = null;
+          return true;
+        }
+      }
+      return false;
+    },
+    [pairingCode],
+  );
+
   useEffect(() => {
     if (!pairingCode) {
       return;
@@ -68,13 +125,14 @@ export function DevicesPage() {
     let cancelled = false;
     const tick = async () => {
       try {
-        const {data} = await deviceApi.pairingCodeStatus(pairingCode);
+        const {data: listResp} = await deviceApi.list();
         if (cancelled) {
           return;
         }
-        if (shouldDismissPairingCodeFromStatus(data.data)) {
-          setPairingCode(null);
-          void load();
+        const list = listResp.data ?? [];
+        setDevices(list);
+        if (await dismissPairingIfComplete(list)) {
+          return;
         }
       } catch {
         // ignore
@@ -86,15 +144,33 @@ export function DevicesPage() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [pairingCode, load]);
+  }, [pairingCode, dismissPairingIfComplete]);
+
+  useEffect(() => {
+    const baseline = pairingBaselineRef.current;
+    if (!pairingCode || !baseline) {
+      return;
+    }
+    if (
+      shouldDismissPairingSession(null, devices, baseline.ids, baseline.statuses, baseline.startedAt)
+    ) {
+      setPairingCode(null);
+      pairingBaselineRef.current = null;
+    }
+  }, [devices, deviceListEpoch, pairingCode]);
 
   const onPair = async () => {
     setPairingBusy(true);
     setError(null);
     try {
+      const {data: listResp} = await deviceApi.list();
+      const baselineList = listResp.data ?? [];
+      setDevices(baselineList);
+      pairingBaselineRef.current = snapshotBaseline(baselineList);
       const {data} = await deviceApi.createPairingCode();
       setPairingCode(data.data?.code ?? null);
     } catch {
+      pairingBaselineRef.current = null;
       setError('Could not create pairing code');
     } finally {
       setPairingBusy(false);
@@ -156,7 +232,13 @@ export function DevicesPage() {
             <div className="dc-embed-title">Pairing code</div>
             <div className="pairing-code">{pairingCode}</div>
             <p className="muted">Waiting for the child phone to enter this code…</p>
-            <button type="button" className="btn ghost" onClick={() => setPairingCode(null)}>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                setPairingCode(null);
+                pairingBaselineRef.current = null;
+              }}>
               Dismiss
             </button>
           </div>
