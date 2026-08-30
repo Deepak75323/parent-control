@@ -146,6 +146,15 @@ describe('displayRotationDegrees', () => {
     ).toBe(90);
   });
 
+  it('does not rotate CVO 0 on a portrait-sized buffer', () => {
+    expect(
+      displayRotationDegrees(
+        {codedWidth: 1080, codedHeight: 1440, displayWidth: 1080, displayHeight: 1440, rotation: 0},
+        true,
+      ),
+    ).toBe(0);
+  });
+
   it('maps landscape-right CVO 0 to 90 degrees (front mirror + landscape pixels)', () => {
     expect(
       displayRotationDegrees(

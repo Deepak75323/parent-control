@@ -1,4 +1,5 @@
 import axios, {type AxiosError, type InternalAxiosRequestConfig} from 'axios';
+import {redirectToLogin} from '../auth/redirectToLogin';
 import {ApiPaths} from './paths';
 import {useAuthStore} from '../auth/authStore';
 import type {ApiResponse, AuthResponse} from '../types/api';
@@ -99,6 +100,7 @@ api.interceptors.response.use(
     const result = await refreshAccessToken();
     if (result.status !== 'ok') {
       useAuthStore.getState().clear();
+      redirectToLogin();
       return Promise.reject(error);
     }
     original.headers.Authorization = `Bearer ${result.accessToken}`;
