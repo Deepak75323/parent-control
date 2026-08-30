@@ -35,6 +35,7 @@ build_app() {
 
   log "$app: assembleDebug (Gradle embeds JS)..."
   cd android
+  rm -rf app/build/generated/assets/createBundleDebugJsAndAssets
   ./gradlew assembleDebug
   cd ..
 
