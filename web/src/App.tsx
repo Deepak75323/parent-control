@@ -13,6 +13,7 @@ import {SettingsPage} from './pages/SettingsPage';
 import {AuditPage} from './pages/AuditPage';
 import {BillingPage} from './pages/BillingPage';
 import {GeofencesPage} from './pages/GeofencesPage';
+import {ChatPage} from './pages/ChatPage';
 import './styles/app.css';
 
 function Bootstrap() {
@@ -35,6 +36,24 @@ function Bootstrap() {
     }
   }, [hydrated, accessToken]);
 
+  useEffect(() => {
+    if (!hydrated || !accessToken) {
+      return;
+    }
+    const retry = () => connectWebSocket();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        retry();
+      }
+    };
+    window.addEventListener('focus', retry);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', retry);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [hydrated, accessToken]);
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
@@ -47,6 +66,7 @@ function Bootstrap() {
           <Route path="/geofences" element={<GeofencesPage />} />
           <Route path="/billing" element={<BillingPage />} />
           <Route path="/audit" element={<AuditPage />} />
+          <Route path="/chat" element={<ChatPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>

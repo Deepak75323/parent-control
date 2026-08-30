@@ -18,6 +18,9 @@ import type {
   StreamType,
   SubscriptionInfo,
   UsageStatsItem,
+  ChatRoomSummary,
+  ChatInviteItem,
+  ChatMessageItem,
 } from '../types/api';
 
 export const authApi = {
@@ -173,4 +176,23 @@ export const policiesApi = {
     radiusM: number;
   }) => api.post<ApiResponse<PolicySummary>>(ApiPaths.POLICY_GEOFENCE, body),
   delete: (policyId: string) => api.delete(ApiPaths.policy(policyId)),
+};
+
+export const chatApi = {
+  listRooms: () => api.get<ApiResponse<ChatRoomSummary[]>>(ApiPaths.CHAT_ROOMS),
+  createRoom: (name: string) =>
+    api.post<ApiResponse<ChatRoomSummary>>(ApiPaths.CHAT_ROOMS, {name}),
+  deleteRoom: (roomId: string) => api.delete<ApiResponse<void>>(ApiPaths.chatRoom(roomId)),
+  listPendingInvites: () =>
+    api.get<ApiResponse<ChatInviteItem[]>>(ApiPaths.CHAT_INVITES_PENDING),
+  invite: (roomId: string, identifier: string) =>
+    api.post<ApiResponse<ChatInviteItem>>(ApiPaths.chatRoomInvites(roomId), {identifier}),
+  respondInvite: (inviteId: string, accept: boolean) =>
+    api.post<ApiResponse<ChatInviteItem>>(ApiPaths.chatInviteRespond(inviteId), {accept}),
+  listMessages: (roomId: string, page = 0, size = 50) =>
+    api.get<ApiResponse<ChatMessageItem[]>>(ApiPaths.chatRoomMessages(roomId), {
+      params: {page, size},
+    }),
+  sendMessage: (roomId: string, body: string) =>
+    api.post<ApiResponse<ChatMessageItem>>(ApiPaths.chatRoomMessages(roomId), {body}),
 };

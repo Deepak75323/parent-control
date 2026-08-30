@@ -48,4 +48,12 @@ export const ApiPaths = {
   PARENT_PIN_STATUS: `${V1}/parent/pin/status`,
   PARENT_FAMILY_HANDLE: `${V1}/parent/family-handle`,
   PARENT_FAMILY_HANDLE_STATUS: `${V1}/parent/family-handle/status`,
+
+  CHAT_ROOMS: `${V1}/chat/rooms`,
+  chatRoom: (roomId: string) => `${V1}/chat/rooms/${roomId}`,
+  chatRoomMembers: (roomId: string) => `${V1}/chat/rooms/${roomId}/members`,
+  chatRoomInvites: (roomId: string) => `${V1}/chat/rooms/${roomId}/invites`,
+  chatRoomMessages: (roomId: string) => `${V1}/chat/rooms/${roomId}/messages`,
+  CHAT_INVITES_PENDING: `${V1}/chat/invites/pending`,
+  chatInviteRespond: (inviteId: string) => `${V1}/chat/invites/${inviteId}/respond`,
 } as const;
