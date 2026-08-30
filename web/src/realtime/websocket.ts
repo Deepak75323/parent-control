@@ -6,7 +6,7 @@ import {
   clearSignalingSubscriptions,
   resubscribeSignalingRooms,
 } from './signalingWebSocket';
-import type {AlertItem, NotificationItem, LocationPoint} from '../types/api';
+import type {AlertItem, NotificationItem, LocationPoint, ChatInviteItem, ChatMessageItem} from '../types/api';
 
 let client: Client | null = null;
 
@@ -32,7 +32,7 @@ export function connectWebSocket(): void {
   if (!token) {
     return;
   }
-  if (client?.active) {
+  if (client?.connected) {
     return;
   }
 
@@ -147,6 +147,25 @@ export function connectWebSocket(): void {
           failureReason?: string;
         }>(msg);
         useRealtimeStore.getState().setStreamingState(event);
+      });
+
+      client?.subscribe('/user/queue/chat-messages', msg => {
+        const event = parseJson<ChatMessageItem>(msg);
+        useRealtimeStore.getState().pushLiveChatMessage(event);
+      });
+
+      client?.subscribe('/user/queue/chat-invites', msg => {
+        parseJson<ChatInviteItem>(msg);
+        useRealtimeStore.getState().bumpChatInvites();
+      });
+
+      client?.subscribe('/user/queue/chat-rooms', msg => {
+        const event = parseJson<{eventType: string; roomId?: string}>(msg);
+        if (event.eventType === 'ROOM_DELETED' && event.roomId) {
+          useRealtimeStore.getState().notifyChatRoomDeleted();
+        } else {
+          useRealtimeStore.getState().bumpChatRooms();
+        }
       });
     },
     onDisconnect: () => {

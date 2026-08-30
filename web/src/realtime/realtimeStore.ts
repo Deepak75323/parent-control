@@ -1,5 +1,11 @@
 import {create} from 'zustand';
-import type {AlertItem, DeviceStatusLive, LocationPoint, NotificationItem} from '../types/api';
+import type {
+  AlertItem,
+  ChatMessageItem,
+  DeviceStatusLive,
+  LocationPoint,
+  NotificationItem,
+} from '../types/api';
 
 export type StreamingStateLive = {
   roomId: string;
@@ -19,8 +25,19 @@ interface RealtimeState {
   liveNotifications: NotificationItem[];
   liveLocations: Record<string, LocationPoint>;
   streamingState?: StreamingStateLive;
+  chatRoomsEpoch: number;
+  chatInvitesEpoch: number;
+  liveChatMessages: ChatMessageItem[];
+  removedChatRoomIds: Record<string, true>;
   setWsConnected: (connected: boolean) => void;
   bumpDeviceList: () => void;
+  bumpChatRooms: () => void;
+  bumpChatInvites: () => void;
+  pushLiveChatMessage: (message: ChatMessageItem) => void;
+  notifyChatRoomDeleted: () => void;
+  markChatRoomRemoved: (roomId: string) => void;
+  unmarkChatRoomRemoved: (roomId: string) => void;
+  pruneLiveChatMessages: (validRoomIds: string[]) => void;
   upsertDeviceStatus: (event: DeviceStatusLive) => void;
   removeDevice: (deviceId: string) => void;
   prependAlert: (alert: AlertItem) => void;
@@ -39,8 +56,37 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   liveNotifications: [],
   liveLocations: {},
   streamingState: undefined,
+  chatRoomsEpoch: 0,
+  chatInvitesEpoch: 0,
+  liveChatMessages: [],
+  removedChatRoomIds: {},
   setWsConnected: wsConnected => set({wsConnected}),
   bumpDeviceList: () => set(state => ({deviceListEpoch: state.deviceListEpoch + 1})),
+  bumpChatRooms: () => set(state => ({chatRoomsEpoch: state.chatRoomsEpoch + 1})),
+  bumpChatInvites: () => set(state => ({chatInvitesEpoch: state.chatInvitesEpoch + 1})),
+  pushLiveChatMessage: message =>
+    set(state => ({
+      liveChatMessages: [...state.liveChatMessages, message].slice(-200),
+    })),
+  notifyChatRoomDeleted: () =>
+    set(state => ({chatRoomsEpoch: state.chatRoomsEpoch + 1})),
+  markChatRoomRemoved: roomId =>
+    set(state => ({
+      removedChatRoomIds: {...state.removedChatRoomIds, [roomId]: true},
+      liveChatMessages: state.liveChatMessages.filter(message => message.roomId !== roomId),
+    })),
+  unmarkChatRoomRemoved: roomId =>
+    set(state => {
+      const {[roomId]: _removed, ...removedChatRoomIds} = state.removedChatRoomIds;
+      return {removedChatRoomIds};
+    }),
+  pruneLiveChatMessages: validRoomIds =>
+    set(state => {
+      const allowed = new Set(validRoomIds);
+      return {
+        liveChatMessages: state.liveChatMessages.filter(message => allowed.has(message.roomId)),
+      };
+    }),
   upsertDeviceStatus: event =>
     set(state => {
       const {[event.deviceId]: _cleared, ...removedDeviceIds} = state.removedDeviceIds;
@@ -80,5 +126,9 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       liveNotifications: [],
       liveLocations: {},
       streamingState: undefined,
+      chatRoomsEpoch: 0,
+      chatInvitesEpoch: 0,
+      liveChatMessages: [],
+      removedChatRoomIds: {},
     }),
 }));

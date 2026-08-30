@@ -187,3 +187,33 @@ export interface PlanInfo {
 
 export type StreamType = 'SCREEN' | 'CAMERA' | 'AUDIO';
 
+export interface ChatRoomSummary {
+  id: string;
+  name: string;
+  ownerUserId: string;
+  owner: boolean;
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatInviteItem {
+  id: string;
+  roomId: string;
+  roomName: string;
+  inviterUserId: string;
+  inviterLabel: string;
+  inviteeIdentifier: string;
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED';
+  createdAt: string;
+}
+
+export interface ChatMessageItem {
+  id: string;
+  roomId: string;
+  senderUserId: string;
+  senderLabel: string;
+  body: string;
+  createdAt: string;
+}
+
