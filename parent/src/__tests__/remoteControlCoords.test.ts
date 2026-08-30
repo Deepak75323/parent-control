@@ -1,4 +1,6 @@
 import {
+  cameraFacingFromStream,
+  cameraPreviewFrameSize,
   containVideoLayoutBox,
   coverVideoLayoutBox,
   displayVideoAspectFromFrameSize,
@@ -66,15 +68,33 @@ describe('remoteControlCoords', () => {
     } as unknown as import('react-native-webrtc').MediaStream;
     expect(viewerVideoAspect(stream, 'CAMERA', null)).toBeCloseTo(960 / 1280);
   });
+
+  it('reads facingMode from track settings', () => {
+    const front = {
+      getVideoTracks: () => [{getSettings: () => ({facingMode: 'user'})}],
+    } as unknown as import('react-native-webrtc').MediaStream;
+    expect(cameraFacingFromStream(front)).toBe('user');
+  });
+
+  it('returns stable 3:4 camera frame size for portrait viewport', () => {
+    const frame = cameraPreviewFrameSize(400, 800, 44, 56, false);
+    expect(frame.width / frame.height).toBeCloseTo(0.75, 2);
+    expect(frame.height).toBeLessThanOrEqual(800 - 44 - 56 - 40);
+  });
+
+  it('uses fullscreen viewport when fullscreen', () => {
+    expect(cameraPreviewFrameSize(400, 800, 44, 56, true)).toEqual({
+      width: 400,
+      height: 800,
+    });
+  });
 });
 
 describe('resolveCameraObjectFit', () => {
-  it('uses contain at 1× for full native FOV', () => {
-    expect(resolveCameraObjectFit({width: 1920, height: 1080}, 1)).toBe('contain');
-    expect(resolveCameraObjectFit(null, 1)).toBe('contain');
-  });
-
-  it('uses cover when the parent zooms in above 1×', () => {
-    expect(resolveCameraObjectFit({width: 1920, height: 1080}, 1.5)).toBe('cover');
+  it('always uses cover for Discord-style remote camera', () => {
+    expect(resolveCameraObjectFit('user', 1)).toBe('cover');
+    expect(resolveCameraObjectFit('environment', 1)).toBe('cover');
+    expect(resolveCameraObjectFit('user', 1.5)).toBe('cover');
+    expect(resolveCameraObjectFit('environment', 2)).toBe('cover');
   });
 });

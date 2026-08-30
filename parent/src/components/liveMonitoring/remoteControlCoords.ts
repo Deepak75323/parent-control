@@ -1,5 +1,20 @@
 import {MediaStream} from 'react-native-webrtc';
 
+export type CameraFacing = 'user' | 'environment';
+
+/** Read facingMode from the remote video track when the child capturer publishes it. */
+export function cameraFacingFromStream(stream: MediaStream | null): CameraFacing | null {
+  const track = stream?.getVideoTracks()[0];
+  const settings = (
+    track as {getSettings?: () => {facingMode?: string}}
+  ).getSettings?.();
+  const facing = settings?.facingMode;
+  if (facing === 'user' || facing === 'environment') {
+    return facing;
+  }
+  return null;
+}
+
 /** Derive contain-fit aspect from the remote video track when available. */
 export function videoAspectFromStream(stream: MediaStream | null, fallback = 9 / 16): number {
   const track = stream?.getVideoTracks()[0];
@@ -14,8 +29,8 @@ export function videoAspectFromStream(stream: MediaStream | null, fallback = 9 /
 }
 
 /**
- * Aspect ratio for layout on the parent viewer. Mobile camera buffers are usually
- * landscape (e.g. 1280×960) while the phone is held portrait — swap when needed.
+ * Aspect ratio for layout on the parent viewer. RTCView applies WebRTC CVO on pixels;
+ * onDimensionsChange may still report the coded (landscape) buffer size — swap for layout only.
  */
 export function displayVideoAspectFromFrameSize(
   width: number,
@@ -83,14 +98,45 @@ export function coverVideoLayoutBox(
 }
 
 /**
- * 1× uses contain (full frame, matches native FOV). Pinch zoom switches to cover fill.
- * Manual Android layout always pairs with RTCView objectFit contain to avoid double-crop.
+ * Discord-style remote camera: cover-fill the stage — no letterboxing, no stretch.
+ * Same treatment for front and back; pinch zoom uses layout scale on top.
  */
 export function resolveCameraObjectFit(
-  _frameSize: {width: number; height: number} | null,
-  pinchScale: number,
+  _facing: CameraFacing | null,
+  _pinchScale: number,
 ): 'contain' | 'cover' {
-  return pinchScale > 1 ? 'cover' : 'contain';
+  return 'cover';
+}
+
+/**
+ * Stable portrait preview frame — same outer box when switching front/back so the
+ * UI does not jump. Inner fit (contain vs cover) differs by facing.
+ */
+export function cameraPreviewFrameSize(
+  viewportW: number,
+  viewportH: number,
+  topBarHeight: number,
+  controlBarHeight: number,
+  isFullscreen: boolean,
+): {width: number; height: number} {
+  if (isFullscreen || viewportW <= 0 || viewportH <= 0) {
+    return {width: viewportW, height: viewportH};
+  }
+  const horizontalPad = 24;
+  const verticalPad = 20;
+  const availW = Math.max(1, viewportW - horizontalPad * 2);
+  const availH = Math.max(
+    1,
+    viewportH - topBarHeight - controlBarHeight - verticalPad * 2,
+  );
+  const frameAspect = 3 / 4;
+  let height = Math.min(availH * 0.92, availW / frameAspect);
+  let width = height * frameAspect;
+  if (width > availW) {
+    width = availW;
+    height = width / frameAspect;
+  }
+  return {width: Math.round(width), height: Math.round(height)};
 }
 
 /** Letterboxed render box for object-fit: contain inside a viewport. */
