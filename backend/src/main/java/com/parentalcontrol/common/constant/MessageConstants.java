@@ -295,5 +295,22 @@ public final class MessageConstants {
       IF_THIS_DEVICE_IS_PAIRED_A_RECOVERY_CODE_HAS_BEEN_SENT_TO_THE_PARENT_APP =
           "If this device is paired, a recovery code has been sent to the parent app. Open Alerts to view it.";
 
+  public static final String CHAT_ROOM_NOT_FOUND = "Chat room not found";
+
+  public static final String CHAT_INVITE_NOT_FOUND = "Chat invite not found";
+
+  public static final String CHAT_NOT_A_MEMBER = "You are not a member of this chat room";
+
+  public static final String CHAT_ONLY_OWNER_CAN_DELETE = "Only the room owner can delete this room";
+
+  public static final String CHAT_CANNOT_INVITE_YOURSELF = "You cannot invite yourself";
+
+  public static final String CHAT_USER_ALREADY_IN_ROOM = "That parent is already in this room";
+
+  public static final String CHAT_INVITE_ALREADY_PENDING =
+      "An invite is already pending for that parent";
+
+  public static final String CHAT_INVITE_ALREADY_RESPONDED = "This invite has already been responded to";
+
   private MessageConstants() {}
 }
