@@ -83,6 +83,10 @@ fi
 echo "==> Stopping $NAME (if present)"
 podman rm -f "$NAME" 2>/dev/null || true
 
+echo "==> NOTE: For zero-downtime deploys on Oracle, prefer:"
+echo "       ./scripts/deploy/oracle-deploy-backend.sh"
+echo "     This script stops the backend before the replacement is healthy."
+
 echo "==> Starting $NAME with profile=prod"
 # shellcheck disable=SC2086
 podman run -d --name "$NAME" --network "$NETWORK" \

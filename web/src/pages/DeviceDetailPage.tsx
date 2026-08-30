@@ -225,7 +225,7 @@ export function DeviceDetailPage() {
             </div>
           </div>
 
-          <LiveStreamPanel deviceId={merged.id} />
+          <LiveStreamPanel deviceId={merged.id} deviceName={merged.deviceName} />
 
           <div className="card">
             <h2>Status</h2>
