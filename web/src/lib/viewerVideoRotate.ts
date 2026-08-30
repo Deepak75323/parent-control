@@ -9,6 +9,21 @@ export function prevViewerRotateDeg(current: ViewerRotateDeg): ViewerRotateDeg {
   return ((current + 270) % 360) as ViewerRotateDeg;
 }
 
+/** Aspect ratio for the viewer box after applying viewer-only rotation. */
+export function viewerContainerAspect(
+  videoWidth: number,
+  videoHeight: number,
+  degrees: ViewerRotateDeg,
+): number | null {
+  if (videoWidth <= 0 || videoHeight <= 0) {
+    return null;
+  }
+  if (degrees === 90 || degrees === 270) {
+    return videoHeight / videoWidth;
+  }
+  return videoWidth / videoHeight;
+}
+
 export type ViewerVideoStyle = {
   transform: string;
   width: number | string;
@@ -19,7 +34,7 @@ export type ViewerVideoStyle = {
   top?: string;
   marginLeft?: number;
   marginTop?: number;
-  objectFit: 'contain';
+  objectFit: 'contain' | 'cover';
 };
 
 /**
@@ -29,6 +44,7 @@ export function viewerVideoRotateStyle(
   degrees: ViewerRotateDeg,
   containerW: number,
   containerH: number,
+  objectFit: 'contain' | 'cover' = 'contain',
 ): ViewerVideoStyle {
   if (degrees === 0) {
     return {
@@ -37,7 +53,7 @@ export function viewerVideoRotateStyle(
       height: '100%',
       position: 'absolute',
       inset: 0,
-      objectFit: 'contain',
+      objectFit,
     };
   }
   if (degrees === 180) {
@@ -47,7 +63,7 @@ export function viewerVideoRotateStyle(
       height: '100%',
       position: 'absolute',
       inset: 0,
-      objectFit: 'contain',
+      objectFit,
     };
   }
   const w = Math.max(1, containerH);
@@ -61,6 +77,6 @@ export function viewerVideoRotateStyle(
     top: '50%',
     marginLeft: -w / 2,
     marginTop: -h / 2,
-    objectFit: 'contain',
+    objectFit,
   };
 }

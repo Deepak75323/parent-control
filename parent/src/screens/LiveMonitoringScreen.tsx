@@ -34,6 +34,7 @@ import {streamStateTransition, resetStreamState} from '../utils/streamStateMachi
 import {getWebSocketClient} from '../services/websocketService';
 import {getIceConnectionState} from '../services/webrtcService';
 import {LiveStreamViewport} from '../components/liveMonitoring/LiveStreamViewport';
+import type {CameraFacing} from '../components/liveMonitoring/remoteControlCoords';
 import {RemoteControlActionModals} from '../components/liveMonitoring/RemoteControlActionModals';
 import {PreSessionLauncher} from '../components/liveMonitoring/PreSessionLauncher';
 import {STREAM_COLORS} from '../components/liveMonitoring/layout';
@@ -88,6 +89,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   const [remoteActionModal, setRemoteActionModal] = useState<'type' | 'launch' | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordingIncludedAudio, setRecordingIncludedAudio] = useState(false);
+  /** Child CameraX defaults to front; toggled when parent requests flip. */
+  const [cameraFacing, setCameraFacing] = useState<CameraFacing>('user');
   const recordingSupported = isStreamRecordingSupported();
   const autoStartDone = useRef(false);
 
@@ -465,6 +468,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     slog('UI', 'flip camera clicked', {sessionId: session.sessionId});
     try {
       await monitoringApi.switchCamera(session.sessionId);
+      setCameraFacing(f => (f === 'user' ? 'environment' : 'user'));
       slog('UI', 'flip camera requested');
     } catch (err) {
       slog('UI', 'flip camera failed', String(err));
@@ -655,6 +659,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           onToggleRecording={toggleRecording}
           topInset={insets.top}
           bottomInset={insets.bottom}
+          cameraFacing={streamType === 'CAMERA' ? cameraFacing : undefined}
         />
       ) : (
         <PreSessionLauncher

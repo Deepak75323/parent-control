@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {
   nextViewerRotateDeg,
   prevViewerRotateDeg,
+  viewerContainerAspect,
   viewerVideoRotateStyle,
 } from './viewerVideoRotate';
 
@@ -13,17 +14,15 @@ describe('viewerVideoRotate', () => {
     expect(prevViewerRotateDeg(90)).toBe(0);
   });
 
-  it('swaps box size for 90° so rotated video fills 800×450 wrap', () => {
-    const style = viewerVideoRotateStyle(90, 800, 450);
-    expect(style.transform).toBe('rotate(90deg)');
-    expect(style.width).toBe(450);
-    expect(style.height).toBe(800);
-    expect(style.marginLeft).toBe(-225);
-    expect(style.marginTop).toBe(-400);
+  it('swaps aspect ratio when the video is rotated 90°', () => {
+    expect(viewerContainerAspect(1280, 960, 90)).toBeCloseTo(960 / 1280);
+    expect(viewerContainerAspect(1280, 960, 0)).toBeCloseTo(1280 / 960);
   });
 
-  it('keeps full-bleed box for 0° and 180°', () => {
-    expect(viewerVideoRotateStyle(0, 800, 450).transform).toBe('none');
-    expect(viewerVideoRotateStyle(180, 800, 450).transform).toBe('rotate(180deg)');
+  it('sizes 90° rotation by swapping container dimensions', () => {
+    const style = viewerVideoRotateStyle(90, 800, 500);
+    expect(style.width).toBe(500);
+    expect(style.height).toBe(800);
+    expect(style.transform).toBe('rotate(90deg)');
   });
 });

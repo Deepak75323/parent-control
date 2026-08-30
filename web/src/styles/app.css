@@ -1249,6 +1249,28 @@ select:focus {
   box-shadow: var(--elevation-card);
 }
 
+.video-wrap--camera {
+  width: 100%;
+  min-height: min(70vh, 720px);
+  max-height: none;
+  margin-inline: 0;
+  aspect-ratio: auto;
+  background: #000;
+}
+
+.video-wrap--camera-landscape {
+  min-height: auto;
+  aspect-ratio: 16 / 10;
+  max-height: min(55vh, 520px);
+}
+
+.video-wrap--camera.video-wrap--fullscreen,
+.video-wrap--camera:fullscreen,
+.video-wrap--camera:-webkit-full-screen {
+  width: 100%;
+  max-height: none;
+}
+
 .video-wrap--fullscreen,
 .video-wrap:fullscreen,
 .video-wrap:-webkit-full-screen {
@@ -1290,9 +1312,33 @@ select:focus {
 }
 
 .live-video {
-  object-fit: contain;
   background: #000;
   display: block;
+}
+
+.live-video--camera {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.camera-debug-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+  z-index: 3;
 }
 
 .center-overlay {

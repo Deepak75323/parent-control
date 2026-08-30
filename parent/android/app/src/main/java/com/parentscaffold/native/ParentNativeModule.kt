@@ -17,6 +17,7 @@ import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.uimanager.UIManagerHelper
 import androidx.fragment.app.FragmentActivity
 import com.parentscaffold.BuildConfig
+import com.parentscaffold.capture.CameraUprightScanner
 import com.parentscaffold.capture.StreamRecorder
 import com.parentscaffold.security.ParentBiometricAuth
 import com.parentscaffold.security.ParentSecureAuthStore
@@ -27,37 +28,38 @@ import org.webrtc.VideoTrack
 class ParentNativeModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
-    private data class ViewerTransform(val rotation: Float, val scale: Float)
-
-    private val pendingTransforms = mutableMapOf<Int, ViewerTransform>()
-    private val layoutListeners = mutableMapOf<Int, View.OnLayoutChangeListener>()
-    private val rotatingSinks = mutableMapOf<Int, RotatingVideoSink>()
+    private data class ViewerTransform(
+        val manualRotation: Float,
+        val scale: Float,
+        val cameraUpright: Boolean,
+        val frontCamera: Boolean,
+    )
 
     /**
-     * SurfaceView.setRotation is ignored on many emulator GPUs. Adding extra rotation
-     * to each WebRTC [VideoFrame] tilts the actual pixels (parent-only).
+     * Applies the viewer's manual rotate to screen-share frames before SurfaceViewRenderer,
+     * which ignores View.rotation. Camera streams go through [CameraUprightScanner] instead.
      */
     private class RotatingVideoSink(
         private val delegate: VideoSink,
     ) : VideoSink {
         @Volatile
-        var extraRotationDeg: Int = 0
+        var manualRotationDeg: Int = 0
 
         override fun onFrame(frame: VideoFrame) {
-            val extra = extraRotationDeg
-            if (extra == 0) {
+            val outputRotation = (frame.rotation + manualRotationDeg) % 360
+            if (outputRotation == frame.rotation) {
                 delegate.onFrame(frame)
                 return
             }
-            val rotated =
-                VideoFrame(
-                    frame.buffer,
-                    (frame.rotation + extra) % 360,
-                    frame.timestampNs,
-                )
-            delegate.onFrame(rotated)
+            delegate.onFrame(
+                VideoFrame(frame.buffer, outputRotation, frame.timestampNs),
+            )
         }
     }
+
+    private val pendingTransforms = mutableMapOf<Int, ViewerTransform>()
+    private val layoutListeners = mutableMapOf<Int, View.OnLayoutChangeListener>()
+    private val rotatingSinks = mutableMapOf<Int, RotatingVideoSink>()
 
     private var audioFocusRequest: AudioFocusRequest? = null
 
@@ -69,14 +71,47 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
         hashMapOf("mapsAvailable" to BuildConfig.GOOGLE_MAPS_API_KEY.isNotBlank())
 
     /**
-     * Viewer-only rotate/zoom. Zoom is JS layout. Rotation is extra VideoFrame rotation
-     * (SurfaceView View.rotation does not tilt pixels on emulator / many devices).
+     * Front-camera upright correction for live view — scans WebRTCView instances (Fabric-safe).
      */
     @ReactMethod
-    fun applyViewerVideoTransform(reactTag: Int, rotationDeg: Double, scale: Double, promise: Promise) {
-        val rot = rotationDeg.toFloat()
+    fun applyCameraUprightCorrection(
+        manualRotateDeg: Double,
+        frontCamera: Boolean,
+        enabled: Boolean,
+        promise: Promise,
+    ) {
+        Log.i("ParentNative", "applyCameraUprightCorrection enabled=$enabled front=$frontCamera")
+        CameraUprightScanner.setCameraEnabled(
+            enabled,
+            frontCamera,
+            Math.round(manualRotateDeg.toFloat()),
+        )
+        promise.resolve(null)
+    }
+
+    @ReactMethod
+    fun clearCameraUprightCorrection(promise: Promise) {
+        CameraUprightScanner.setCameraEnabled(false, true, 0)
+        promise.resolve(null)
+    }
+
+    /**
+     * Viewer-only rotate/zoom for a specific RTCView tag (screen share manual rotate).
+     */
+    @ReactMethod
+    fun applyViewerVideoTransform(
+        reactTag: Int,
+        rotationDeg: Double,
+        scale: Double,
+        cameraUpright: Boolean,
+        frontCamera: Boolean,
+        promise: Promise,
+    ) {
+        val manualRot = rotationDeg.toFloat()
         val sc = scale.toFloat().coerceIn(0.25f, 8f)
-        pendingTransforms[reactTag] = ViewerTransform(rot, sc)
+        pendingTransforms[reactTag] =
+            ViewerTransform(manualRot, sc, cameraUpright, frontCamera)
+        val transform = pendingTransforms[reactTag]!!
 
         UiThreadUtil.runOnUiThread {
             try {
@@ -90,10 +125,12 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
                     promise.reject("NO_VIEW", "No view for reactTag=$reactTag")
                     return@runOnUiThread
                 }
-                applyViewerTransform(reactTag, host, rot, sc)
+                applyViewerTransform(reactTag, host, transform)
                 ensureLayoutListener(reactTag, host)
                 if (host.width == 0 || host.height == 0) {
-                    host.post { applyViewerTransform(reactTag, host, rot, sc) }
+                    host.post {
+                        pendingTransforms[reactTag]?.let { applyViewerTransform(reactTag, host, it) }
+                    }
                 }
                 promise.resolve(null)
             } catch (e: Exception) {
@@ -109,7 +146,7 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
         val listener =
             View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                 val pending = pendingTransforms[reactTag] ?: return@OnLayoutChangeListener
-                applyViewerTransform(reactTag, host, pending.rotation, pending.scale)
+                applyViewerTransform(reactTag, host, pending)
             }
         host.addOnLayoutChangeListener(listener)
         layoutListeners[reactTag] = listener
@@ -127,7 +164,7 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
         return null
     }
 
-    private fun applyViewerTransform(reactTag: Int, host: View, rotation: Float, scale: Float) {
+    private fun applyViewerTransform(reactTag: Int, host: View, transform: ViewerTransform) {
         // Clear leftover View transforms from earlier attempts (those skew SurfaceView).
         host.rotation = 0f
         host.scaleX = 1f
@@ -136,10 +173,10 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
         webrtcView.rotation = 0f
         webrtcView.scaleX = 1f
         webrtcView.scaleY = 1f
-        installFrameRotation(reactTag, webrtcView, Math.round(rotation))
+        installFrameRotation(reactTag, webrtcView, transform)
     }
 
-    private fun installFrameRotation(reactTag: Int, webrtcView: View, extraRotation: Int) {
+    private fun installFrameRotation(reactTag: Int, webrtcView: View, transform: ViewerTransform) {
         try {
             val rendererField = webrtcView.javaClass.getDeclaredField("surfaceViewRenderer")
             rendererField.isAccessible = true
@@ -153,7 +190,7 @@ class ParentNativeModule(private val reactContext: ReactApplicationContext) :
                 rotatingSinks.getOrPut(reactTag) {
                     RotatingVideoSink(renderer)
                 }
-            sink.extraRotationDeg = extraRotation
+            sink.manualRotationDeg = Math.round(transform.manualRotation)
             track.removeSink(renderer)
             track.removeSink(sink)
             track.addSink(sink)
