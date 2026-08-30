@@ -24,7 +24,7 @@ public class DevicePresenceScheduler {
    * FCM/Doze/OEM delivery jitter, so a nudge has time to land before a device flips OFFLINE.
    * Reduced to 8 minutes for faster offline detection with network connectivity monitoring.
    */
-  private static final long OFFLINE_THRESHOLD_MINUTES = 8;
+  public static final long OFFLINE_THRESHOLD_MINUTES = 8;
 
   private final DeviceDao deviceRepository;
   private final RealtimeEventService realtimeEventService;

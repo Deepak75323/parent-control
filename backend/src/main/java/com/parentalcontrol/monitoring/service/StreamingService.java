@@ -10,6 +10,7 @@ import com.parentalcontrol.common.exception.ErrorCode;
 import com.parentalcontrol.common.security.SecurityUtils;
 import com.parentalcontrol.device.domain.Device;
 import com.parentalcontrol.device.domain.DeviceStatus;
+import com.parentalcontrol.device.service.DevicePresenceScheduler;
 import com.parentalcontrol.monitoring.dao.ScreenCaptureAuditLogDao;
 import com.parentalcontrol.monitoring.dao.ScreenSessionDao;
 import com.parentalcontrol.monitoring.domain.ScreenCaptureAuditLog;
@@ -30,6 +31,7 @@ import com.parentalcontrol.policy.domain.PolicyType;
 import com.parentalcontrol.user.dao.ParentProfileDao;
 import com.parentalcontrol.user.service.ParentPinService;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -605,23 +607,46 @@ public class StreamingService {
   }
 
   /**
-   * Validates that the child device is online before starting a streaming session. Prevents
-   * creating sessions that will fail due to device being offline.
+   * Validates that the child device is reachable before starting a streaming session.
+   *
+   * <p>Matches parent UI ({@code isDevicePresentOnline}): a fresh {@code lastSeenAt} within the
+   * presence window counts as online even when {@code status} still says OFFLINE (status can lag
+   * after heartbeats while FCM stream wakes still work).
    */
   private void assertDeviceOnline(Device device, String streamType) {
-    if (device.getStatus() == DeviceStatus.OFFLINE) {
-      String streamName =
-          switch (streamType) {
-            case AppConstants.STREAM_TYPE_SCREEN -> "screen sharing";
-            case AppConstants.STREAM_TYPE_CAMERA -> "camera view";
-            case AppConstants.STREAM_TYPE_AUDIO -> "listening";
-            default -> "streaming";
-          };
-      throw new BusinessException(
-          ErrorCode.DEVICE_OFFLINE,
-          "Child device is offline. Please switch on the child device network connection and try "
-              + streamName
-              + " again.");
+    if (device.getStatus() == DeviceStatus.REVOKED) {
+      throw deviceOfflineException(streamType);
     }
+    if (device.getStatus() == DeviceStatus.ONLINE) {
+      Instant lastSeen = device.getLastSeenAt();
+      if (lastSeen == null
+          || !lastSeen.isBefore(
+              Instant.now().minus(DevicePresenceScheduler.OFFLINE_THRESHOLD_MINUTES, ChronoUnit.MINUTES))) {
+        return;
+      }
+    } else {
+      Instant lastSeen = device.getLastSeenAt();
+      if (lastSeen != null
+          && !lastSeen.isBefore(
+              Instant.now().minus(DevicePresenceScheduler.OFFLINE_THRESHOLD_MINUTES, ChronoUnit.MINUTES))) {
+        return;
+      }
+    }
+    throw deviceOfflineException(streamType);
+  }
+
+  private BusinessException deviceOfflineException(String streamType) {
+    String streamName =
+        switch (streamType) {
+          case AppConstants.STREAM_TYPE_SCREEN -> "screen sharing";
+          case AppConstants.STREAM_TYPE_CAMERA -> "camera view";
+          case AppConstants.STREAM_TYPE_AUDIO -> "listening";
+          default -> "streaming";
+        };
+    return new BusinessException(
+        ErrorCode.DEVICE_OFFLINE,
+        "Child device is offline. Please switch on the child device network connection and try "
+            + streamName
+            + " again.");
   }
 }
