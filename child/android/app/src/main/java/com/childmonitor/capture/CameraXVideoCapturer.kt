@@ -1,11 +1,12 @@
 package com.childmonitor.capture
 
 import android.content.Context
+import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.util.Size
-import android.view.OrientationEventListener
 import android.view.Surface
+import android.view.WindowManager
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -37,8 +38,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * Without calling [SurfaceTextureHelper.startListening], frames written by CameraX to the
  * surface texture are never forwarded to the WebRTC observer — resulting in a blank stream.
  *
- * Orientation: listens to physical tilt and updates CameraX target rotation so the parent
- * feed stays upright when the child rotates the phone.
+ * Orientation: portrait-upright CVO while the display is in portrait; CVO follows landscape
+ * display rotation only. Manual viewer rotate is handled on parent/web UI.
  */
 class CameraXVideoCapturer(
     private val appContext: Context,
@@ -58,37 +59,6 @@ class CameraXVideoCapturer(
         /** True when a delayed rebind callback still belongs to the current capture session. */
         internal fun isRebindGenerationCurrent(scheduledGeneration: Long, currentGeneration: Long): Boolean =
             scheduledGeneration == currentGeneration
-
-        /** True when [size] is ~16:9 (landscape listing). */
-        internal fun isSixteenNine(size: Size): Boolean {
-            val ratio = size.width.toDouble() / size.height.toDouble()
-            return abs(ratio - 16.0 / 9.0) < 0.05
-        }
-
-        /**
-         * Stock Camera front preview is 16:9 full-screen (e.g. 1920×1080), not max 4:3 sensor.
-         */
-        internal fun selectNativeLikeFrontPreviewSize(supportedSizes: List<Size>): Size {
-            if (supportedSizes.isEmpty()) {
-                return Size(1920, 1080)
-            }
-            val normalized = supportedSizes.map(::normalizeLandscape)
-            val sixteenNine = normalized.filter(::isSixteenNine)
-            val pool =
-                when {
-                    sixteenNine.isNotEmpty() -> sixteenNine
-                    normalized.any(::isExactFourThree) -> normalized.filter(::isExactFourThree)
-                    else -> normalized
-                }
-            pool.firstOrNull { it.width == 1920 && it.height == 1080 }?.let { return it }
-            pool.firstOrNull { it.width == 1280 && it.height == 720 }?.let { return it }
-            val capped = pool.filter { it.width <= 1920 && it.height <= 1080 }
-            if (capped.isNotEmpty()) {
-                return capped.maxByOrNull { it.width.toLong() * it.height }!!
-            }
-            return pool.maxByOrNull { it.width.toLong() * it.height }
-                ?: Size(1920, 1080)
-        }
 
         /** Native 1× — display crop on the parent handles fill like PreviewView FILL_CENTER. */
         internal fun previewZoomRatio(useFrontCamera: Boolean, minZoom: Float, maxZoom: Float): Float {
@@ -141,27 +111,20 @@ class CameraXVideoCapturer(
             return pool.maxByOrNull { it.width.toLong() * it.height } ?: normalized.first()
         }
 
-        internal fun buildPreviewResolutionSelector(frontCamera: Boolean): ResolutionSelector {
-            val aspect =
-                if (frontCamera) AspectRatio.RATIO_16_9 else AspectRatio.RATIO_4_3
+        internal fun buildPreviewResolutionSelector(): ResolutionSelector {
             return ResolutionSelector.Builder()
                 .setAspectRatioStrategy(
                     AspectRatioStrategy(
-                        aspect,
+                        AspectRatio.RATIO_4_3,
                         AspectRatioStrategy.FALLBACK_RULE_AUTO,
                     ),
                 )
                 .setResolutionFilter { supportedSizes, _ ->
-                    val chosen =
-                        if (frontCamera) {
-                            selectNativeLikeFrontPreviewSize(supportedSizes)
-                        } else {
-                            selectWidestFourThreeSize(supportedSizes)
-                        }
+                    val chosen = selectWidestFourThreeSize(supportedSizes)
                     Log.i(
                         TAG,
                         "Resolution filter chose ${chosen.width}x${chosen.height} " +
-                            "front=$frontCamera from ${supportedSizes.size} supported sizes",
+                            "from ${supportedSizes.size} supported sizes",
                     )
                     listOf(chosen)
                 }
@@ -210,13 +173,49 @@ class CameraXVideoCapturer(
     /** The currently active switch promise callback (at most one at a time). */
     @Volatile private var pendingSwitchHandler: CameraVideoCapturer.CameraSwitchHandler? = null
     private val appliedSurfaceRotation = AtomicInteger(Surface.ROTATION_0)
+    /** Latest CVO degrees — re-stamped on every frame so RTP always carries rotation. */
+    private val currentFrameRotationDegrees = AtomicInteger(0)
 
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
     private var capturerObserver: CapturerObserver? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var previewUseCase: Preview? = null
     private var boundCamera: Camera? = null
-    private var orientationListener: OrientationEventListener? = null
+    private var displayRotationPoll: Runnable? = null
+    private var deviceOrientationTracker: DeviceOrientationTracker? = null
+    private val displayPollMs = 300L
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun currentDisplaySurfaceRotation(): Int {
+        val wm = appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        @Suppress("DEPRECATION")
+        return wm.defaultDisplay.rotation
+    }
+
+    /** Portrait-locked stream; landscape physical tilt changes CVO. */
+    private fun applyStreamRotation(helper: SurfaceTextureHelper, streamSurface: Int) {
+        if (appliedSurfaceRotation.get() == streamSurface) {
+            return
+        }
+        appliedSurfaceRotation.set(streamSurface)
+        applyFrameRotation(helper, streamSurface)
+    }
+
+    private fun applyStreamRotationFromDisplay(helper: SurfaceTextureHelper) {
+        val display = currentDisplaySurfaceRotation()
+        val streamSurface = CameraOrientationHelper.streamSurfaceRotation(display)
+        applyStreamRotation(helper, streamSurface)
+    }
+
+    /** Re-apply CVO after bind — MIUI can report sensorRotationDegrees=0 on first read. */
+    private fun scheduleRotationRefresh(helper: SurfaceTextureHelper) {
+        longArrayOf(150, 400, 800).forEach { delayMs ->
+            mainHandler.postDelayed({
+                if (!started.get()) return@postDelayed
+                applyFrameRotation(helper, appliedSurfaceRotation.get())
+            }, delayMs)
+        }
+    }
 
     /** Called when CameraX picks the real buffer size — sync WebRTC to avoid center-crop zoom. */
     var onActualOutputSize: ((width: Int, height: Int) -> Unit)? = null
@@ -266,14 +265,15 @@ class CameraXVideoCapturer(
             try {
                 lifecycleOwner.markStarted()
                 cameraProvider = future.get()
+                startOrientationTracking(helper)
                 if (!bindPreviewWithDisplacementFallback(helper, cameraId)) {
+                    stopOrientationTracking()
                     started.set(false)
                     lifecycleOwner.markStopped()
                     observer.onCapturerStarted(false)
                     return@addListener
                 }
                 helper.startListening(this@CameraXVideoCapturer)
-                startOrientationTracking(helper)
                 Log.i(TAG, "CameraX capture started, startListening registered front=$useFrontCamera ${width}x$height")
                 observer.onCapturerStarted(true)
             } catch (e: Exception) {
@@ -315,14 +315,14 @@ class CameraXVideoCapturer(
     private fun bindPreview(helper: SurfaceTextureHelper) {
         val provider = cameraProvider ?: return
         provider.unbindAll()
-        // Keep CameraX buffer at ROTATION_0 — hidden/background capture has no reliable
-        // display rotation and bind-time setTargetRotation + frame rotation double-applies
-        // on MIUI → black parent feed. Upright output uses WebRTC frame rotation only.
-        val initialRotation = Surface.ROTATION_0
+        // Keep CameraX buffer at ROTATION_0 — setTargetRotation + CVO double-applies on MIUI.
+        val cameraXRotation = Surface.ROTATION_0
+        val streamRotation =
+            CameraOrientationHelper.streamSurfaceRotation(currentDisplaySurfaceRotation())
         val (targetWidth, targetHeight) = widestFovCaptureDimensions(captureWidth, captureHeight)
         val previewBuilder = Preview.Builder()
-            .setResolutionSelector(buildPreviewResolutionSelector(useFrontCamera))
-            .setTargetRotation(initialRotation)
+            .setResolutionSelector(buildPreviewResolutionSelector())
+            .setTargetRotation(cameraXRotation)
         applyStockCameraCaptureHints(previewBuilder)
         val preview = previewBuilder.build()
         preview.setSurfaceProvider { request ->
@@ -334,7 +334,7 @@ class CameraXVideoCapturer(
             captureWidth = w
             captureHeight = h
             onActualOutputSize?.invoke(w, h)
-            Log.i(TAG, "SurfaceTextureHelper texture size set ${w}x$h cameraXRotation=$initialRotation")
+            Log.i(TAG, "SurfaceTextureHelper texture size set ${w}x$h cameraXRotation=$cameraXRotation")
             val surface = Surface(texture)
             request.provideSurface(surface, ContextCompat.getMainExecutor(appContext)) {
                 surface.release()
@@ -348,10 +348,9 @@ class CameraXVideoCapturer(
         boundCamera = provider.bindToLifecycle(lifecycleOwner, selector, preview)
         previewUseCase = preview
         resetZoomToNativeOneX(boundCamera)
-        appliedSurfaceRotation.set(initialRotation)
-        helper.setFrameRotation(
-            CameraOrientationHelper.webrtcFrameRotationDegrees(appliedSurfaceRotation.get()),
-        )
+        appliedSurfaceRotation.set(streamRotation)
+        applyFrameRotation(helper, streamRotation)
+        scheduleRotationRefresh(helper)
         Log.i(
             TAG,
             "Preview bound ${targetWidth}x$targetHeight (4:3 FOV) from request ${captureWidth}x$captureHeight",
@@ -388,52 +387,63 @@ class CameraXVideoCapturer(
 
     private fun startOrientationTracking(helper: SurfaceTextureHelper) {
         stopOrientationTracking()
-        val listener =
-            object : OrientationEventListener(appContext) {
-                override fun onOrientationChanged(orientation: Int) {
-                    val surfaceRotation =
-                        CameraOrientationHelper.surfaceRotationOrNull(orientation) ?: return
-                    applyDeviceRotation(surfaceRotation, helper)
+        applyStreamRotationFromDisplay(helper)
+
+        val tracker =
+            DeviceOrientationTracker(appContext) { streamSurface ->
+                if (!started.get()) {
+                    return@DeviceOrientationTracker
+                }
+                mainHandler.post { applyStreamRotation(helper, streamSurface) }
+            }
+        deviceOrientationTracker = tracker
+        if (tracker.start()) {
+            Log.i(TAG, "Orientation listener tracking enabled")
+            return
+        }
+        deviceOrientationTracker = null
+
+        val poll =
+            object : Runnable {
+                override fun run() {
+                    if (!started.get()) {
+                        return
+                    }
+                    applyStreamRotationFromDisplay(helper)
+                    mainHandler.postDelayed(this, displayPollMs)
                 }
             }
-        if (listener.canDetectOrientation()) {
-            listener.enable()
-            orientationListener = listener
-            Log.i(TAG, "Orientation tracking enabled for upright parent video")
-        } else {
-            Log.w(TAG, "Orientation sensor unavailable — camera rotation stays fixed")
-        }
+        displayRotationPoll = poll
+        mainHandler.postDelayed(poll, displayPollMs)
+        Log.i(TAG, "Display rotation polling fallback (portrait-locked stream)")
     }
 
     private fun stopOrientationTracking() {
-        orientationListener?.disable()
-        orientationListener = null
+        deviceOrientationTracker?.stop()
+        deviceOrientationTracker = null
+        displayRotationPoll?.let { mainHandler.removeCallbacks(it) }
+        displayRotationPoll = null
     }
 
-    /**
-     * Publish device tilt via WebRTC frame rotation so web + app viewers stay upright
-     * without CameraX re-scaling the capture buffer (which skews aspect ratio).
-     */
-    private fun applyDeviceRotation(surfaceRotation: Int, helper: SurfaceTextureHelper) {
-        if (appliedSurfaceRotation.getAndSet(surfaceRotation) == surfaceRotation) return
-        val degrees = CameraOrientationHelper.webrtcFrameRotationDegrees(surfaceRotation)
-        val apply = {
-            try {
-                // Do not call Preview.setTargetRotation here — MIUI rescales into a fixed
-                // buffer and the parent feed looks horizontally stretched. WebRTC CVO only.
-                helper.setFrameRotation(degrees)
-                Log.i(
-                    TAG,
-                    "Applied WebRTC frameRotation=$degrees (device surface=$surfaceRotation)",
-                )
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to apply device rotation $surfaceRotation", e)
-            }
-        }
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            apply()
-        } else {
-            ContextCompat.getMainExecutor(appContext).execute(Runnable { apply() })
+    private fun applyFrameRotation(helper: SurfaceTextureHelper, surfaceRotation: Int) {
+        val sensor = boundCamera?.cameraInfo?.sensorRotationDegrees
+        val degrees =
+            CameraOrientationHelper.webrtcFrameRotationDegrees(
+                surfaceRotation,
+                useFrontCamera,
+                sensor,
+            )
+        try {
+            helper.setFrameRotation(degrees)
+            currentFrameRotationDegrees.set(degrees)
+            Log.i(
+                TAG,
+                "Applied WebRTC frameRotation=$degrees front=$useFrontCamera " +
+                    "sensor=$sensor streamSurface=$surfaceRotation " +
+                    "displaySurface=${currentDisplaySurfaceRotation()}",
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to apply frame rotation surface=$surfaceRotation", e)
         }
     }
 
@@ -481,14 +491,23 @@ class CameraXVideoCapturer(
     }
 
     override fun onFrame(frame: VideoFrame) {
+        val expectedRot = currentFrameRotationDegrees.get()
         if (firstFrameLogged.compareAndSet(false, true)) {
             Log.i(
                 TAG,
                 "FIRST_CAMERA_FRAME ${frame.rotatedWidth}x${frame.rotatedHeight} " +
-                    "rot=${frame.rotation} deviceSurface=${appliedSurfaceRotation.get()} ts=${frame.timestampNs}",
+                    "rot=${frame.rotation} expectedRot=$expectedRot " +
+                    "deviceSurface=${appliedSurfaceRotation.get()} " +
+                    "displaySurface=${currentDisplaySurfaceRotation()} ts=${frame.timestampNs}",
             )
         }
-        capturerObserver?.onFrameCaptured(frame)
+        val out =
+            if (frame.rotation != expectedRot) {
+                VideoFrame(frame.buffer, expectedRot, frame.timestampNs)
+            } else {
+                frame
+            }
+        capturerObserver?.onFrameCaptured(out)
     }
 
     override fun changeCaptureFormat(width: Int, height: Int, framerate: Int) {

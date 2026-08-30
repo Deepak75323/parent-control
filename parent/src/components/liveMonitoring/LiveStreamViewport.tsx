@@ -21,7 +21,7 @@ import {
 import {StreamTopBar} from './StreamTopBar';
 import {StreamControlBar} from './StreamControlBar';
 import {flowLog} from '../../services/streamDebug';
-import {mapContainTouchToNorm, resolveCameraObjectFit, viewerVideoAspect} from './remoteControlCoords';
+import {mapContainTouchToNorm, resolveCameraObjectFit, viewerVideoAspect, cameraFacingFromStream} from './remoteControlCoords';
 import {nativeModules} from '../../nativeModules';
 import {config} from '../../utils/config';
 import {
@@ -35,6 +35,7 @@ import {
   VIEWER_ZOOM_STEP_PERCENT,
   type ViewerRotateDeg,
 } from '../../utils/viewerVideoRotate';
+import {cameraUprightRotateDeg} from '../../utils/cameraFrameRotation';
 
 /** Viewer-only rotate UI — off by default; enable with ENABLE_VIEWER_ROTATE=true. */
 const ENABLE_VIEWER_ROTATE = config.enableViewerRotate;
@@ -74,6 +75,8 @@ type Props = {
   recording?: boolean;
   recordingSupported?: boolean;
   onToggleRecording?: () => void;
+  /** Current child camera lens — toggles on flip (for future metadata). */
+  cameraFacing?: import('./remoteControlCoords').CameraFacing;
 };
 
 const RemoteRtcView = React.memo(
@@ -84,12 +87,16 @@ const RemoteRtcView = React.memo(
       objectFit,
       zOrder,
       onDimensionsChange,
+      mirror,
+      nativeID,
     }: {
       stream: MediaStream;
       style: object | object[];
       objectFit: 'contain' | 'cover';
       zOrder?: number;
       onDimensionsChange?: (event: {nativeEvent: {width: number; height: number}}) => void;
+      mirror?: boolean;
+      nativeID?: string;
     },
     ref: React.Ref<View>,
   ) {
@@ -106,12 +113,12 @@ const RemoteRtcView = React.memo(
 
     return (
       <RTCView
-        // @ts-expect-error RTCView accepts ref for findNodeHandle on Android
         ref={ref}
+        nativeID={nativeID}
         streamURL={stream.toURL()}
         style={style}
         objectFit={objectFit}
-        mirror={false}
+        mirror={mirror ?? false}
         zOrder={zOrder}
         onDimensionsChange={onDimensionsChange}
       />
@@ -150,6 +157,7 @@ export function LiveStreamViewport({
   recording,
   recordingSupported,
   onToggleRecording,
+  cameraFacing,
 }: Props) {
   const window = useWindowDimensions();
   const layout = useMemo(() => getStreamLayout(window), [window]);
@@ -181,18 +189,42 @@ export function LiveStreamViewport({
     setFrameSize(null);
   }, [primaryStream]);
 
+  useEffect(() => {
+    setFrameSize(null);
+    setPinchScale(1);
+  }, [cameraFacing]);
+
   const pinchScaleRef = useRef(1);
   pinchScaleRef.current = pinchScale;
   const pinchStartScaleRef = useRef(1);
   const pinchStartDistRef = useRef(0);
   const primaryRtcRef = useRef<View>(null);
 
+  const applyAndroidCameraUpright = useCallback(() => {
+    if (Platform.OS !== 'android' || !isLive || streamType !== 'CAMERA') {
+      return;
+    }
+    const manualRotate = ENABLE_VIEWER_ROTATE ? effectiveViewRotate : 0;
+    const facing = cameraFacing ?? cameraFacingFromStream(primaryStream);
+    const frontCamera = facing !== 'environment';
+    nativeModules
+      .applyCameraUprightCorrection(manualRotate, frontCamera, true)
+      .catch(() => undefined);
+  }, [
+    isLive,
+    streamType,
+    effectiveViewRotate,
+    cameraFacing,
+    primaryStream,
+  ]);
+
   const applyAndroidViewerTransform = useCallback(() => {
     if (
       !ENABLE_VIEWER_ROTATE ||
       Platform.OS !== 'android' ||
       !isLive ||
-      streamType === 'AUDIO'
+      streamType === 'AUDIO' ||
+      streamType === 'CAMERA'
     ) {
       return;
     }
@@ -200,18 +232,33 @@ export function LiveStreamViewport({
     if (tag == null) {
       return;
     }
-    // Zoom is layout-based on Android; native only rotates the SurfaceViewRenderer.
-    nativeModules.applyViewerVideoTransform(tag, effectiveViewRotate, 1).catch(() => undefined);
+    nativeModules
+      .applyViewerVideoTransform(tag, effectiveViewRotate, 1, false, true)
+      .catch(() => undefined);
   }, [isLive, streamType, effectiveViewRotate]);
 
-  // Android SurfaceView ignores RN transforms — apply rotation natively (Fabric-safe).
+  // Native side polls for the tagged view and retries on its own, so one call is enough.
+  useEffect(() => {
+    applyAndroidCameraUpright();
+    return () => {
+      void nativeModules.clearCameraUprightCorrection();
+    };
+  }, [applyAndroidCameraUpright]);
+
+  // Screen share manual rotate (legacy reactTag path).
   useEffect(() => {
     applyAndroidViewerTransform();
     const timers = [100, 300, 600].map(ms =>
       setTimeout(applyAndroidViewerTransform, ms),
     );
     return () => timers.forEach(clearTimeout);
-  }, [applyAndroidViewerTransform, pinchScale, viewportSize.width, viewportSize.height, primaryStream]);
+  }, [
+    applyAndroidViewerTransform,
+    pinchScale,
+    viewportSize.width,
+    viewportSize.height,
+    primaryStream,
+  ]);
 
   const zoomPanResponder = useMemo(
     () =>
@@ -281,17 +328,16 @@ export function LiveStreamViewport({
     [primaryStream, streamType, frameSize],
   );
 
-  /** Camera: cover fills viewport like native PreviewView FILL_CENTER. */
+  /** Discord-style: camera always cover-fills the full stage behind overlay controls. */
   const primaryObjectFit: 'contain' | 'cover' =
     streamType === 'CAMERA'
-      ? resolveCameraObjectFit(frameSize, pinchScale)
+      ? resolveCameraObjectFit(null, pinchScale)
       : pinchScale > 1 || isFullscreen || !remoteControlEnabled
         ? 'cover'
         : 'contain';
 
-  // Manual contain layout on Android — RTCView objectFit ignores WebRTC frame rotation.
   const useContainLayout =
-    Platform.OS === 'android' && primaryObjectFit === 'contain';
+    Platform.OS === 'android' && streamType !== 'CAMERA' && primaryObjectFit === 'contain';
 
   const onPrimaryDimensionsChange = useCallback(
     (event: {nativeEvent: {width: number; height: number}}) => {
@@ -303,55 +349,56 @@ export function LiveStreamViewport({
     [],
   );
 
-  // Android camera uses manual layout boxes — RTCView objectFit must stay contain or cover applies twice.
-  const rtcObjectFit: 'contain' | 'cover' =
-    Platform.OS === 'android' && streamType === 'CAMERA' ? 'contain' : primaryObjectFit;
+  const rtcObjectFit: 'contain' | 'cover' = primaryObjectFit;
+
+  const frontCameraLens =
+    (cameraFacing ?? cameraFacingFromStream(primaryStream)) !== 'environment';
+
+  const cameraUprightRotate: ViewerRotateDeg = useMemo(() => {
+    if (streamType !== 'CAMERA') {
+      return 0;
+    }
+    return cameraUprightRotateDeg(ENABLE_VIEWER_ROTATE ? effectiveViewRotate : 0);
+  }, [streamType, effectiveViewRotate]);
 
   const primaryVideoStyle = useMemo(() => {
+    const renderW = viewportSize.width;
+    const renderH = viewportSize.height;
+
     if (streamType === 'CAMERA') {
-      if (Platform.OS === 'android') {
-        if (pinchScale <= 1) {
-          return androidViewerContainVideoLayout(
-            viewportSize.width,
-            viewportSize.height,
-            videoAspect,
-            pinchScale,
-          );
-        }
-        return androidViewerCoverVideoLayout(
-          viewportSize.width,
-          viewportSize.height,
-          videoAspect,
+      if (Platform.OS === 'ios') {
+        return rnViewerVideoRotateStyle(
+          cameraUprightRotate,
+          renderW,
+          renderH,
           pinchScale,
         );
       }
-      return rnViewerVideoRotateStyle(
-        effectiveViewRotate,
-        viewportSize.width,
-        viewportSize.height,
-        pinchScale,
-      );
+      if (pinchScale > 1) {
+        return androidViewerCoverVideoLayout(renderW, renderH, videoAspect, pinchScale);
+      }
+      return styles.cameraVideoFill;
     }
     if (Platform.OS === 'android') {
       if (useContainLayout) {
         return androidViewerContainVideoLayout(
-          viewportSize.width,
-          viewportSize.height,
+          renderW,
+          renderH,
           videoAspect,
           pinchScale,
         );
       }
       return androidViewerVideoLayout(
         effectiveViewRotate,
-        viewportSize.width,
-        viewportSize.height,
+        renderW,
+        renderH,
         pinchScale,
       );
     }
     return rnViewerVideoRotateStyle(
       effectiveViewRotate,
-      viewportSize.width,
-      viewportSize.height,
+      renderW,
+      renderH,
       pinchScale,
     );
   }, [
@@ -361,9 +408,11 @@ export function LiveStreamViewport({
     pinchScale,
     viewportSize.width,
     viewportSize.height,
-    primaryObjectFit,
     videoAspect,
+    cameraUprightRotate,
   ]);
+
+  const useCameraFullStage = streamType === 'CAMERA' && isLive;
 
   const pipPanResponder = useMemo(
     () =>
@@ -479,23 +528,25 @@ export function LiveStreamViewport({
           </View>
         ) : null}
         {primaryStream && streamType !== 'AUDIO' && isLive ? (
-          <View style={styles.primaryVideo} collapsable={false}>
-            {/*
-              Android: zoom via larger RTCView layout (parent-only, no child change).
-              Rotation via native SurfaceViewRenderer transform (Fabric UIManager).
-            */}
+          <View
+            style={[styles.primaryVideo, useCameraFullStage && styles.cameraFullStage]}
+            collapsable={false}>
             <RemoteRtcView
               ref={primaryRtcRef}
+              nativeID={streamType === 'CAMERA' ? 'primaryCameraRtc' : undefined}
               stream={primaryStream}
               style={primaryVideoStyle}
               objectFit={rtcObjectFit}
+              mirror={false}
               onDimensionsChange={onPrimaryDimensionsChange}
               zOrder={0}
             />
             <View
               style={styles.gestureOverlay}
               pointerEvents="auto"
-              {...(remoteControlEnabled ? remotePanResponder.panHandlers : zoomPanResponder.panHandlers)}
+              {...(remoteControlEnabled
+                ? remotePanResponder.panHandlers
+                : zoomPanResponder.panHandlers)}
             />
           </View>
         ) : !primaryStream || !isLive ? (
@@ -621,6 +672,9 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     overflow: 'hidden',
+  },
+  cameraFullStage: {
+    backgroundColor: '#000',
   },
   cameraVideoFill: {
     ...StyleSheet.absoluteFillObject,

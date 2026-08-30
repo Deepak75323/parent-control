@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState, type CSSProperties} from 'react';
 import {monitoringApi, parentPinApi} from '../api/services';
 import type {StreamType} from '../types/api';
 import {shouldReleaseViewerOnStreamingEnded} from '../lib/streamTakeover';
@@ -8,6 +8,11 @@ import {
   viewerVideoRotateStyle,
   type ViewerRotateDeg,
 } from '../lib/viewerVideoRotate';
+import {
+  toggleCameraFacing,
+  webCameraObjectFit,
+  type WebCameraFacing,
+} from '../lib/cameraViewerLayout';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {
   connectBrowserViewer,
@@ -15,6 +20,7 @@ import {
   getActiveRoomId,
   setRemoteAudioEnabled,
 } from '../realtime/webrtcViewer';
+import {CameraFrameViewer} from './CameraFrameViewer';
 
 /**
    * Viewer-only rotate on web stays ON by default.
@@ -66,7 +72,9 @@ async function exitDocumentFullscreen(): Promise<void> {
 export function LiveStreamPanel({deviceId}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoWrapRef = useRef<HTMLDivElement>(null);
+  const pendingStreamRef = useRef<MediaStream | null>(null);
   const roomIdRef = useRef<string | null>(null);
+  const streamTypeRef = useRef<StreamType>('CAMERA');
   const [streamType, setStreamType] = useState<StreamType>('CAMERA');
   const [pin, setPin] = useState('');
   const [pinNeeded, setPinNeeded] = useState(false);
@@ -78,8 +86,21 @@ export function LiveStreamPanel({deviceId}: Props) {
   const [fullscreen, setFullscreen] = useState(false);
   const [viewRotate, setViewRotate] = useState<ViewerRotateDeg>(0);
   const [wrapSize, setWrapSize] = useState({w: 0, h: 0});
+  const [videoFrame, setVideoFrame] = useState({w: 0, h: 0});
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [cameraFacing, setCameraFacing] = useState<WebCameraFacing>('user');
+  const [streamUprightRotate, setStreamUprightRotate] = useState<ViewerRotateDeg>(0);
+  streamTypeRef.current = streamType;
   const streamingState = useRealtimeStore(s => s.streamingState);
+  const isCameraLive = streamType === 'CAMERA' && Boolean(sessionId);
   const effectiveViewRotate: ViewerRotateDeg = ENABLE_VIEWER_ROTATE ? viewRotate : 0;
+  const combinedViewerRotate = isCameraLive
+    ? effectiveViewRotate
+    : (((streamUprightRotate + effectiveViewRotate) % 360) as ViewerRotateDeg);
+
+  const onCameraDimensions = useCallback((w: number, h: number) => {
+    setVideoFrame({w, h});
+  }, []);
 
   useEffect(() => {
     parentPinApi
@@ -118,7 +139,26 @@ export function LiveStreamPanel({deviceId}: Props) {
     });
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [sessionId, fullscreen]);
+  }, [sessionId, fullscreen, videoFrame.w, videoFrame.h]);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !sessionId || streamType === 'AUDIO' || streamType === 'CAMERA') {
+      return;
+    }
+    const syncFrame = () => {
+      if (el.videoWidth > 0 && el.videoHeight > 0) {
+        setVideoFrame({w: el.videoWidth, h: el.videoHeight});
+      }
+    };
+    el.addEventListener('loadedmetadata', syncFrame);
+    el.addEventListener('resize', syncFrame);
+    syncFrame();
+    return () => {
+      el.removeEventListener('loadedmetadata', syncFrame);
+      el.removeEventListener('resize', syncFrame);
+    };
+  }, [sessionId, streamType, cameraFacing]);
 
   useEffect(() => {
     if (!streamingState) {
@@ -139,27 +179,78 @@ export function LiveStreamPanel({deviceId}: Props) {
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    pendingStreamRef.current = null;
+    setRemoteStream(null);
     setSessionId(null);
     setBusy(false);
     setViewRotate(0);
+    setStreamUprightRotate(0);
+    setVideoFrame({w: 0, h: 0});
     setStatus('Moved to another client');
     setError('Live view continued on the parent app or another browser tab.');
   }, [streamingState, deviceId, busy]);
 
-  const attachStream = (stream: MediaStream) => {
+  const syncVideoDimensions = () => {
     const el = videoRef.current;
-    if (!el) {
+    if (!el || el.videoWidth <= 0 || el.videoHeight <= 0) {
       return;
     }
-    el.srcObject = stream;
-    void el.play().catch(() => undefined);
+    setVideoFrame({w: el.videoWidth, h: el.videoHeight});
   };
+
+  const attachStream = (stream: MediaStream) => {
+    if (streamTypeRef.current === 'CAMERA') {
+      setRemoteStream(stream);
+      return;
+    }
+    const el = videoRef.current;
+    if (!el) {
+      pendingStreamRef.current = stream;
+      return;
+    }
+    pendingStreamRef.current = null;
+    el.srcObject = stream;
+    void el.play()
+      .then(syncVideoDimensions)
+      .catch(() => undefined);
+  };
+
+  useEffect(() => {
+    const el = videoRef.current;
+    const pending = pendingStreamRef.current;
+    if (!el || !pending || !sessionId || streamType === 'AUDIO' || streamType === 'CAMERA') {
+      return;
+    }
+    pendingStreamRef.current = null;
+    el.srcObject = pending;
+    void el.play()
+      .then(syncVideoDimensions)
+      .catch(() => undefined);
+  }, [sessionId, streamType]);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !sessionId || streamType === 'AUDIO' || streamType === 'CAMERA') {
+      return;
+    }
+    const onMeta = () => syncVideoDimensions();
+    el.addEventListener('loadedmetadata', onMeta);
+    el.addEventListener('resize', onMeta);
+    return () => {
+      el.removeEventListener('loadedmetadata', onMeta);
+      el.removeEventListener('resize', onMeta);
+    };
+  }, [sessionId, streamType]);
 
   const onStart = async () => {
     setBusy(true);
     setError(null);
     setStatus('Starting…');
     setViewRotate(0);
+    setStreamUprightRotate(0);
+    setVideoFrame({w: 0, h: 0});
+    setRemoteStream(null);
+    setCameraFacing('user');
     useRealtimeStore.getState().setStreamingState(undefined);
     try {
       await disconnectBrowserViewer();
@@ -211,9 +302,13 @@ export function LiveStreamPanel({deviceId}: Props) {
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
+      pendingStreamRef.current = null;
+      setRemoteStream(null);
       setSessionId(null);
       roomIdRef.current = null;
       setViewRotate(0);
+      setStreamUprightRotate(0);
+      setVideoFrame({w: 0, h: 0});
       setStatus('Stopped');
     } finally {
       setBusy(false);
@@ -226,6 +321,9 @@ export function LiveStreamPanel({deviceId}: Props) {
     }
     try {
       await monitoringApi.switchCamera(sessionId);
+      setCameraFacing(toggleCameraFacing);
+      setViewRotate(0);
+      setVideoFrame({w: 0, h: 0});
     } catch {
       setError('Could not switch camera');
     }
@@ -253,11 +351,22 @@ export function LiveStreamPanel({deviceId}: Props) {
     }
   };
 
-  const videoStyle = viewerVideoRotateStyle(
-    effectiveViewRotate,
+  const videoWrapStyle: CSSProperties | undefined = undefined;
+
+  const cameraObjectFit = isCameraLive ? webCameraObjectFit(cameraFacing) : 'contain';
+  const videoStyle: CSSProperties | undefined = viewerVideoRotateStyle(
+    combinedViewerRotate,
     wrapSize.w || 640,
     wrapSize.h || 400,
+    isCameraLive ? cameraObjectFit : 'contain',
   );
+
+  const videoClassName = ['live-video', isCameraLive ? 'live-video--camera' : '']
+    .filter(Boolean)
+    .join(' ');
+
+  const cameraLandscape =
+    isCameraLive && videoFrame.w > 0 && videoFrame.h > 0 && videoFrame.w > videoFrame.h;
 
   return (
     <div className="card live-panel">
@@ -298,16 +407,37 @@ export function LiveStreamPanel({deviceId}: Props) {
 
       <div
         ref={videoWrapRef}
-        className={`video-wrap${fullscreen ? ' video-wrap--fullscreen' : ''}`}>
-        <video
-          ref={videoRef}
-          className="live-video"
-          style={videoStyle}
-          autoPlay
-          playsInline
-          muted={streamType === 'SCREEN' ? false : muted}
-          controls={false}
-        />
+        className={[
+          'video-wrap',
+          isCameraLive ? 'video-wrap--camera' : '',
+          cameraLandscape ? 'video-wrap--camera-landscape' : '',
+          fullscreen ? 'video-wrap--fullscreen' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        style={videoWrapStyle}>
+        {sessionId && streamType !== 'AUDIO' ? (
+          isCameraLive ? (
+            <CameraFrameViewer
+              stream={remoteStream}
+              objectFit={cameraObjectFit}
+              canvasClassName={videoClassName}
+              viewerRotate={effectiveViewRotate}
+              frontCamera={cameraFacing === 'user'}
+              onVideoDimensions={onCameraDimensions}
+            />
+          ) : (
+            <video
+              ref={videoRef}
+              className={videoClassName}
+              style={videoStyle}
+              autoPlay
+              playsInline
+              muted={streamType === 'SCREEN' ? false : muted}
+              controls={false}
+            />
+          )
+        ) : null}
         {streamType === 'AUDIO' && !sessionId ? (
           <p className="muted center-overlay">Audio-only — start to listen</p>
         ) : null}
