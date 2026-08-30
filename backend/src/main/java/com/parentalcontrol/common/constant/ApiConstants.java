@@ -103,6 +103,9 @@ public final class ApiConstants {
   public static final String TIME_EXTENSION_REQUESTS_ANT = TIME_EXTENSION_REQUESTS + "/**";
   public static final String TIME_EXTENSION_REQUESTS_PENDING = TIME_EXTENSION_REQUESTS + "/pending";
 
+  public static final String CHAT = API_V1 + "/chat";
+  public static final String CHAT_ANT = CHAT + "/**";
+
   public static final String ADMIN = API_V1 + "/admin";
   public static final String ADMIN_ANT = ADMIN + "/**";
   public static final String ADMIN_CERTIFICATION = ADMIN + "/certification";
