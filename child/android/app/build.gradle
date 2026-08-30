@@ -14,7 +14,9 @@ if (googleServicesFile.exists()) {
 
 react {
     autolinkLibrariesWithApp()
-    if (System.getenv("EMBEDDED_BUNDLE") == "true") {
+    // Phone installs must not depend on Metro. Set EMBEDDED_BUNDLE=false only for hot-reload dev.
+    def embeddedBundle = System.getenv("EMBEDDED_BUNDLE") != "false"
+    if (embeddedBundle) {
         debuggableVariants = []
     }
 }
@@ -70,7 +72,7 @@ android {
         buildConfigField "String", "CERT_PIN_BACKUP",    "\"${certPinBackup.replace("\"", "\\\"")}\""
         buildConfigField "String", "API_PAYLOAD_ENCRYPTION_KEY", "\"${apiPayloadKey.replace("\"", "\\\"")}\""
         buildConfigField "String", "API_PAYLOAD_ENCRYPTION_IV",  "\"${apiPayloadIv.replace("\"", "\\\"")}\""
-        buildConfigField "boolean", "EMBEDDED_BUNDLE", (System.getenv("EMBEDDED_BUNDLE") == "true").toString()
+        buildConfigField "boolean", "EMBEDDED_BUNDLE", (System.getenv("EMBEDDED_BUNDLE") != "false").toString()
     }
     signingConfigs {
         debug {
@@ -256,6 +258,16 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.2")
+}
+
+// Embedded-bundle debug APKs ship JS in assets. Keep --dev true for staging diagnostics.
+if (System.getenv("EMBEDDED_BUNDLE") != "false") {
+    tasks.configureEach { task ->
+        if (task.name.startsWith("createBundle") && task.hasProperty("devEnabled")) {
+            task.devEnabled.set(true)
+            logger.lifecycle("EMBEDDED_BUNDLE: forcing ${task.name}.devEnabled=true")
+        }
+    }
 }
 
 // P2-03: Dual WebRTC — Stream AAR for native capture; RN-WebRTC JS layer against Stream natives.
