@@ -86,16 +86,17 @@ class CameraXVideoCapturerTest {
         assertEquals(1.0f, CameraXVideoCapturer.previewZoomRatio(true, 1.0f, 1.0f))
     }
 
-    @Test
-    fun selectNativeLikeFrontPreviewSize_prefers1920x1080SixteenNine() {
-        val chosen = CameraXVideoCapturer.selectNativeLikeFrontPreviewSize(
-            listOf(
-                Size(2560, 1920),
-                Size(1920, 1080),
-                Size(1920, 1440),
-            ),
-        )
-        assertEquals(1920, chosen.width)
-        assertEquals(1080, chosen.height)
-    }
+  @Test
+  fun selectWidestFourThreeSize_usedForFrontAndBack() {
+    val sizes = listOf(
+      Size(2560, 1920),
+      Size(1920, 1080),
+      Size(1920, 1440),
+    )
+    val frontLike = CameraXVideoCapturer.selectWidestFourThreeSize(sizes)
+    val backLike = CameraXVideoCapturer.selectWidestFourThreeSize(sizes)
+    assertEquals(2560, frontLike.width)
+    assertEquals(1920, frontLike.height)
+    assertEquals(frontLike, backLike)
+  }
 }

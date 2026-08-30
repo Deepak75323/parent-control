@@ -10,7 +10,15 @@ export type ParentNativeModule = {
     reactTag: number,
     rotationDeg: number,
     scale: number,
+    cameraUpright: boolean,
+    frontCamera: boolean,
   ) => Promise<void>;
+  applyCameraUprightCorrection?: (
+    manualRotateDeg: number,
+    frontCamera: boolean,
+    enabled: boolean,
+  ) => Promise<void>;
+  clearCameraUprightCorrection?: () => Promise<void>;
   isStreamRecordingSupported?: () => boolean;
   startStreamRecording?: (
     streamType: string,
@@ -37,7 +45,23 @@ export const nativeModules = {
     reactTag: number,
     rotationDeg: number,
     scale: number,
+    cameraUpright: boolean,
+    frontCamera: boolean,
   ): Promise<void> =>
-    Native.applyViewerVideoTransform?.(reactTag, rotationDeg, scale) ??
+    Native.applyViewerVideoTransform?.(
+      reactTag,
+      rotationDeg,
+      scale,
+      cameraUpright,
+      frontCamera,
+    ) ?? Promise.resolve(),
+  applyCameraUprightCorrection: (
+    manualRotateDeg: number,
+    frontCamera: boolean,
+    enabled: boolean,
+  ): Promise<void> =>
+    Native.applyCameraUprightCorrection?.(manualRotateDeg, frontCamera, enabled) ??
     Promise.resolve(),
+  clearCameraUprightCorrection: (): Promise<void> =>
+    Native.clearCameraUprightCorrection?.() ?? Promise.resolve(),
 };

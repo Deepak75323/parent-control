@@ -5,11 +5,22 @@ import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
+import com.parentscaffold.capture.CameraUprightScanner
 
 class MainActivity : ReactActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(null)
+  }
+
+  override fun onResume() {
+    super.onResume()
+    CameraUprightScanner.onActivityResumed(this)
+  }
+
+  override fun onPause() {
+    CameraUprightScanner.onActivityPaused()
+    super.onPause()
   }
 
   /**
