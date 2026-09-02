@@ -15,6 +15,7 @@ import {
 } from '../../lib/chatMentions';
 import type {ChatMemberItem} from '../../types/api';
 import {insertTextAtSelection} from '../../lib/insertTextAtSelection';
+import {ComposeAnchorPortal} from './ComposeAnchorPortal';
 import {EmojiPicker} from './EmojiPicker';
 import {MentionAutocomplete} from './MentionAutocomplete';
 
@@ -51,16 +52,19 @@ export function MessageComposer({
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = externalFileInputRef ?? internalFileInputRef;
   const textareaRef = externalTextareaRef ?? internalTextareaRef;
+  const inputWrapRef = useRef<HTMLDivElement>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
+  const mentionButtonRef = useRef<HTMLButtonElement>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [cursorPosition, setCursorPosition] = useState(0);
 
   const mentionCandidates = useMemo(() => buildMentionCandidates(members), [members]);
 
-  const activeMention = useMemo(() => {
-    const cursor = textareaRef.current?.selectionStart ?? draft.length;
-    return findActiveMentionQuery(draft, cursor);
-  }, [draft, textareaRef]);
+  const activeMention = useMemo(
+    () => findActiveMentionQuery(draft, cursorPosition),
+    [draft, cursorPosition],
+  );
 
   const filteredMentions = useMemo(() => {
     if (!activeMention) {
@@ -68,6 +72,16 @@ export function MessageComposer({
     }
     return filterMentionCandidates(mentionCandidates, activeMention.query);
   }, [activeMention, mentionCandidates]);
+
+  const mentionOpen = Boolean(activeMention && filteredMentions.length > 0);
+
+  function syncCursor() {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+    setCursorPosition(textarea.selectionStart ?? draft.length);
+  }
 
   function insertAtCursor(insertion: string) {
     const textarea = textareaRef.current;
@@ -103,11 +117,12 @@ export function MessageComposer({
       }
       textarea.focus();
       textarea.setSelectionRange(cursor, cursor);
+      setCursorPosition(cursor);
     });
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (filteredMentions.length > 0) {
+    if (mentionOpen) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
         setMentionIndex(prev => (prev + 1) % filteredMentions.length);
@@ -147,6 +162,26 @@ export function MessageComposer({
     onSubmit(event);
   }
 
+  function insertMentionTrigger() {
+    setEmojiOpen(false);
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      onDraftChange(`${draft}@`);
+      setCursorPosition(draft.length + 1);
+      return;
+    }
+    const start = textarea.selectionStart ?? draft.length;
+    const end = textarea.selectionEnd ?? draft.length;
+    const next = `${draft.slice(0, start)}@${draft.slice(end)}`;
+    onDraftChange(next);
+    window.requestAnimationFrame(() => {
+      textarea.focus();
+      const cursor = start + 1;
+      textarea.setSelectionRange(cursor, cursor);
+      setCursorPosition(cursor);
+    });
+  }
+
   return (
     <form id={formId} className="chat-compose" onSubmit={handleSubmit}>
       <input
@@ -167,22 +202,7 @@ export function MessageComposer({
           <path d="M12 5v14M5 12h14" />
         </svg>
       </button>
-      <div className="chat-compose-input-wrap">
-        {emojiOpen ? (
-          <EmojiPicker
-            open={emojiOpen}
-            ignoreCloseRef={emojiButtonRef}
-            onClose={() => setEmojiOpen(false)}
-            onSelect={emoji => insertAtCursor(emoji)}
-          />
-        ) : null}
-        {filteredMentions.length > 0 ? (
-          <MentionAutocomplete
-            candidates={filteredMentions}
-            activeIndex={mentionIndex}
-            onSelect={applyMention}
-          />
-        ) : null}
+      <div className="chat-compose-input-wrap" ref={inputWrapRef}>
         <textarea
           ref={textareaRef}
           className="chat-compose-textarea"
@@ -190,36 +210,48 @@ export function MessageComposer({
           value={draft}
           rows={1}
           aria-label={placeholder}
+          aria-expanded={mentionOpen}
           disabled={busy}
           onChange={event => {
             onDraftChange(event.target.value);
             setMentionIndex(0);
+            setCursorPosition(event.target.selectionStart ?? event.target.value.length);
           }}
+          onClick={syncCursor}
+          onKeyUp={syncCursor}
+          onSelect={syncCursor}
           onKeyDown={handleKeyDown}
         />
       </div>
+      <ComposeAnchorPortal
+        open={mentionOpen}
+        anchorRef={inputWrapRef}
+        className="chat-compose-popover">
+        <MentionAutocomplete
+          candidates={filteredMentions}
+          activeIndex={mentionIndex}
+          onSelect={applyMention}
+        />
+      </ComposeAnchorPortal>
+      <ComposeAnchorPortal
+        open={emojiOpen}
+        anchorRef={inputWrapRef}
+        className="chat-compose-popover">
+        <EmojiPicker
+          open={emojiOpen}
+          ignoreCloseRef={emojiButtonRef}
+          onClose={() => setEmojiOpen(false)}
+          onSelect={emoji => insertAtCursor(emoji)}
+        />
+      </ComposeAnchorPortal>
       <button
+        ref={mentionButtonRef}
         type="button"
         className="chat-compose-icon-btn"
         disabled={busy}
-        title="Mention a parent"
-        aria-label="Mention a parent"
-        onClick={() => {
-          const textarea = textareaRef.current;
-          if (!textarea) {
-            onDraftChange(`${draft}@`);
-            return;
-          }
-          const start = textarea.selectionStart ?? draft.length;
-          const end = textarea.selectionEnd ?? draft.length;
-          const next = `${draft.slice(0, start)}@${draft.slice(end)}`;
-          onDraftChange(next);
-          window.requestAnimationFrame(() => {
-            textarea.focus();
-            const cursor = start + 1;
-            textarea.setSelectionRange(cursor, cursor);
-          });
-        }}>
+        title="Mention by nickname"
+        aria-label="Mention by nickname"
+        onClick={insertMentionTrigger}>
         <span className="chat-compose-at" aria-hidden>
           @
         </span>
@@ -280,6 +312,7 @@ export function EditMessageComposer({
   onCancel,
 }: EditComposerProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const inputWrapRef = useRef<HTMLDivElement>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
 
@@ -305,15 +338,7 @@ export function EditMessageComposer({
         <p className="chat-compose-editing-preview muted tiny">"{draft || '…'}"</p>
       </div>
       <div className="chat-compose-editing-row">
-        <div className="chat-compose-editing-input-wrap">
-          {emojiOpen ? (
-            <EmojiPicker
-              open={emojiOpen}
-              ignoreCloseRef={emojiButtonRef}
-              onClose={() => setEmojiOpen(false)}
-              onSelect={emoji => insertAtCursor(emoji)}
-            />
-          ) : null}
+        <div className="chat-compose-editing-input-wrap" ref={inputWrapRef}>
           <input
             ref={inputRef}
             type="text"
@@ -339,6 +364,17 @@ export function EditMessageComposer({
             }}
           />
         </div>
+        <ComposeAnchorPortal
+          open={emojiOpen}
+          anchorRef={inputWrapRef}
+          className="chat-compose-popover">
+          <EmojiPicker
+            open={emojiOpen}
+            ignoreCloseRef={emojiButtonRef}
+            onClose={() => setEmojiOpen(false)}
+            onSelect={emoji => insertAtCursor(emoji)}
+          />
+        </ComposeAnchorPortal>
         <button
           ref={emojiButtonRef}
           type="button"

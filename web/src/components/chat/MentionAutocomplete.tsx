@@ -34,9 +34,6 @@ export function MentionAutocomplete({candidates, activeIndex, onSelect}: Props) 
           <span className="chat-mention-item-text">
             <span className="chat-mention-item-name">{candidate.displayName}</span>
             <span className="chat-mention-item-token">{candidate.token}</span>
-            {candidate.subtitle !== candidate.token ? (
-              <span className="chat-mention-item-sub muted tiny">{candidate.subtitle}</span>
-            ) : null}
           </span>
         </button>
       ))}

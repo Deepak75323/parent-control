@@ -9,10 +9,10 @@ import {
 } from './chatMentions';
 
 describe('chatMentions', () => {
-  it('uses family handle as mention token', () => {
+  it('uses nickname as mention token', () => {
     expect(
       mentionTokenForMember({userId: '1', label: '@deepak', nickname: 'Golden Aurora'}),
-    ).toBe('@deepak');
+    ).toBe('@GoldenAurora');
   });
 
   it('finds mention query at cursor', () => {
@@ -31,12 +31,12 @@ describe('chatMentions', () => {
   });
 
   it('highlights known mention tokens in message text', () => {
-    const members = [{userId: '1', label: '@deepak', nickname: 'Deepak'}];
+    const members = [{userId: '1', label: '@deepak', nickname: 'Deepak Parent'}];
     const tokens = buildMentionCandidates(members).map(item => item.token);
-    const parts = splitMessageText('hey @deepak check this', tokens);
+    const parts = splitMessageText('hey @DeepakParent check this', tokens);
     expect(parts).toEqual([
       {type: 'text', value: 'hey '},
-      {type: 'mention', value: '@deepak', known: true},
+      {type: 'mention', value: '@DeepakParent', known: true},
       {type: 'text', value: ' check this'},
     ]);
   });

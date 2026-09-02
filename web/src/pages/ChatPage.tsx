@@ -302,6 +302,13 @@ export function ChatPage() {
 
   const mentionTokens = useMemo(() => collectMentionTokens(roomMembers), [roomMembers]);
 
+  const mentionableMembers = useMemo(() => {
+    if (!profile?.id) {
+      return roomMembers;
+    }
+    return roomMembers.filter(member => member.userId !== profile.id);
+  }, [roomMembers, profile?.id]);
+
   const loadRoomMembers = useCallback(async (roomId: string) => {
     try {
       const {data} = await chatApi.listMembers(roomId);
@@ -1154,7 +1161,7 @@ export function ChatPage() {
                     busy={busy}
                     canSend={Boolean(draft.trim() || pendingFile)}
                     emphasizeSend={Boolean(pendingFile)}
-                    members={roomMembers}
+                    members={mentionableMembers}
                     fileInputRef={composerFileInputRef}
                     textareaRef={composerTextareaRef}
                     onDraftChange={setDraft}

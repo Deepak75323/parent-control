@@ -14,12 +14,8 @@ export type MentionCandidate = {
 };
 
 export function mentionTokenForMember(member: ChatMentionMember): string {
-  const label = member.label.trim();
-  if (label.startsWith('@')) {
-    return label;
-  }
   const displayName = resolveChatDisplayNickname(member.nickname, member.label);
-  const compact = displayName.replace(/[^\w]/g, '');
+  const compact = displayName.replace(/\s+/g, '');
   return compact ? `@${compact}` : '@parent';
 }
 
@@ -27,12 +23,12 @@ export function buildMentionCandidates(members: ChatMentionMember[]): MentionCan
   return members.map(member => {
     const token = mentionTokenForMember(member);
     const displayName = resolveChatDisplayNickname(member.nickname, member.label);
-    const subtitle = member.label.startsWith('@') ? displayName : member.label;
+    const handle = member.label.trim().startsWith('@') ? member.label.trim() : null;
     return {
       userId: member.userId,
       token,
       displayName,
-      subtitle,
+      subtitle: handle && handle.toLowerCase() !== token.toLowerCase() ? handle : displayName,
     };
   });
 }
@@ -92,7 +88,7 @@ export function splitMessageText(text: string, knownTokens: string[]): MessageTe
     return [];
   }
   const tokenSet = new Set(knownTokens.map(token => token.toLowerCase()));
-  const pattern = /(@[A-Za-z0-9_]+)/g;
+  const pattern = /(@[A-Za-z][A-Za-z0-9]*)/g;
   const parts: MessageTextPart[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
