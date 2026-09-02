@@ -14,6 +14,8 @@ import {
   type MentionCandidate,
 } from '../../lib/chatMentions';
 import type {ChatMemberItem} from '../../types/api';
+import {insertTextAtSelection} from '../../lib/insertTextAtSelection';
+import {EmojiPicker} from './EmojiPicker';
 import {MentionAutocomplete} from './MentionAutocomplete';
 
 type Props = {
@@ -49,7 +51,9 @@ export function MessageComposer({
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = externalFileInputRef ?? internalFileInputRef;
   const textareaRef = externalTextareaRef ?? internalTextareaRef;
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [emojiOpen, setEmojiOpen] = useState(false);
 
   const mentionCandidates = useMemo(() => buildMentionCandidates(members), [members]);
 
@@ -64,6 +68,21 @@ export function MessageComposer({
     }
     return filterMentionCandidates(mentionCandidates, activeMention.query);
   }, [activeMention, mentionCandidates]);
+
+  function insertAtCursor(insertion: string) {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? draft.length;
+    const end = textarea?.selectionEnd ?? draft.length;
+    const {nextText, cursor} = insertTextAtSelection(draft, insertion, start, end);
+    onDraftChange(nextText);
+    window.requestAnimationFrame(() => {
+      if (!textarea) {
+        return;
+      }
+      textarea.focus();
+      textarea.setSelectionRange(cursor, cursor);
+    });
+  }
 
   function applyMention(candidate: MentionCandidate) {
     if (!activeMention) {
@@ -123,8 +142,13 @@ export function MessageComposer({
     }
   }
 
+  function handleSubmit(event: FormEvent) {
+    setEmojiOpen(false);
+    onSubmit(event);
+  }
+
   return (
-    <form id={formId} className="chat-compose" onSubmit={onSubmit}>
+    <form id={formId} className="chat-compose" onSubmit={handleSubmit}>
       <input
         ref={fileInputRef}
         type="file"
@@ -144,6 +168,14 @@ export function MessageComposer({
         </svg>
       </button>
       <div className="chat-compose-input-wrap">
+        {emojiOpen ? (
+          <EmojiPicker
+            open={emojiOpen}
+            ignoreCloseRef={emojiButtonRef}
+            onClose={() => setEmojiOpen(false)}
+            onSelect={emoji => insertAtCursor(emoji)}
+          />
+        ) : null}
         {filteredMentions.length > 0 ? (
           <MentionAutocomplete
             candidates={filteredMentions}
@@ -193,12 +225,16 @@ export function MessageComposer({
         </span>
       </button>
       <button
+        ref={emojiButtonRef}
         type="button"
-        className="chat-compose-icon-btn"
+        className={['chat-compose-icon-btn', emojiOpen ? 'chat-compose-icon-btn--active' : '']
+          .filter(Boolean)
+          .join(' ')}
         disabled={busy}
         title="Emoji"
         aria-label="Emoji"
-        tabIndex={-1}>
+        aria-expanded={emojiOpen}
+        onClick={() => setEmojiOpen(open => !open)}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
           <circle cx="12" cy="12" r="9" />
           <path d="M8 14s1.5 2 4 2 4-2 4-2" />
@@ -243,6 +279,25 @@ export function EditMessageComposer({
   onSave,
   onCancel,
 }: EditComposerProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+
+  function insertAtCursor(insertion: string) {
+    const input = inputRef.current;
+    const start = input?.selectionStart ?? draft.length;
+    const end = input?.selectionEnd ?? draft.length;
+    const {nextText, cursor} = insertTextAtSelection(draft, insertion, start, end);
+    onDraftChange(nextText);
+    window.requestAnimationFrame(() => {
+      if (!input) {
+        return;
+      }
+      input.focus();
+      input.setSelectionRange(cursor, cursor);
+    });
+  }
+
   return (
     <div className="chat-compose chat-compose--editing">
       <div className="chat-compose-editing-head">
@@ -250,25 +305,52 @@ export function EditMessageComposer({
         <p className="chat-compose-editing-preview muted tiny">"{draft || '…'}"</p>
       </div>
       <div className="chat-compose-editing-row">
-        <input
-          type="text"
-          className="chat-compose-editing-input"
-          value={draft}
-          autoFocus
-          maxLength={2000}
-          placeholder={isText ? 'Edit message' : 'Edit caption'}
+        <div className="chat-compose-editing-input-wrap">
+          {emojiOpen ? (
+            <EmojiPicker
+              open={emojiOpen}
+              ignoreCloseRef={emojiButtonRef}
+              onClose={() => setEmojiOpen(false)}
+              onSelect={emoji => insertAtCursor(emoji)}
+            />
+          ) : null}
+          <input
+            ref={inputRef}
+            type="text"
+            className="chat-compose-editing-input"
+            value={draft}
+            autoFocus
+            maxLength={2000}
+            placeholder={isText ? 'Edit message' : 'Edit caption'}
+            disabled={busy}
+            onChange={event => onDraftChange(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                onSave();
+              }
+              if (event.key === 'Escape') {
+                if (emojiOpen) {
+                  setEmojiOpen(false);
+                  return;
+                }
+                onCancel();
+              }
+            }}
+          />
+        </div>
+        <button
+          ref={emojiButtonRef}
+          type="button"
+          className={['btn ghost sm chat-compose-editing-emoji', emojiOpen ? 'active' : '']
+            .filter(Boolean)
+            .join(' ')}
           disabled={busy}
-          onChange={event => onDraftChange(event.target.value)}
-          onKeyDown={event => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              onSave();
-            }
-            if (event.key === 'Escape') {
-              onCancel();
-            }
-          }}
-        />
+          aria-label="Insert emoji"
+          aria-expanded={emojiOpen}
+          onClick={() => setEmojiOpen(open => !open)}>
+          😀
+        </button>
         <button type="button" className="btn ghost sm" disabled={busy} onClick={onCancel}>
           Cancel
         </button>
