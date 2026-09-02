@@ -6,7 +6,7 @@ import {useAuthStore} from '../auth/authStore';
 import {encodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
 import {groupMessagesByDate} from '../lib/chatMessageGrouping';
 import {resolveOwnSenderUserId, withResolvedOwnership} from '../lib/chatMessageOwnership';
-import {resolveChatDisplayNickname} from '../lib/chatDisplayNickname';
+import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {Avatar} from '../components/Avatar';
 import {ChatMessageMedia} from '../components/ChatMessageMedia';
@@ -132,15 +132,17 @@ export function ChatPage() {
       }
     }
 
-    return Array.from(byId.values())
-      .map(message => withResolvedOwnership(message, ownSenderUserId))
-      .map(message => {
-        const patch = receiptPatches[message.id];
-        return patch ? {...message, receiptStatus: patch} : message;
-      })
-      .sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-      );
+    return withMonotonicReceiptStatuses(
+      Array.from(byId.values())
+        .map(message => withResolvedOwnership(message, ownSenderUserId))
+        .map(message => {
+          const patch = receiptPatches[message.id];
+          return patch ? {...message, receiptStatus: patch} : message;
+        })
+        .sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        ),
+    );
   }, [
     apiMessages,
     liveChatMessages,

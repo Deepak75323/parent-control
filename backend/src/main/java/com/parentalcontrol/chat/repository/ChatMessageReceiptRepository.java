@@ -38,7 +38,9 @@ public interface ChatMessageReceiptRepository extends JpaRepository<ChatMessageR
   @Query(
       """
       UPDATE ChatMessageReceipt r
-      SET r.readAt = :now, r.updatedAt = :now
+      SET r.readAt = :now,
+          r.deliveredAt = COALESCE(r.deliveredAt, :now),
+          r.updatedAt = :now
       WHERE r.recipientUserId = :recipientUserId
         AND r.messageId IN :messageIds
         AND r.readAt IS NULL

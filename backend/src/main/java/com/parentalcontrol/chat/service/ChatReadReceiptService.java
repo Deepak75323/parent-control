@@ -103,7 +103,8 @@ public class ChatReadReceiptService {
       return ChatReceiptStatus.SENT;
     }
 
-    boolean allDelivered = receipts.stream().allMatch(r -> r.getDeliveredAt() != null);
+    boolean allDelivered =
+        receipts.stream().allMatch(r -> r.getDeliveredAt() != null || r.getReadAt() != null);
     if (!allDelivered) {
       return ChatReceiptStatus.SENT;
     }

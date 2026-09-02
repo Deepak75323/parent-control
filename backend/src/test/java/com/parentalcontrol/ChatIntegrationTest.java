@@ -372,6 +372,48 @@ class ChatIntegrationTest {
   }
 
   @Test
+  @Order(75)
+  void readMarksEarlierMessagesWithoutExplicitDelivered() throws Exception {
+    MvcResult first =
+        mockMvc
+            .perform(
+                post("/api/v1/chat/rooms/" + roomId + "/messages")
+                    .header("Authorization", "Bearer " + tokenA)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"body\":\"First in batch\"}"))
+            .andExpect(status().isOk())
+            .andReturn();
+    String firstId = readData(first).get("id").asText();
+
+    MvcResult second =
+        mockMvc
+            .perform(
+                post("/api/v1/chat/rooms/" + roomId + "/messages")
+                    .header("Authorization", "Bearer " + tokenA)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"body\":\"Second in batch\"}"))
+            .andExpect(status().isOk())
+            .andReturn();
+    String secondId = readData(second).get("id").asText();
+
+    mockMvc
+        .perform(
+            post("/api/v1/chat/rooms/" + roomId + "/read")
+                .header("Authorization", "Bearer " + tokenB)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"lastMessageId\":\"" + secondId + "\"}"))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenA))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[?(@.id=='" + firstId + "')].receiptStatus").value("READ"))
+        .andExpect(jsonPath("$.data[?(@.id=='" + secondId + "')].receiptStatus").value("READ"));
+  }
+
+  @Test
   @Order(8)
   void readReceiptFlow() throws Exception {
     MvcResult sent =
