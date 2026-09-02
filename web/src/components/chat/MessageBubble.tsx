@@ -1,7 +1,6 @@
 import {type ReactNode, useRef, useState} from 'react';
 import {Avatar} from '../Avatar';
 import {formatChatTime} from '../../lib/formatChatTime';
-import {CHAT_DEFAULT_DOUBLE_TAP_REACTION} from '../../lib/chatReactionEmojis';
 import {useLongPress} from '../../hooks/useLongPress';
 import {useMessageSwipeActions} from '../../hooks/useSwipeToReply';
 import type {ChatMessageItem} from '../../types/api';
@@ -55,7 +54,6 @@ export function MessageBubble({
   const avatarSeed = isOwn ? ownSeed : senderSeed;
   const time = formatChatTime(message.createdAt);
   const bubbleRef = useRef<HTMLDivElement>(null);
-  const lastTapRef = useRef(0);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
 
   const swipe = useMessageSwipeActions({
@@ -102,19 +100,6 @@ export function MessageBubble({
     actions.push({id: 'copy', label: 'Copy', icon: '📋', onSelect: onCopy});
   }
 
-  function handleQuickReactionTap() {
-    if (!onToggleReaction || busy || isEditing) {
-      return;
-    }
-    const now = Date.now();
-    if (now - lastTapRef.current < 320) {
-      onToggleReaction(CHAT_DEFAULT_DOUBLE_TAP_REACTION);
-      lastTapRef.current = 0;
-      return;
-    }
-    lastTapRef.current = now;
-  }
-
   const bubble = (
     <div
       ref={bubbleRef}
@@ -140,9 +125,7 @@ export function MessageBubble({
               }
             />
           ) : null}
-          <div className="chat-message-bubble-body" onClick={handleQuickReactionTap}>
-            {children}
-          </div>
+          <div className="chat-message-bubble-body">{children}</div>
           <div className="chat-message-bubble-foot chat-message-bubble-foot--own">
             <time className="chat-message-bubble-time" dateTime={message.createdAt}>
               {time}
@@ -169,9 +152,7 @@ export function MessageBubble({
               }
             />
           ) : null}
-          <div className="chat-message-bubble-body" onClick={handleQuickReactionTap}>
-            {children}
-          </div>
+          <div className="chat-message-bubble-body">{children}</div>
         </>
       )}
       {onToggleReaction ? (
