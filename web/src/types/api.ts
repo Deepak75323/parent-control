@@ -12,6 +12,8 @@ export interface ParentProfile {
   phone?: string;
   timezone?: string;
   emailVerified?: boolean;
+  chatNickname?: string;
+  readReceiptsEnabled?: boolean;
 }
 
 export interface AuthResponse {
@@ -203,6 +205,7 @@ export interface ChatInviteItem {
   roomName: string;
   inviterUserId: string;
   inviterLabel: string;
+  inviterNickname?: string;
   inviteeIdentifier: string;
   status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED';
   createdAt: string;
@@ -213,7 +216,19 @@ export interface ChatMessageItem {
   roomId: string;
   senderUserId: string;
   senderLabel: string;
+  senderNickname?: string;
+  messageType?: 'TEXT' | 'IMAGE' | 'VIDEO';
   body: string;
+  attachmentUrl?: string | null;
+  attachmentMimeType?: string | null;
+  attachmentFileName?: string | null;
+  attachmentSizeBytes?: number | null;
+  attachmentViewOnce?: boolean;
+  attachmentConsumed?: boolean;
+  ownMessage?: boolean;
+  canViewAttachment?: boolean;
   createdAt: string;
+  editedAt?: string | null;
+  receiptStatus?: 'SENT' | 'DELIVERED' | 'READ';
 }
 

@@ -303,6 +303,21 @@ public final class MessageConstants {
 
   public static final String CHAT_ONLY_OWNER_CAN_DELETE = "Only the room owner can delete this room";
 
+  public static final String CHAT_ONLY_OWNER_CAN_CLEAR =
+      "Only the room owner can clear chat history";
+
+  public static final String CHAT_OWNER_CANNOT_LEAVE =
+      "Room owners must delete the room instead of leaving";
+
+  public static final String CHAT_MESSAGE_NOT_FOUND = "Message not found";
+
+  public static final String CHAT_MESSAGE_BODY_REQUIRED = "Message cannot be empty";
+
+  public static final String CHAT_CANNOT_DELETE_MESSAGE =
+      "You can only delete your own messages unless you own this room";
+
+  public static final String CHAT_CANNOT_EDIT_MESSAGE = "You can only edit your own messages";
+
   public static final String CHAT_CANNOT_INVITE_YOURSELF = "You cannot invite yourself";
 
   public static final String CHAT_USER_ALREADY_IN_ROOM = "That parent is already in this room";
@@ -311,6 +326,30 @@ public final class MessageConstants {
       "An invite is already pending for that parent";
 
   public static final String CHAT_INVITE_ALREADY_RESPONDED = "This invite has already been responded to";
+
+  public static final String CHAT_ATTACHMENT_REQUIRED = "A file attachment is required";
+
+  public static final String CHAT_ATTACHMENT_TYPE_NOT_ALLOWED =
+      "Only JPEG, PNG, WebP, GIF images and MP4, WebM, or MOV videos are allowed";
+
+  public static final String CHAT_ATTACHMENT_TOO_LARGE = "Attachment exceeds the size limit";
+
+  public static final String CHAT_ATTACHMENT_NOT_FOUND = "Attachment not found";
+
+  public static final String CHAT_ATTACHMENT_STORE_FAILED = "Could not store attachment";
+
+  public static final String CHAT_ATTACHMENT_READ_FAILED = "Could not read attachment";
+
+  public static final String CHAT_ATTACHMENT_ALREADY_VIEWED =
+      "This view-once attachment was already opened";
+
+  public static final String CHAT_SENDER_CANNOT_VIEW_ONCE =
+      "View-once media can only be opened by recipients";
+
+  public static final String CHAT_ATTACHMENT_USE_VIEW_ENDPOINT =
+      "Use the view endpoint to open this attachment";
+
+  public static final String CHAT_CAPTION_TOO_LONG = "Caption is too long (max 2000 characters)";
 
   private MessageConstants() {}
 }

@@ -50,6 +50,11 @@ public class ParentProfile extends BaseEntity {
   @Column(name = "family_handle", length = 32)
   private String familyHandle;
 
+  /** When false, this parent does not send read receipts to other chat members. */
+  @Column(name = "read_receipts_enabled", nullable = false)
+  @Builder.Default
+  private boolean readReceiptsEnabled = true;
+
   public UUID getUserId() {
     return user != null ? user.getId() : null;
   }

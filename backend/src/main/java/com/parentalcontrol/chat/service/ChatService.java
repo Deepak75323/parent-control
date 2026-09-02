@@ -1,6 +1,8 @@
 package com.parentalcontrol.chat.service;
 
 import com.parentalcontrol.chat.domain.ChatMessage;
+import com.parentalcontrol.chat.domain.ChatMessageType;
+import com.parentalcontrol.chat.domain.ChatReceiptStatus;
 import com.parentalcontrol.chat.domain.ChatRoom;
 import com.parentalcontrol.chat.domain.ChatRoomInvite;
 import com.parentalcontrol.chat.domain.ChatRoomInviteStatus;
@@ -12,17 +14,21 @@ import com.parentalcontrol.chat.dto.ChatMessageResponse;
 import com.parentalcontrol.chat.dto.ChatRoomSummaryResponse;
 import com.parentalcontrol.chat.dto.CreateChatInviteRequest;
 import com.parentalcontrol.chat.dto.CreateChatRoomRequest;
+import com.parentalcontrol.chat.dto.MarkChatDeliveredRequest;
+import com.parentalcontrol.chat.dto.MarkChatReadRequest;
 import com.parentalcontrol.chat.dto.RespondChatInviteRequest;
 import com.parentalcontrol.chat.dto.SendChatMessageRequest;
 import com.parentalcontrol.chat.repository.ChatMessageRepository;
 import com.parentalcontrol.chat.repository.ChatRoomInviteRepository;
 import com.parentalcontrol.chat.repository.ChatRoomMemberRepository;
 import com.parentalcontrol.chat.repository.ChatRoomRepository;
+import com.parentalcontrol.common.constant.ApiConstants;
 import com.parentalcontrol.common.constant.MessageConstants;
 import com.parentalcontrol.common.domain.Role;
 import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.exception.ErrorCode;
 import com.parentalcontrol.common.security.SecurityUtils;
+import com.parentalcontrol.common.util.ChatNicknameGenerator;
 import com.parentalcontrol.user.dao.ParentProfileDao;
 import com.parentalcontrol.user.dao.UserDao;
 import com.parentalcontrol.user.domain.ParentProfile;
@@ -36,11 +42,16 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.MediaType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
@@ -54,6 +65,8 @@ public class ChatService {
   private final ChatRoomInviteRepository inviteRepository;
   private final ChatMessageRepository messageRepository;
   private final ChatRealtimeService realtimeService;
+  private final ChatAttachmentStorageService attachmentStorageService;
+  private final ChatReadReceiptService readReceiptService;
   private final FamilyHandleService familyHandleService;
   private final ParentProfileDao parentProfileDao;
   private final UserDao userDao;
@@ -126,16 +139,139 @@ public class ChatService {
       invite.setDeletedAt(now);
       inviteRepository.save(invite);
     }
-    for (ChatMessage message : messageRepository.findByRoomId(roomId)) {
-      message.setDeletedAt(now);
-      messageRepository.save(message);
-    }
+    softDeleteAllMessages(roomId, now);
     room.setDeletedAt(now);
     roomRepository.save(room);
 
     for (UUID memberUserId : memberUserIds) {
       realtimeService.publishRoomDeleted(memberUserId, roomId);
     }
+  }
+
+  /** Removes all messages but keeps the room and members (owner only). */
+  @Transactional
+  public void clearChatHistory(UUID roomId) {
+    UUID userId = SecurityUtils.requireUserId();
+    requireActiveMember(roomId, userId);
+    ChatRoom room = requireRoom(roomId);
+    if (!room.getOwnerUserId().equals(userId)) {
+      throw new BusinessException(ErrorCode.FORBIDDEN, MessageConstants.CHAT_ONLY_OWNER_CAN_CLEAR);
+    }
+
+    Instant now = Instant.now();
+    softDeleteAllMessages(roomId, now);
+    room.setUpdatedAt(now);
+    roomRepository.save(room);
+
+    for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
+      realtimeService.publishChatCleared(member.getUserId(), roomId);
+    }
+  }
+
+  /** Member exits the room; the room stays for everyone else. Owners must delete the room. */
+  @Transactional
+  public void leaveRoom(UUID roomId) {
+    UUID userId = SecurityUtils.requireUserId();
+    ChatRoom room = requireRoom(roomId);
+    if (room.getOwnerUserId().equals(userId)) {
+      throw new BusinessException(ErrorCode.FORBIDDEN, MessageConstants.CHAT_OWNER_CANNOT_LEAVE);
+    }
+
+    ChatRoomMember member = requireActiveMember(roomId, userId);
+    member.setDeletedAt(Instant.now());
+    memberRepository.save(member);
+
+    room.setUpdatedAt(Instant.now());
+    roomRepository.save(room);
+
+    realtimeService.publishMemberLeft(userId, roomId);
+    for (ChatRoomMember other : memberRepository.findByRoomId(roomId)) {
+      realtimeService.publishRoomListBump(other.getUserId());
+    }
+  }
+
+  @Transactional
+  public void deleteMessage(UUID roomId, UUID messageId) {
+    UUID userId = SecurityUtils.requireUserId();
+    requireActiveMember(roomId, userId);
+    ChatRoom room = requireRoom(roomId);
+
+    ChatMessage message =
+        messageRepository
+            .findById(messageId)
+            .orElseThrow(
+                () ->
+                    new BusinessException(
+                        ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND));
+
+    if (!message.getRoomId().equals(roomId)) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND);
+    }
+
+    boolean isSender = message.getSenderUserId().equals(userId);
+    boolean isOwner = room.getOwnerUserId().equals(userId);
+    if (!isSender && !isOwner) {
+      throw new BusinessException(ErrorCode.FORBIDDEN, MessageConstants.CHAT_CANNOT_DELETE_MESSAGE);
+    }
+
+    attachmentStorageService.deleteQuietly(message.getAttachmentStorageKey());
+    message.setDeletedAt(Instant.now());
+    messageRepository.save(message);
+
+    room.setUpdatedAt(Instant.now());
+    roomRepository.save(room);
+
+    for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
+      realtimeService.publishMessageDeleted(member.getUserId(), roomId, messageId);
+    }
+  }
+
+  @Transactional
+  public ChatMessageResponse editMessage(UUID roomId, UUID messageId, SendChatMessageRequest request) {
+    UUID userId = SecurityUtils.requireUserId();
+    requireActiveMember(roomId, userId);
+    requireRoom(roomId);
+
+    ChatMessage message =
+        messageRepository
+            .findById(messageId)
+            .orElseThrow(
+                () ->
+                    new BusinessException(
+                        ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND));
+
+    if (!message.getRoomId().equals(roomId)) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND);
+    }
+
+    if (!message.getSenderUserId().equals(userId)) {
+      throw new BusinessException(ErrorCode.FORBIDDEN, MessageConstants.CHAT_CANNOT_EDIT_MESSAGE);
+    }
+
+    String body = request.getBody().trim();
+    if (message.getMessageType() == ChatMessageType.TEXT && body.isEmpty()) {
+      throw new BusinessException(ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_MESSAGE_BODY_REQUIRED);
+    }
+    if (body.length() > 2000) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_CAPTION_TOO_LONG);
+    }
+
+    if (body.equals(message.getBody())) {
+      return toMessageResponse(message, userId);
+    }
+
+    message.setBody(body);
+    message.setEditedAt(Instant.now());
+    message = messageRepository.save(message);
+
+    ChatRoom room = requireRoom(roomId);
+    room.setUpdatedAt(Instant.now());
+    roomRepository.save(room);
+
+    ChatMessageResponse response = toMessageResponse(message, userId);
+    publishMessageUpdateToRoom(roomId, message);
+    return response;
   }
 
   @Transactional
@@ -245,12 +381,12 @@ public class ChatService {
     requireActiveMember(roomId, userId);
 
     Page<ChatMessage> messages =
-        messageRepository.findByRoomIdOrderByCreatedAtDesc(
+        messageRepository.findActiveByRoomIdOrderByCreatedAtDesc(
             roomId, PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
 
     List<ChatMessageResponse> responses = new ArrayList<>();
     for (ChatMessage message : messages.getContent()) {
-      responses.add(toMessageResponse(message));
+      responses.add(toMessageResponse(message, userId));
     }
     Collections.reverse(responses);
     return responses;
@@ -265,16 +401,154 @@ public class ChatService {
     String body = request.getBody().trim();
     ChatMessage message =
         messageRepository.save(
-            ChatMessage.builder().roomId(roomId).senderUserId(userId).body(body).build());
+            ChatMessage.builder()
+                .roomId(roomId)
+                .senderUserId(userId)
+                .body(body)
+                .messageType(ChatMessageType.TEXT)
+                .build());
 
     room.setUpdatedAt(Instant.now());
     roomRepository.save(room);
 
-    ChatMessageResponse response = toMessageResponse(message);
-    for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
-      realtimeService.publishMessage(member.getUserId(), response);
-    }
+    ChatMessageResponse response = toMessageResponse(message, userId);
+    readReceiptService.createReceiptsForMessage(message);
+    publishMessageToRoom(roomId, response);
     return response;
+  }
+
+  @Transactional
+  public void markMessagesDelivered(UUID roomId, MarkChatDeliveredRequest request) {
+    UUID userId = SecurityUtils.requireUserId();
+    readReceiptService.markDelivered(roomId, userId, request.getMessageIds());
+  }
+
+  @Transactional
+  public void markRoomRead(UUID roomId, MarkChatReadRequest request) {
+    UUID userId = SecurityUtils.requireUserId();
+    readReceiptService.markRead(roomId, userId, request.getLastMessageId());
+  }
+
+  @Transactional
+  public ChatMessageResponse sendMediaMessage(UUID roomId, MultipartFile file, String caption) {
+    UUID userId = SecurityUtils.requireUserId();
+    requireActiveMember(roomId, userId);
+    ChatRoom room = requireRoom(roomId);
+
+    String body = caption != null ? caption.trim() : "";
+    if (body.length() > 2000) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_CAPTION_TOO_LONG);
+    }
+
+    ChatMessage message =
+        messageRepository.save(
+            ChatMessage.builder()
+                .roomId(roomId)
+                .senderUserId(userId)
+                .body(body)
+                .messageType(ChatMessageType.TEXT)
+                .build());
+
+    ChatAttachmentStorageService.StoredAttachment stored =
+        attachmentStorageService.store(roomId, message.getId(), file);
+
+    message.setMessageType(stored.messageType());
+    message.setAttachmentStorageKey(stored.storageKey());
+    message.setAttachmentMimeType(stored.mimeType());
+    message.setAttachmentSizeBytes(stored.sizeBytes());
+    message.setAttachmentFileName(stored.originalFileName());
+    message.setAttachmentViewOnce(true);
+    message = messageRepository.save(message);
+
+    room.setUpdatedAt(Instant.now());
+    roomRepository.save(room);
+
+    ChatMessageResponse response = toMessageResponse(message, userId);
+    readReceiptService.createReceiptsForMessage(message);
+    publishMessageToRoom(roomId, response);
+    return response;
+  }
+
+  @Transactional(readOnly = true)
+  public AttachmentPayload loadAttachment(UUID roomId, UUID messageId) {
+    UUID userId = SecurityUtils.requireUserId();
+    requireActiveMember(roomId, userId);
+    ChatMessage message = requireMediaMessage(roomId, messageId);
+
+    if (message.isAttachmentViewOnce()) {
+      throw new BusinessException(
+          ErrorCode.FORBIDDEN, MessageConstants.CHAT_ATTACHMENT_USE_VIEW_ENDPOINT);
+    }
+    if (message.getAttachmentConsumedAt() != null
+        || !StringUtils.hasText(message.getAttachmentStorageKey())) {
+      throw new BusinessException(
+          ErrorCode.NOT_FOUND, MessageConstants.CHAT_ATTACHMENT_NOT_FOUND);
+    }
+
+    Resource resource = attachmentStorageService.loadAsResource(message.getAttachmentStorageKey());
+    MediaType mediaType = attachmentStorageService.mediaTypeFor(message.getAttachmentMimeType());
+    return new AttachmentPayload(resource, mediaType, message.getAttachmentFileName());
+  }
+
+  /** Opens a view-once attachment for the first time, then deletes it from storage. */
+  @Transactional
+  public AttachmentPayload viewOnceAttachment(UUID roomId, UUID messageId) {
+    UUID userId = SecurityUtils.requireUserId();
+    requireActiveMember(roomId, userId);
+    ChatMessage message = requireMediaMessage(roomId, messageId);
+
+    if (!message.isAttachmentViewOnce()) {
+      return loadAttachment(roomId, messageId);
+    }
+    if (message.getAttachmentConsumedAt() != null
+        || !StringUtils.hasText(message.getAttachmentStorageKey())) {
+      throw new BusinessException(
+          ErrorCode.NOT_FOUND, MessageConstants.CHAT_ATTACHMENT_ALREADY_VIEWED);
+    }
+    if (message.getSenderUserId().equals(userId)) {
+      throw new BusinessException(
+          ErrorCode.FORBIDDEN, MessageConstants.CHAT_SENDER_CANNOT_VIEW_ONCE);
+    }
+
+    String storageKey = message.getAttachmentStorageKey();
+    byte[] bytes = attachmentStorageService.readAndDelete(storageKey);
+    message.setAttachmentConsumedAt(Instant.now());
+    message.setAttachmentConsumedByUserId(userId);
+    message.setAttachmentStorageKey(null);
+    message = messageRepository.save(message);
+
+    publishMessageUpdateToRoom(roomId, message);
+
+    MediaType mediaType = attachmentStorageService.mediaTypeFor(message.getAttachmentMimeType());
+    Resource resource = new ByteArrayResource(bytes);
+    return new AttachmentPayload(resource, mediaType, message.getAttachmentFileName());
+  }
+
+  private ChatMessage requireMediaMessage(UUID roomId, UUID messageId) {
+    ChatMessage message =
+        messageRepository
+            .findById(messageId)
+            .orElseThrow(
+                () ->
+                    new BusinessException(
+                        ErrorCode.NOT_FOUND, MessageConstants.CHAT_ATTACHMENT_NOT_FOUND));
+
+    if (!message.getRoomId().equals(roomId)
+        || message.getMessageType() == ChatMessageType.TEXT) {
+      throw new BusinessException(
+          ErrorCode.NOT_FOUND, MessageConstants.CHAT_ATTACHMENT_NOT_FOUND);
+    }
+    return message;
+  }
+
+  public record AttachmentPayload(Resource resource, MediaType mediaType, String fileName) {}
+
+  private void softDeleteAllMessages(UUID roomId, Instant now) {
+    for (ChatMessage message : messageRepository.findActiveByRoomId(roomId)) {
+      attachmentStorageService.deleteQuietly(message.getAttachmentStorageKey());
+    }
+    messageRepository.softDeleteAllByRoomId(roomId, now);
   }
 
   private User resolveParentUser(String identifier) {
@@ -353,21 +627,77 @@ public class ChatService {
         .roomName(roomName)
         .inviterUserId(invite.getInviterUserId())
         .inviterLabel(displayLabel(invite.getInviterUserId()))
+        .inviterNickname(chatNicknameForUser(invite.getInviterUserId()))
         .inviteeIdentifier(invite.getInviteeIdentifier())
         .status(invite.getStatus())
         .createdAt(invite.getCreatedAt())
         .build();
   }
 
-  private ChatMessageResponse toMessageResponse(ChatMessage message) {
+  private void publishMessageToRoom(UUID roomId, ChatMessageResponse response) {
+    for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
+      realtimeService.publishMessage(member.getUserId(), response);
+    }
+  }
+
+  private void publishMessageUpdateToRoom(UUID roomId, ChatMessage message) {
+    for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
+      realtimeService.publishMessage(
+          member.getUserId(), toMessageResponse(message, member.getUserId()));
+    }
+  }
+
+  private ChatMessageResponse toMessageResponse(ChatMessage message, UUID viewerUserId) {
+    boolean ownMessage = message.getSenderUserId().equals(viewerUserId);
+    boolean consumed =
+        message.getAttachmentConsumedAt() != null
+            || !StringUtils.hasText(message.getAttachmentStorageKey());
+    boolean isMedia = message.getMessageType() != ChatMessageType.TEXT;
+    boolean canViewAttachment =
+        isMedia
+            && message.isAttachmentViewOnce()
+            && !consumed
+            && !ownMessage;
+
+    String attachmentUrl = null;
+    if (isMedia && !message.isAttachmentViewOnce() && !consumed) {
+      attachmentUrl =
+          ApiConstants.CHAT
+              + "/rooms/"
+              + message.getRoomId()
+              + "/messages/"
+              + message.getId()
+              + "/attachment";
+    }
+
     return ChatMessageResponse.builder()
         .id(message.getId())
         .roomId(message.getRoomId())
         .senderUserId(message.getSenderUserId())
         .senderLabel(displayLabel(message.getSenderUserId()))
+        .senderNickname(chatNicknameForUser(message.getSenderUserId()))
+        .messageType(message.getMessageType())
         .body(message.getBody())
+        .attachmentUrl(attachmentUrl)
+        .attachmentMimeType(message.getAttachmentMimeType())
+        .attachmentFileName(message.getAttachmentFileName())
+        .attachmentSizeBytes(message.getAttachmentSizeBytes())
+        .attachmentViewOnce(message.isAttachmentViewOnce())
+        .attachmentConsumed(consumed)
+        .ownMessage(ownMessage)
+        .canViewAttachment(canViewAttachment)
         .createdAt(message.getCreatedAt())
+        .editedAt(message.getEditedAt())
+        .receiptStatus(ownMessage ? readReceiptService.statusForMessage(message.getId()) : null)
         .build();
+  }
+
+  private String chatNicknameForUser(UUID userId) {
+    return ChatNicknameGenerator.fromEmail(resolveUserEmail(userId));
+  }
+
+  private String resolveUserEmail(UUID userId) {
+    return userDao.findById(userId).map(User::getEmail).orElse("");
   }
 
   private String displayLabel(UUID userId) {

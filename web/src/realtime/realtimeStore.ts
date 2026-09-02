@@ -28,12 +28,26 @@ interface RealtimeState {
   chatRoomsEpoch: number;
   chatInvitesEpoch: number;
   liveChatMessages: ChatMessageItem[];
+  deletedChatMessageIds: Record<string, true>;
+  /** Latest receipt status per message (WebSocket updates). */
+  receiptPatches: Record<string, ChatMessageItem['receiptStatus']>;
+  chatClearedEpoch: Record<string, number>;
+  /** Wall-clock ms when history was cleared per room — stale WS cache is ignored before this. */
+  chatClearedAt: Record<string, number>;
   removedChatRoomIds: Record<string, true>;
   setWsConnected: (connected: boolean) => void;
   bumpDeviceList: () => void;
   bumpChatRooms: () => void;
   bumpChatInvites: () => void;
   pushLiveChatMessage: (message: ChatMessageItem) => void;
+  upsertLiveChatMessage: (message: ChatMessageItem) => void;
+  updateLiveChatMessageReceipt: (
+    messageId: string,
+    receiptStatus: ChatMessageItem['receiptStatus'],
+  ) => void;
+  removeLiveChatMessage: (messageId: string) => void;
+  clearLiveChatMessagesForRoom: (roomId: string) => void;
+  syncLiveChatMessagesFromApi: (roomId: string, messages: ChatMessageItem[]) => void;
   notifyChatRoomDeleted: () => void;
   markChatRoomRemoved: (roomId: string) => void;
   unmarkChatRoomRemoved: (roomId: string) => void;
@@ -59,6 +73,10 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   chatRoomsEpoch: 0,
   chatInvitesEpoch: 0,
   liveChatMessages: [],
+  deletedChatMessageIds: {},
+  receiptPatches: {},
+  chatClearedEpoch: {},
+  chatClearedAt: {},
   removedChatRoomIds: {},
   setWsConnected: wsConnected => set({wsConnected}),
   bumpDeviceList: () => set(state => ({deviceListEpoch: state.deviceListEpoch + 1})),
@@ -67,6 +85,47 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   pushLiveChatMessage: message =>
     set(state => ({
       liveChatMessages: [...state.liveChatMessages, message].slice(-200),
+    })),
+  upsertLiveChatMessage: message =>
+    set(state => {
+      const index = state.liveChatMessages.findIndex(existing => existing.id === message.id);
+      if (index >= 0) {
+        const liveChatMessages = [...state.liveChatMessages];
+        liveChatMessages[index] = {...liveChatMessages[index], ...message};
+        return {liveChatMessages};
+      }
+      return {liveChatMessages: [...state.liveChatMessages, message].slice(-200)};
+    }),
+  updateLiveChatMessageReceipt: (messageId, receiptStatus) =>
+    set(state => ({
+      receiptPatches: {...state.receiptPatches, [messageId]: receiptStatus},
+      liveChatMessages: state.liveChatMessages.map(message =>
+        message.id === messageId ? {...message, receiptStatus} : message,
+      ),
+    })),
+  removeLiveChatMessage: messageId =>
+    set(state => ({
+      liveChatMessages: state.liveChatMessages.filter(message => message.id !== messageId),
+      deletedChatMessageIds: {...state.deletedChatMessageIds, [messageId]: true},
+    })),
+  clearLiveChatMessagesForRoom: roomId =>
+    set(state => ({
+      liveChatMessages: state.liveChatMessages.filter(message => message.roomId !== roomId),
+      chatClearedEpoch: {
+        ...state.chatClearedEpoch,
+        [roomId]: (state.chatClearedEpoch[roomId] ?? 0) + 1,
+      },
+      chatClearedAt: {
+        ...state.chatClearedAt,
+        [roomId]: Date.now(),
+      },
+    })),
+  syncLiveChatMessagesFromApi: (roomId, messages) =>
+    set(state => ({
+      liveChatMessages: [
+        ...state.liveChatMessages.filter(message => message.roomId !== roomId),
+        ...messages,
+      ].slice(-200),
     })),
   notifyChatRoomDeleted: () =>
     set(state => ({chatRoomsEpoch: state.chatRoomsEpoch + 1})),
@@ -129,6 +188,10 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       chatRoomsEpoch: 0,
       chatInvitesEpoch: 0,
       liveChatMessages: [],
+      deletedChatMessageIds: {},
+      receiptPatches: {},
+      chatClearedEpoch: {},
+      chatClearedAt: {},
       removedChatRoomIds: {},
     }),
 }));

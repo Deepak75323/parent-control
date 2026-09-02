@@ -62,13 +62,17 @@ api.interceptors.request.use(req => {
   if (token) {
     req.headers.Authorization = `Bearer ${token}`;
   }
+  if (typeof FormData !== 'undefined' && req.data instanceof FormData) {
+    delete req.headers['Content-Type'];
+  }
   const method = (req.method ?? 'get').toUpperCase();
   if (
     isApiPayloadEncryptionConfigured() &&
     method !== 'GET' &&
     method !== 'HEAD' &&
     req.data !== undefined &&
-    req.data !== null
+    req.data !== null &&
+    !(typeof FormData !== 'undefined' && req.data instanceof FormData)
   ) {
     const data = req.data;
     const alreadyWrapped =

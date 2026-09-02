@@ -150,6 +150,13 @@ export const familyHandleApi = {
     ),
 };
 
+export const readReceiptsApi = {
+  status: () =>
+    api.get<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_READ_RECEIPTS_STATUS),
+  setEnabled: (enabled: boolean) =>
+    api.post<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_READ_RECEIPTS, {enabled}),
+};
+
 export const policiesApi = {
   list: (type?: string) =>
     api.get<ApiResponse<PolicySummary[]>>(ApiPaths.POLICIES, {params: type ? {type} : {}}),
@@ -183,6 +190,9 @@ export const chatApi = {
   createRoom: (name: string) =>
     api.post<ApiResponse<ChatRoomSummary>>(ApiPaths.CHAT_ROOMS, {name}),
   deleteRoom: (roomId: string) => api.delete<ApiResponse<void>>(ApiPaths.chatRoom(roomId)),
+  clearHistory: (roomId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomClearHistory(roomId), {}),
+  leaveRoom: (roomId: string) => api.post<ApiResponse<void>>(ApiPaths.chatRoomLeave(roomId), {}),
   listPendingInvites: () =>
     api.get<ApiResponse<ChatInviteItem[]>>(ApiPaths.CHAT_INVITES_PENDING),
   invite: (roomId: string, identifier: string) =>
@@ -195,4 +205,24 @@ export const chatApi = {
     }),
   sendMessage: (roomId: string, body: string) =>
     api.post<ApiResponse<ChatMessageItem>>(ApiPaths.chatRoomMessages(roomId), {body}),
+  deleteMessage: (roomId: string, messageId: string) =>
+    api.delete<ApiResponse<void>>(ApiPaths.chatMessage(roomId, messageId)),
+  editMessage: (roomId: string, messageId: string, body: string) =>
+    api.patch<ApiResponse<ChatMessageItem>>(ApiPaths.chatMessage(roomId, messageId), {body}),
+  sendMediaMessage: (roomId: string, file: File, caption?: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (caption?.trim()) {
+      form.append('caption', caption.trim());
+    }
+    return api.post<ApiResponse<ChatMessageItem>>(ApiPaths.chatRoomMediaMessages(roomId), form);
+  },
+  viewOnceAttachment: (roomId: string, messageId: string) =>
+    api.post<ArrayBuffer>(ApiPaths.chatMessageAttachmentView(roomId, messageId), null, {
+      responseType: 'arraybuffer',
+    }),
+  markDelivered: (roomId: string, messageIds: string[]) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomDelivered(roomId), {messageIds}),
+  markRead: (roomId: string, lastMessageId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomRead(roomId), {lastMessageId}),
 };

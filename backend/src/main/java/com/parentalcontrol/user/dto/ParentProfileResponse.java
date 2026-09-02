@@ -14,4 +14,8 @@ public class ParentProfileResponse {
   private String phone;
   private String timezone;
   private boolean emailVerified;
+  /** Stable chat nickname derived from email (e.g. Golden Aurora). */
+  private String chatNickname;
+  /** Whether this parent shares read receipts in chat. */
+  private boolean readReceiptsEnabled;
 }

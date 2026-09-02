@@ -79,6 +79,9 @@ if [[ "${FCM_ENABLED}" == "true" && ! -f "$SA_HOST" ]]; then
   echo "FCM_ENABLED=true but missing $SA_HOST" >&2
   exit 1
 fi
+if [[ -f "$SA_HOST" ]]; then
+  chmod 644 "$SA_HOST"
+fi
 
 echo "==> Stopping $NAME (if present)"
 podman rm -f "$NAME" 2>/dev/null || true

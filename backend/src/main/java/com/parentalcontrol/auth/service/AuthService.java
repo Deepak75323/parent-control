@@ -15,6 +15,7 @@ import com.parentalcontrol.common.exception.ErrorCode;
 import com.parentalcontrol.common.security.JwtProperties;
 import com.parentalcontrol.common.security.JwtTokenProvider;
 import com.parentalcontrol.common.security.RateLimitService;
+import com.parentalcontrol.common.util.ChatNicknameGenerator;
 import com.parentalcontrol.common.util.SensitiveDataRedactor;
 import com.parentalcontrol.config.EmailVerificationProperties;
 import com.parentalcontrol.user.dao.ParentProfileDao;
@@ -258,6 +259,8 @@ public class AuthService {
         .phone(profile.getPhone())
         .timezone(profile.getTimezone())
         .emailVerified(user.isEmailVerified())
+        .chatNickname(ChatNicknameGenerator.fromEmail(user.getEmail()))
+        .readReceiptsEnabled(profile.isReadReceiptsEnabled())
         .build();
   }
 

@@ -5,8 +5,11 @@ import {
   authApi,
   familyHandleApi,
   parentPinApi,
+  readReceiptsApi,
 } from '../api/services';
 import {useAuthStore} from '../auth/authStore';
+import {useLogout} from '../auth/useLogout';
+import {chatDisplayNickname} from '../lib/chatDisplayNickname';
 import {disconnectWebSocket} from '../realtime/websocket';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 
@@ -15,12 +18,19 @@ export function SettingsPage() {
   const email = useAuthStore(s => s.email);
   const clear = useAuthStore(s => s.clear);
   const navigate = useNavigate();
+  const onLogout = useLogout();
+  const accountEmail = profile?.email ?? email ?? '';
+  const chatNickname =
+    profile?.chatNickname?.trim() ||
+    (accountEmail ? chatDisplayNickname(accountEmail) : 'Unknown Parent');
 
   const [pinConfigured, setPinConfigured] = useState(false);
   const [pin, setPin] = useState('');
   const [pinMsg, setPinMsg] = useState<string | null>(null);
   const [handle, setHandle] = useState('');
   const [handleStatus, setHandleStatus] = useState<string | null>(null);
+  const [readReceiptsEnabled, setReadReceiptsEnabled] = useState(true);
+  const [readReceiptsMsg, setReadReceiptsMsg] = useState<string | null>(null);
   const [deletePassword, setDeletePassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,9 +38,10 @@ export function SettingsPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [pinRes, handleRes] = await Promise.all([
+      const [pinRes, handleRes, receiptsRes] = await Promise.all([
         parentPinApi.status(),
         familyHandleApi.status(),
+        readReceiptsApi.status(),
       ]);
       setPinConfigured(Boolean(pinRes.data.data?.pinConfigured));
       setHandle(handleRes.data.data?.familyHandle ?? '');
@@ -39,6 +50,7 @@ export function SettingsPage() {
           ? `Configured: ${handleRes.data.data.familyHandle}`
           : 'Not configured',
       );
+      setReadReceiptsEnabled(receiptsRes.data.data?.enabled !== false);
     } catch {
       setError('Failed to load settings');
     }
@@ -100,6 +112,26 @@ export function SettingsPage() {
     }
   };
 
+  const onToggleReadReceipts = async () => {
+    const next = !readReceiptsEnabled;
+    setBusy(true);
+    setReadReceiptsMsg(null);
+    try {
+      const {data} = await readReceiptsApi.setEnabled(next);
+      const enabled = data.data?.enabled !== false;
+      setReadReceiptsEnabled(enabled);
+      setReadReceiptsMsg(
+        enabled
+          ? 'Read receipts are on — others will see when you read their messages.'
+          : 'Read receipts are off — others will not see when you read their messages.',
+      );
+    } catch {
+      setReadReceiptsMsg('Could not update read receipt setting');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onDeleteAccount = async (e: FormEvent) => {
     e.preventDefault();
     if (!deletePassword || !window.confirm('Permanently delete this parent account?')) {
@@ -124,7 +156,7 @@ export function SettingsPage() {
       <div className="page-header">
         <div>
           <h1>Settings</h1>
-          <p className="muted">Account, parent PIN, and family handle.</p>
+          <p className="muted">Account, parent PIN, family handle, and chat nickname.</p>
         </div>
       </div>
       {error ? <div className="error">{error}</div> : null}
@@ -146,7 +178,14 @@ export function SettingsPage() {
             <dt>Email verified</dt>
             <dd>{profile?.emailVerified ? 'Yes' : 'No'}</dd>
           </div>
+          <div>
+            <dt>Chat nickname</dt>
+            <dd>{chatNickname}</dd>
+          </div>
         </dl>
+        <p className="muted tiny">
+          Assigned from your email — unique and stable. Shown in chat instead of your @handle.
+        </p>
       </div>
 
       <div className="card">
@@ -192,6 +231,32 @@ export function SettingsPage() {
             Save handle
           </button>
         </form>
+      </div>
+
+      <div className="card">
+        <h2>Chat read receipts</h2>
+        <p className="muted">
+          When enabled, other parents see blue ticks when you receive their messages and green
+          ticks when you read them — like WhatsApp. Turn off to hide your read status.
+        </p>
+        <div className="btn-row">
+          <button
+            type="button"
+            className={`btn ${readReceiptsEnabled ? 'primary' : 'ghost'}`}
+            disabled={busy}
+            onClick={() => void onToggleReadReceipts()}>
+            {readReceiptsEnabled ? 'Read receipts: On' : 'Read receipts: Off'}
+          </button>
+        </div>
+        {readReceiptsMsg ? <p className="muted">{readReceiptsMsg}</p> : null}
+      </div>
+
+      <div className="card">
+        <h2>Session</h2>
+        <p className="muted">Sign out of the web portal on this browser.</p>
+        <button type="button" className="btn ghost" onClick={() => void onLogout()}>
+          Log out
+        </button>
       </div>
 
       <div className="card danger-zone">

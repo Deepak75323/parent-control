@@ -1,3 +1,4 @@
+import type {WebCameraFacing} from './cameraViewerLayout';
 import type {ViewerRotateDeg} from './viewerVideoRotate';
 
 export type VideoFrameLike = {
@@ -101,6 +102,50 @@ export function totalCanvasRotation(
 
 function normalizeDegrees(degrees: number): number {
   return ((Math.round(degrees) % 360) + 360) % 360;
+}
+
+/**
+ * Portrait-upright heuristic from child CameraOrientationHelper defaults
+ * (front sensor 270° → CVO 270, back sensor 90° → CVO 90).
+ */
+export function inferStreamFacingFromCvo(
+  rotation: number | undefined,
+  codedWidth: number,
+  codedHeight: number,
+): WebCameraFacing | null {
+  if (rotation == null || codedWidth <= 0 || codedHeight <= 0) {
+    return null;
+  }
+  if (codedWidth <= codedHeight) {
+    return null;
+  }
+  const cvo = normalizeDegrees(rotation);
+  if (cvo === 270) {
+    return 'user';
+  }
+  if (cvo === 90) {
+    return 'environment';
+  }
+  return null;
+}
+
+/**
+ * Pick front vs back paint path from live frame CVO when confident, else UI hint.
+ * Avoids wrong rotation when Flip toggles store state before the child switches lenses.
+ */
+export function resolveFrontCameraForPaint(
+  frame: VideoFrameLike,
+  facingHint: WebCameraFacing,
+): boolean {
+  const inferred = inferStreamFacingFromCvo(
+    frame.rotation,
+    frame.codedWidth,
+    frame.codedHeight,
+  );
+  if (inferred != null) {
+    return inferred === 'user';
+  }
+  return facingHint === 'user';
 }
 
 /** Natural size `drawImage` uses for this frame, before any canvas rotation. */

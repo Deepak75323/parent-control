@@ -7,7 +7,7 @@ import {
   getActiveRoomId,
   setRemoteAudioEnabled,
 } from '../realtime/webrtcViewer';
-import type {ViewerRotateDeg} from '../lib/viewerVideoRotate';
+import {clampViewerPinchScale, type ViewerRotateDeg} from '../lib/viewerVideoRotate';
 import type {WebCameraFacing} from '../lib/cameraViewerLayout';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {
@@ -30,6 +30,7 @@ interface LiveStreamState {
   busy: boolean;
   muted: boolean;
   viewRotate: ViewerRotateDeg;
+  viewZoomScale: number;
   cameraFacing: WebCameraFacing;
   remoteStream: MediaStream | null;
   videoFrame: VideoFrame;
@@ -42,6 +43,7 @@ interface LiveStreamState {
   setStreamType: (streamType: StreamType) => void;
   setPin: (pin: string) => void;
   setViewRotate: (deg: ViewerRotateDeg | ((prev: ViewerRotateDeg) => ViewerRotateDeg)) => void;
+  setViewZoomScale: (scale: number | ((prev: number) => number)) => void;
   setCameraFacing: (facing: WebCameraFacing | ((prev: WebCameraFacing) => WebCameraFacing)) => void;
   setVideoFrame: (frame: VideoFrame) => void;
   setPipMinimized: (minimized: boolean) => void;
@@ -73,6 +75,7 @@ const initialState = {
   busy: false,
   muted: false,
   viewRotate: 0 as ViewerRotateDeg,
+  viewZoomScale: 1,
   cameraFacing: 'user' as WebCameraFacing,
   remoteStream: null as MediaStream | null,
   videoFrame: {w: 0, h: 0},
@@ -101,6 +104,12 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
     set(state => ({
       viewRotate: typeof viewRotate === 'function' ? viewRotate(state.viewRotate) : viewRotate,
     })),
+  setViewZoomScale: viewZoomScale =>
+    set(state => {
+      const next =
+        typeof viewZoomScale === 'function' ? viewZoomScale(state.viewZoomScale) : viewZoomScale;
+      return {viewZoomScale: clampViewerPinchScale(next)};
+    }),
   setCameraFacing: cameraFacing =>
     set(state => ({
       cameraFacing: typeof cameraFacing === 'function' ? cameraFacing(state.cameraFacing) : cameraFacing,
@@ -109,7 +118,7 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
   setPipMinimized: pipMinimized => set({pipMinimized}),
   setPipPosition: pipPosition => set({pipPosition}),
   setPipSize: pipSize => set({pipSize}),
-  resetView: () => set({viewRotate: 0}),
+  resetView: () => set({viewRotate: 0, viewZoomScale: 1}),
   expandPip: () => {
     const {videoFrame, viewRotate, streamType} = get();
     const aspect = pipVideoAspect(videoFrame, viewRotate, streamType);
@@ -125,6 +134,7 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
       pipMinimized: false,
       pipSize: pipSizeForAspect(aspect),
       viewRotate: 0,
+      viewZoomScale: 1,
     });
   },
   registerVideoFullscreenToggle: toggle => {
@@ -146,6 +156,7 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
       deviceId,
       deviceName,
       viewRotate: 0,
+      viewZoomScale: 1,
       videoFrame: {w: 0, h: 0},
       remoteStream: null,
       cameraFacing: 'user',
@@ -227,8 +238,9 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
     }
     try {
       await monitoringApi.switchCamera(sessionId);
+      // Hint for ambiguous CVO; portrait frames use stream metadata via CameraFrameViewer.
       get().setCameraFacing(prev => (prev === 'user' ? 'environment' : 'user'));
-      set({viewRotate: 0, videoFrame: {w: 0, h: 0}});
+      set({videoFrame: {w: 0, h: 0}});
     } catch {
       set({error: 'Could not switch camera'});
     }
@@ -248,6 +260,7 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
       remoteStream: null,
       busy: false,
       viewRotate: 0,
+      viewZoomScale: 1,
       videoFrame: {w: 0, h: 0},
       status: 'Moved to another client',
       error: 'Live view continued on the parent app or another browser tab.',

@@ -150,8 +150,33 @@ export function connectWebSocket(): void {
       });
 
       client?.subscribe('/user/queue/chat-messages', msg => {
-        const event = parseJson<ChatMessageItem>(msg);
-        useRealtimeStore.getState().pushLiveChatMessage(event);
+        const event = parseJson<
+          | ChatMessageItem
+          | {eventType: string; roomId: string; messageId?: string}
+        >(msg);
+        if ('eventType' in event && event.eventType === 'MESSAGE_DELETED' && event.messageId) {
+          useRealtimeStore.getState().removeLiveChatMessage(event.messageId);
+          return;
+        }
+        if ('eventType' in event && event.eventType === 'CHAT_CLEARED') {
+          useRealtimeStore.getState().clearLiveChatMessagesForRoom(event.roomId);
+          return;
+        }
+        if (
+          'eventType' in event &&
+          event.eventType === 'MESSAGE_RECEIPT_UPDATED' &&
+          event.messageId &&
+          'receiptStatus' in event
+        ) {
+          useRealtimeStore
+            .getState()
+            .updateLiveChatMessageReceipt(
+              event.messageId,
+              event.receiptStatus as ChatMessageItem['receiptStatus'],
+            );
+          return;
+        }
+        useRealtimeStore.getState().upsertLiveChatMessage(event as ChatMessageItem);
       });
 
       client?.subscribe('/user/queue/chat-invites', msg => {
@@ -162,6 +187,9 @@ export function connectWebSocket(): void {
       client?.subscribe('/user/queue/chat-rooms', msg => {
         const event = parseJson<{eventType: string; roomId?: string}>(msg);
         if (event.eventType === 'ROOM_DELETED' && event.roomId) {
+          useRealtimeStore.getState().notifyChatRoomDeleted();
+        } else if (event.eventType === 'MEMBER_LEFT' && event.roomId) {
+          useRealtimeStore.getState().markChatRoomRemoved(event.roomId);
           useRealtimeStore.getState().notifyChatRoomDeleted();
         } else {
           useRealtimeStore.getState().bumpChatRooms();

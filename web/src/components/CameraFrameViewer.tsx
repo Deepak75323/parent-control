@@ -1,12 +1,18 @@
 import {useEffect, useRef} from 'react';
+import type {WebCameraFacing} from '../lib/cameraViewerLayout';
 import {
+  inferStreamFacingFromCvo,
   paintVideoFrameToCanvas,
+  resolveFrontCameraForPaint,
   videoFrameDisplaySize,
 } from '../lib/cameraFramePaint';
 import {createMediaStreamTrackProcessor} from '../lib/mediaStreamTrackProcessor';
 import type {ViewerRotateDeg} from '../lib/viewerVideoRotate';
+import {viewerZoomLayerStyle} from '../lib/viewerVideoRotate';
 
 type VideoFrameWithCvo = VideoFrame & {rotation?: number};
+
+const CANVAS_FRAME_TIMEOUT_MS = 2500;
 
 type Props = {
   stream: MediaStream | null;
@@ -14,14 +20,25 @@ type Props = {
   className?: string;
   canvasClassName?: string;
   viewerRotate?: ViewerRotateDeg;
-  /** Front lens streams carry mirrored-preview CVO and need compensation. */
-  frontCamera?: boolean;
+  /** Viewer-only pinch/button zoom (CSS scale on the canvas layer). */
+  viewZoomScale?: number;
+  /** UI hint when CVO cannot distinguish front vs back (e.g. landscape tilt). */
+  facingHint?: WebCameraFacing;
+  onFacingInferred?: (facing: WebCameraFacing) => void;
   onVideoDimensions?: (width: number, height: number) => void;
 };
 
+/** Mobile browsers often expose MediaStreamTrackProcessor but never deliver frames. */
+function preferVideoElement(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
 /**
  * Camera viewer via WebCodecs canvas — VideoFrame.drawImage applies RTP CVO reliably.
- * The <video> tag applies CVO inconsistently in Chrome (sideways, upside-down, or correct).
+ * Falls back to <video> on mobile or when the canvas path receives no frames.
  */
 export function CameraFrameViewer({
   stream,
@@ -29,7 +46,9 @@ export function CameraFrameViewer({
   className,
   canvasClassName,
   viewerRotate = 0,
-  frontCamera = true,
+  viewZoomScale = 1,
+  facingHint = 'user',
+  onFacingInferred,
   onVideoDimensions,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -40,8 +59,11 @@ export function CameraFrameViewer({
   viewerRotateRef.current = viewerRotate;
   const objectFitRef = useRef(objectFit);
   objectFitRef.current = objectFit;
-  const frontCameraRef = useRef(frontCamera);
-  frontCameraRef.current = frontCamera;
+  const facingHintRef = useRef(facingHint);
+  facingHintRef.current = facingHint;
+  const onFacingInferredRef = useRef(onFacingInferred);
+  onFacingInferredRef.current = onFacingInferred;
+  const lastReportedFacingRef = useRef<WebCameraFacing | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -50,13 +72,11 @@ export function CameraFrameViewer({
       return;
     }
 
-    const track = stream.getVideoTracks()[0];
-    if (!track) {
-      return;
-    }
-
     let cancelled = false;
     let reader: ReadableStreamDefaultReader<VideoFrameWithCvo> | null = null;
+    let cleanupVideo: (() => void) | undefined;
+    let frameTimeout: ReturnType<typeof setTimeout> | undefined;
+    let paintedFrame = false;
 
     const resizeCanvas = () => {
       const rect = container.getBoundingClientRect();
@@ -74,6 +94,16 @@ export function CameraFrameViewer({
         return;
       }
       resizeCanvas();
+      const frontCamera = resolveFrontCameraForPaint(frame, facingHintRef.current);
+      const inferred = inferStreamFacingFromCvo(
+        frame.rotation,
+        frame.codedWidth,
+        frame.codedHeight,
+      );
+      if (inferred != null && inferred !== lastReportedFacingRef.current) {
+        lastReportedFacingRef.current = inferred;
+        onFacingInferredRef.current?.(inferred);
+      }
       paintVideoFrameToCanvas(
         ctx,
         frame,
@@ -81,8 +111,13 @@ export function CameraFrameViewer({
         canvas.height,
         objectFitRef.current,
         viewerRotateRef.current,
-        frontCameraRef.current,
+        frontCamera,
       );
+      paintedFrame = true;
+      if (frameTimeout) {
+        clearTimeout(frameTimeout);
+        frameTimeout = undefined;
+      }
       const {width, height} = videoFrameDisplaySize({
         codedWidth: frame.codedWidth,
         codedHeight: frame.codedHeight,
@@ -95,26 +130,14 @@ export function CameraFrameViewer({
       }
     };
 
-    const pump = async () => {
-      const processor = createMediaStreamTrackProcessor(track);
-      if (!processor) {
+    const mountVideoFallback = () => {
+      if (cancelled || cleanupVideo) {
         return;
       }
-      reader = processor.readable.getReader();
-      resizeCanvas();
-
-      while (!cancelled) {
-        const {done, value: frame} = await reader.read();
-        if (done || cancelled) {
-          frame?.close();
-          break;
-        }
-        if (!frame) {
-          continue;
-        }
-        paintFrame(frame);
-        frame.close();
-      }
+      cancelled = true;
+      void reader?.cancel().catch(() => undefined);
+      reader = null;
+      cleanupVideo = fallbackToVideo();
     };
 
     const fallbackToVideo = () => {
@@ -123,6 +146,7 @@ export function CameraFrameViewer({
       video.className = canvasClassName ?? '';
       video.autoplay = true;
       video.playsInline = true;
+      video.setAttribute('playsinline', 'true');
       video.muted = true;
       video.style.position = 'absolute';
       video.style.inset = '0';
@@ -137,26 +161,88 @@ export function CameraFrameViewer({
         }
       };
       video.addEventListener('loadedmetadata', sync);
+      video.addEventListener('resize', sync);
       void video.play().then(sync).catch(() => undefined);
       return () => {
         video.removeEventListener('loadedmetadata', sync);
+        video.removeEventListener('resize', sync);
         video.srcObject = null;
         video.remove();
         canvas.style.display = '';
       };
     };
 
-    let cleanupVideo: (() => void) | undefined;
-    if (!createMediaStreamTrackProcessor(track)) {
-      cleanupVideo = fallbackToVideo();
-    } else {
+    const startCanvasPump = (track: MediaStreamTrack) => {
+      const processor = createMediaStreamTrackProcessor(track);
+      if (!processor) {
+        cleanupVideo = fallbackToVideo();
+        return;
+      }
+
+      frameTimeout = setTimeout(() => {
+        if (!paintedFrame) {
+          mountVideoFallback();
+        }
+      }, CANVAS_FRAME_TIMEOUT_MS);
+
+      const pump = async () => {
+        reader = processor.readable.getReader();
+        resizeCanvas();
+        try {
+          while (!cancelled) {
+            const {done, value: frame} = await reader.read();
+            if (done || cancelled) {
+              frame?.close();
+              break;
+            }
+            if (!frame) {
+              continue;
+            }
+            paintFrame(frame);
+            frame.close();
+          }
+        } catch {
+          if (!paintedFrame && !cancelled) {
+            mountVideoFallback();
+          }
+        }
+      };
+
       void pump();
-    }
+    };
+
+    const startForTrack = (track: MediaStreamTrack | undefined) => {
+      if (cancelled || cleanupVideo) {
+        return;
+      }
+      if (!track) {
+        return;
+      }
+      if (preferVideoElement()) {
+        cleanupVideo = fallbackToVideo();
+        return;
+      }
+      startCanvasPump(track);
+    };
+
+    startForTrack(stream.getVideoTracks()[0]);
+
+    const onAddTrack = (event: MediaStreamTrackEvent) => {
+      if (event.track.kind === 'video' && !paintedFrame && !cleanupVideo) {
+        startForTrack(event.track);
+      }
+    };
+    stream.addEventListener('addtrack', onAddTrack);
+
     const ro = new ResizeObserver(resizeCanvas);
     ro.observe(container);
 
     return () => {
       cancelled = true;
+      if (frameTimeout) {
+        clearTimeout(frameTimeout);
+      }
+      stream.removeEventListener('addtrack', onAddTrack);
       ro.disconnect();
       cleanupVideo?.();
       void reader?.cancel().catch(() => undefined);
@@ -164,7 +250,15 @@ export function CameraFrameViewer({
   }, [stream, canvasClassName]);
 
   return (
-    <div ref={containerRef} className={className} style={{position: 'absolute', inset: 0}}>
+    <div
+      ref={containerRef}
+      className={className}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        transformOrigin: 'center center',
+        ...viewerZoomLayerStyle(viewZoomScale),
+      }}>
       <canvas ref={canvasRef} className={canvasClassName} aria-label="Live camera" />
     </div>
   );

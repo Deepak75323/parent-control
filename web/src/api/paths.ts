@@ -48,12 +48,25 @@ export const ApiPaths = {
   PARENT_PIN_STATUS: `${V1}/parent/pin/status`,
   PARENT_FAMILY_HANDLE: `${V1}/parent/family-handle`,
   PARENT_FAMILY_HANDLE_STATUS: `${V1}/parent/family-handle/status`,
+  PARENT_READ_RECEIPTS: `${V1}/parent/read-receipts`,
+  PARENT_READ_RECEIPTS_STATUS: `${V1}/parent/read-receipts/status`,
 
   CHAT_ROOMS: `${V1}/chat/rooms`,
   chatRoom: (roomId: string) => `${V1}/chat/rooms/${roomId}`,
+  chatRoomClearHistory: (roomId: string) => `${V1}/chat/rooms/${roomId}/clear-history`,
+  chatRoomLeave: (roomId: string) => `${V1}/chat/rooms/${roomId}/leave`,
   chatRoomMembers: (roomId: string) => `${V1}/chat/rooms/${roomId}/members`,
   chatRoomInvites: (roomId: string) => `${V1}/chat/rooms/${roomId}/invites`,
   chatRoomMessages: (roomId: string) => `${V1}/chat/rooms/${roomId}/messages`,
+  chatRoomDelivered: (roomId: string) => `${V1}/chat/rooms/${roomId}/delivered`,
+  chatRoomRead: (roomId: string) => `${V1}/chat/rooms/${roomId}/read`,
+  chatMessage: (roomId: string, messageId: string) =>
+    `${V1}/chat/rooms/${roomId}/messages/${messageId}`,
+  chatRoomMediaMessages: (roomId: string) => `${V1}/chat/rooms/${roomId}/messages/media`,
+  chatMessageAttachment: (roomId: string, messageId: string) =>
+    `${V1}/chat/rooms/${roomId}/messages/${messageId}/attachment`,
+  chatMessageAttachmentView: (roomId: string, messageId: string) =>
+    `${V1}/chat/rooms/${roomId}/messages/${messageId}/attachment/view`,
   CHAT_INVITES_PENDING: `${V1}/chat/invites/pending`,
   chatInviteRespond: (inviteId: string) => `${V1}/chat/invites/${inviteId}/respond`,
 } as const;

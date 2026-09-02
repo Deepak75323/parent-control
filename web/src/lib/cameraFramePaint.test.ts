@@ -4,7 +4,9 @@ import {
   displayRotationDegrees,
   drawnSourceSize,
   frameCvoDegrees,
+  inferStreamFacingFromCvo,
   paintVideoFrameToCanvas,
+  resolveFrontCameraForPaint,
   totalCanvasRotation,
   videoFrameDisplaySize,
 } from './cameraFramePaint';
@@ -133,6 +135,43 @@ describe('frameCvoDegrees', () => {
         rotation: 0,
       }),
     ).toBe(0);
+  });
+});
+
+describe('inferStreamFacingFromCvo', () => {
+  it('maps portrait front camera CVO 270 to user', () => {
+    expect(inferStreamFacingFromCvo(270, 640, 480)).toBe('user');
+  });
+
+  it('maps portrait back camera CVO 90 to environment', () => {
+    expect(inferStreamFacingFromCvo(90, 640, 480)).toBe('environment');
+  });
+
+  it('returns null for ambiguous landscape tilt', () => {
+    expect(inferStreamFacingFromCvo(0, 640, 480)).toBeNull();
+  });
+});
+
+describe('resolveFrontCameraForPaint', () => {
+  const frontPortrait = {
+    codedWidth: 640,
+    codedHeight: 480,
+    displayWidth: 480,
+    displayHeight: 640,
+    rotation: 270,
+  };
+
+  it('prefers CVO inference over a stale hint after flip', () => {
+    expect(resolveFrontCameraForPaint(frontPortrait, 'environment')).toBe(true);
+  });
+
+  it('falls back to hint when CVO is ambiguous', () => {
+    expect(
+      resolveFrontCameraForPaint(
+        {codedWidth: 640, codedHeight: 480, displayWidth: 640, displayHeight: 480, rotation: 0},
+        'environment',
+      ),
+    ).toBe(false);
   });
 });
 
