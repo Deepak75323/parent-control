@@ -1,10 +1,12 @@
 import {monitoringApi, signalingApi} from '../api/services';
+import {streamFailureMessage} from '../lib/streamFailureMessages';
 import type {StreamType} from '../types/api';
 import {useRealtimeStore} from './realtimeStore';
 import {
   subscribeSignalingRoom,
   unsubscribeSignalingRoom,
 } from './signalingWebSocket';
+import {connectWebSocket} from './websocket';
 
 export type ViewerCallbacks = {
   onRemoteStream: (stream: MediaStream) => void;
@@ -52,6 +54,20 @@ function shouldAbortOfferWait(): boolean {
     return false;
   }
   return true;
+}
+
+/** Map child/backend failure codes to parent-facing copy when offer wait ends. */
+function offerWaitFailureMessage(): string {
+  const streaming = useRealtimeStore.getState().streamingState;
+  if (
+    streaming?.status === 'FAILED' &&
+    (!streaming.roomId || streaming.roomId === activeRoomId)
+  ) {
+    return streamFailureMessage(streaming.failureReason);
+  }
+  return (
+    'Child stream did not start. Confirm the device is online and permissions are finished.'
+  );
 }
 
 async function loadIceServers(sessionId?: string): Promise<RTCIceServer[]> {
@@ -189,7 +205,7 @@ async function pollSignaling(): Promise<boolean> {
   }
 }
 
-async function waitForOffer(timeoutMs = 60000): Promise<boolean> {
+async function waitForOffer(timeoutMs = 120000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   let subscribedToSignaling = false;
 
@@ -311,15 +327,16 @@ export async function connectBrowserViewer(
 
   await createPc(roomId, sessionId);
 
+  // Ensure STOMP is up so streaming-state FAILED aborts offer wait promptly.
+  connectWebSocket();
+
   pollTimer = setInterval(() => {
     void pollSignaling();
   }, 500);
 
   const offerOk = await waitForOffer();
   if (!offerOk) {
-    throw new Error(
-      'Child stream did not start. Confirm the device is online and permissions are finished.',
-    );
+    throw new Error(offerWaitFailureMessage());
   }
 
   if (pollTimer) {
