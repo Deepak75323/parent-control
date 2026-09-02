@@ -1171,6 +1171,7 @@ select:focus {
 }
 
 .dc-content--chat {
+  flex: 1;
   padding: 0;
   overflow: hidden;
   display: flex;
@@ -1178,10 +1179,17 @@ select:focus {
   min-height: 0;
 }
 
+.dc-app:has(.dc-content--chat) .dc-main {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .chat-layout {
   display: grid;
   grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
   flex: 1;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
@@ -1216,6 +1224,7 @@ select:focus {
 .chat-thread-wrap {
   min-height: 0;
   min-width: 0;
+  height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1590,9 +1599,52 @@ body.chat-resizing * {
 .chat-thread-panel {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   background: color-mix(in srgb, var(--gp-primary) 4%, var(--gp-bg));
+}
+
+.chat-file-drop-zone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chat-file-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--gp-primary) 12%, var(--gp-bg) 88%);
+  border: 2px dashed color-mix(in srgb, var(--gp-primary) 55%, transparent);
+  pointer-events: none;
+}
+
+.chat-file-drop-overlay-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--gp-primary-dark);
+}
+
+.chat-file-drop-overlay-inner p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.chat-file-drop-zone--active .chat-messages {
+  opacity: 0.35;
 }
 
 .chat-panel-head {
@@ -2644,6 +2696,7 @@ body.chat-resizing * {
   border-top: 1px solid var(--gp-border-light);
   background: var(--gp-surface);
   flex-shrink: 0;
+  margin-top: auto;
 }
 
 .chat-compose-preview-media {
@@ -2672,12 +2725,19 @@ body.chat-resizing * {
   border-top: 1px solid var(--gp-border-light);
   background: var(--gp-surface);
   flex-shrink: 0;
+  margin-top: auto;
+}
+
+.chat-compose-preview + .chat-compose {
+  margin-top: 0;
+  border-top: none;
 }
 
 .chat-compose--editing {
   flex-direction: column;
   align-items: stretch;
   gap: 10px;
+  margin-top: auto;
 }
 
 .chat-compose-editing-head {

@@ -8,11 +8,13 @@ import {groupMessagesByDate} from '../lib/chatMessageGrouping';
 import {resolveOwnSenderUserId, withResolvedOwnership} from '../lib/chatMessageOwnership';
 import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
 import {resolveChatDisplayNickname} from '../lib/chatDisplayNickname';
+import {validateChatMediaFile} from '../lib/chatMediaUpload';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {Avatar} from '../components/Avatar';
 import {ChatMessageMedia} from '../components/ChatMessageMedia';
 import {ChatInviteBar} from '../components/chat/ChatInviteBar';
 import {ChatMediaPreview} from '../components/chat/ChatMediaPreview';
+import {ChatFileDropZone} from '../components/chat/ChatFileDropZone';
 import {ChatHeader} from '../components/chat/ChatHeader';
 import {ChatRoomsPanel} from '../components/chat/ChatRoomsPanel';
 import {ChatWorkspaceLayout} from '../components/chat/ChatWorkspaceLayout';
@@ -22,11 +24,6 @@ import {EmptyChatState} from '../components/chat/EmptyChatState';
 import {MessageBubble} from '../components/chat/MessageBubble';
 import {EditMessageComposer, MessageComposer} from '../components/chat/MessageComposer';
 import type {ChatInviteItem, ChatMessageItem, ChatRoomSummary} from '../types/api';
-
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
-const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-const VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
 
 export function ChatPage() {
   const location = useLocation();
@@ -418,30 +415,26 @@ export function ChatPage() {
     }
   }
 
-  function validateMediaFile(file: File): string | null {
-    const mime = file.type.toLowerCase();
-    if (IMAGE_TYPES.has(mime)) {
-      return file.size > MAX_IMAGE_BYTES ? 'Image must be 10 MB or smaller' : null;
-    }
-    if (VIDEO_TYPES.has(mime)) {
-      return file.size > MAX_VIDEO_BYTES ? 'Video must be 50 MB or smaller' : null;
-    }
-    return 'Only JPEG, PNG, WebP, GIF images or MP4, WebM, MOV videos are allowed';
-  }
+  const acceptPendingMediaFile = useCallback(
+    (file: File) => {
+      const validationError = validateChatMediaFile(file);
+      if (validationError) {
+        setError(validationError);
+        clearPendingFile();
+        return;
+      }
+      setError(null);
+      setPendingFile(file);
+    },
+    [],
+  );
 
   function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
-    const validationError = validateMediaFile(file);
-    if (validationError) {
-      setError(validationError);
-      clearPendingFile();
-      return;
-    }
-    setError(null);
-    setPendingFile(file);
+    acceptPendingMediaFile(file);
   }
 
   async function handleCreateRoom(event: FormEvent) {
@@ -922,7 +915,9 @@ export function ChatPage() {
                 </p>
               </div>
             ) : (
-              <>
+              <ChatFileDropZone
+                enabled={!busy && !editingMessageId}
+                onFile={acceptPendingMediaFile}>
                 <ChatInviteBar
                   visible={showInvite}
                   identifier={inviteIdentifier}
@@ -1053,7 +1048,7 @@ export function ChatPage() {
                     onFileSelected={handleFileSelected}
                   />
                 )}
-              </>
+              </ChatFileDropZone>
             )}
           </section>
         }
