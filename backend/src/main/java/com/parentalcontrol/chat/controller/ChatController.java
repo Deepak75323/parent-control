@@ -2,6 +2,7 @@ package com.parentalcontrol.chat.controller;
 
 import com.parentalcontrol.chat.dto.ChatInviteResponse;
 import com.parentalcontrol.chat.dto.ChatMemberResponse;
+import com.parentalcontrol.chat.dto.ChatMessageReactionSummary;
 import com.parentalcontrol.chat.dto.ChatMessageResponse;
 import com.parentalcontrol.chat.dto.ChatRoomSummaryResponse;
 import com.parentalcontrol.chat.dto.CreateChatInviteRequest;
@@ -10,6 +11,7 @@ import com.parentalcontrol.chat.dto.MarkChatDeliveredRequest;
 import com.parentalcontrol.chat.dto.MarkChatReadRequest;
 import com.parentalcontrol.chat.dto.RespondChatInviteRequest;
 import com.parentalcontrol.chat.dto.SendChatMessageRequest;
+import com.parentalcontrol.chat.dto.SetChatMessageReactionRequest;
 import com.parentalcontrol.chat.service.ChatService;
 import com.parentalcontrol.chat.service.ChatService.AttachmentPayload;
 import com.parentalcontrol.common.api.ApiResponse;
@@ -31,6 +33,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -136,6 +139,15 @@ public class ChatController {
       @PathVariable UUID messageId,
       @Valid @RequestBody SendChatMessageRequest request) {
     return ApiResponse.ok(chatService.editMessage(roomId, messageId, request));
+  }
+
+  @PutMapping("/rooms/{roomId}/messages/{messageId}/reactions")
+  @Operation(summary = "Add, change, or remove your emoji reaction on a message")
+  public ApiResponse<List<ChatMessageReactionSummary>> setMessageReaction(
+      @PathVariable UUID roomId,
+      @PathVariable UUID messageId,
+      @Valid @RequestBody SetChatMessageReactionRequest request) {
+    return ApiResponse.ok(chatService.setMessageReaction(roomId, messageId, request.getEmoji()));
   }
 
   @PostMapping(

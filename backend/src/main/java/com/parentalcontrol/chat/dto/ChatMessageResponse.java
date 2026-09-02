@@ -3,6 +3,7 @@ package com.parentalcontrol.chat.dto;
 import com.parentalcontrol.chat.domain.ChatMessageType;
 import com.parentalcontrol.chat.domain.ChatReceiptStatus;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Value;
@@ -31,4 +32,6 @@ public class ChatMessageResponse {
   ChatReceiptStatus receiptStatus;
   /** Quoted parent message, when this message is a reply. */
   ChatMessageReplyPreview replyTo;
+  /** Emoji reactions grouped by emoji. */
+  List<ChatMessageReactionSummary> reactions;
 }

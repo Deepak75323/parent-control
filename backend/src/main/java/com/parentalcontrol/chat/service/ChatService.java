@@ -10,6 +10,7 @@ import com.parentalcontrol.chat.domain.ChatRoomMember;
 import com.parentalcontrol.chat.domain.ChatRoomMemberRole;
 import com.parentalcontrol.chat.dto.ChatInviteResponse;
 import com.parentalcontrol.chat.dto.ChatMemberResponse;
+import com.parentalcontrol.chat.dto.ChatMessageReactionSummary;
 import com.parentalcontrol.chat.dto.ChatMessageReplyPreview;
 import com.parentalcontrol.chat.dto.ChatMessageResponse;
 import com.parentalcontrol.chat.dto.ChatRoomSummaryResponse;
@@ -40,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -70,6 +72,7 @@ public class ChatService {
   private final ChatRealtimeService realtimeService;
   private final ChatAttachmentStorageService attachmentStorageService;
   private final ChatReadReceiptService readReceiptService;
+  private final ChatMessageReactionService reactionService;
   private final FamilyHandleService familyHandleService;
   private final ParentProfileDao parentProfileDao;
   private final UserDao userDao;
@@ -219,6 +222,7 @@ public class ChatService {
     }
 
     attachmentStorageService.deleteQuietly(message.getAttachmentStorageKey());
+    reactionService.deleteReactionsForMessage(messageId);
     message.setDeletedAt(Instant.now());
     messageRepository.save(message);
 
@@ -228,6 +232,23 @@ public class ChatService {
     for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
       realtimeService.publishMessageDeleted(member.getUserId(), roomId, messageId);
     }
+  }
+
+  @Transactional
+  public List<ChatMessageReactionSummary> setMessageReaction(
+      UUID roomId, UUID messageId, String emoji) {
+    UUID userId = SecurityUtils.requireUserId();
+    requireActiveMember(roomId, userId);
+
+    List<ChatMessageReactionSummary> reactions =
+        reactionService.toggleReaction(roomId, messageId, userId, emoji, this::displayLabel);
+
+    for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
+      realtimeService.publishMessageReactionsUpdated(
+          member.getUserId(), roomId, messageId, reactions);
+    }
+
+    return reactions;
   }
 
   @Transactional
@@ -388,9 +409,18 @@ public class ChatService {
         messageRepository.findActiveByRoomIdOrderByCreatedAtDesc(
             roomId, PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
 
+    List<ChatMessage> content = messages.getContent();
+    List<UUID> messageIds = content.stream().map(ChatMessage::getId).toList();
+    Map<UUID, List<ChatMessageReactionSummary>> reactionsByMessage =
+        reactionService.summariesByMessageIds(messageIds, userId, this::displayLabel);
+
     List<ChatMessageResponse> responses = new ArrayList<>();
-    for (ChatMessage message : messages.getContent()) {
-      responses.add(toMessageResponse(message, userId));
+    for (ChatMessage message : content) {
+      responses.add(
+          toMessageResponse(
+              message,
+              userId,
+              reactionsByMessage.getOrDefault(message.getId(), List.of())));
     }
     Collections.reverse(responses);
     return responses;
@@ -675,6 +705,15 @@ public class ChatService {
   }
 
   private ChatMessageResponse toMessageResponse(ChatMessage message, UUID viewerUserId) {
+    List<ChatMessageReactionSummary> reactions =
+        reactionService
+            .summariesByMessageIds(List.of(message.getId()), viewerUserId, this::displayLabel)
+            .getOrDefault(message.getId(), List.of());
+    return toMessageResponse(message, viewerUserId, reactions);
+  }
+
+  private ChatMessageResponse toMessageResponse(
+      ChatMessage message, UUID viewerUserId, List<ChatMessageReactionSummary> reactions) {
     boolean ownMessage = message.getSenderUserId().equals(viewerUserId);
     boolean consumed =
         message.getAttachmentConsumedAt() != null
@@ -717,6 +756,7 @@ public class ChatService {
         .editedAt(message.getEditedAt())
         .receiptStatus(ownMessage ? readReceiptService.statusForMessage(message.getId()) : null)
         .replyTo(buildReplyPreview(message))
+        .reactions(reactions)
         .build();
   }
 

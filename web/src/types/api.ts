@@ -228,6 +228,13 @@ export interface ChatMessageReplyPreview {
   deleted: boolean;
 }
 
+export interface ChatMessageReactionSummary {
+  emoji: string;
+  count: number;
+  reactedByMe: boolean;
+  reactorLabels: string[];
+}
+
 export interface ChatMessageItem {
   id: string;
   roomId: string;
@@ -248,5 +255,6 @@ export interface ChatMessageItem {
   editedAt?: string | null;
   receiptStatus?: 'SENT' | 'DELIVERED' | 'READ';
   replyTo?: ChatMessageReplyPreview | null;
+  reactions?: ChatMessageReactionSummary[];
 }
 

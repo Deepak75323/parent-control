@@ -2,10 +2,12 @@ package com.parentalcontrol.chat.service;
 
 import com.parentalcontrol.chat.domain.ChatReceiptStatus;
 import com.parentalcontrol.chat.dto.ChatInviteResponse;
+import com.parentalcontrol.chat.dto.ChatMessageReactionSummary;
 import com.parentalcontrol.chat.dto.ChatMessageResponse;
 import com.parentalcontrol.messaging.ClusterStompMessagingService;
 import java.util.Map;
 import java.util.UUID;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -78,5 +80,20 @@ public class ChatRealtimeService {
             "roomId", roomId.toString(),
             "messageId", messageId.toString(),
             "receiptStatus", status.name()));
+  }
+
+  public void publishMessageReactionsUpdated(
+      UUID memberUserId,
+      UUID roomId,
+      UUID messageId,
+      java.util.List<ChatMessageReactionSummary> reactions) {
+    messagingTemplate.convertAndSendToUser(
+        memberUserId.toString(),
+        "/queue/chat-messages",
+        Map.of(
+            "eventType", "MESSAGE_REACTIONS_UPDATED",
+            "roomId", roomId.toString(),
+            "messageId", messageId.toString(),
+            "reactions", reactions));
   }
 }

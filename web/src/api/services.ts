@@ -22,6 +22,7 @@ import type {
   ChatInviteItem,
   ChatMemberItem,
   ChatMessageItem,
+  ChatMessageReactionSummary,
 } from '../types/api';
 
 export const authApi = {
@@ -238,4 +239,9 @@ export const chatApi = {
     api.post<ApiResponse<void>>(ApiPaths.chatRoomDelivered(roomId), {messageIds}),
   markRead: (roomId: string, lastMessageId: string) =>
     api.post<ApiResponse<void>>(ApiPaths.chatRoomRead(roomId), {lastMessageId}),
+  setMessageReaction: (roomId: string, messageId: string, emoji: string) =>
+    api.put<ApiResponse<ChatMessageReactionSummary[]>>(
+      ApiPaths.chatMessageReactions(roomId, messageId),
+      {emoji},
+    ),
 };

@@ -354,5 +354,9 @@ public final class MessageConstants {
   public static final String CHAT_REPLY_MESSAGE_NOT_FOUND =
       "The message you are replying to was not found";
 
+  public static final String CHAT_REACTION_EMOJI_REQUIRED = "Reaction emoji is required";
+
+  public static final String CHAT_REACTION_EMOJI_INVALID = "Reaction emoji is invalid";
+
   private MessageConstants() {}
 }

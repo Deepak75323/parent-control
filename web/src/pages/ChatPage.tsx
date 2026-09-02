@@ -94,6 +94,7 @@ export function ChatPage() {
   const chatClearedAt = useRealtimeStore(s => s.chatClearedAt);
   const removeLiveChatMessage = useRealtimeStore(s => s.removeLiveChatMessage);
   const receiptPatches = useRealtimeStore(s => s.receiptPatches);
+  const reactionPatches = useRealtimeStore(s => s.reactionPatches);
   const deliveredMarkedRef = useRef<Set<string>>(new Set());
   const lastReadMarkedRef = useRef<string | null>(null);
 
@@ -154,7 +155,9 @@ export function ChatPage() {
         .map(message => withResolvedOwnership(message, ownSenderUserId))
         .map(message => {
           const patch = receiptPatches[message.id];
-          return patch ? {...message, receiptStatus: patch} : message;
+          const reactions = reactionPatches[message.id] ?? message.reactions;
+          const withReceipt = patch ? {...message, receiptStatus: patch} : message;
+          return reactions !== message.reactions ? {...withReceipt, reactions} : withReceipt;
         })
         .sort(
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -168,6 +171,7 @@ export function ChatPage() {
     chatClearedAt,
     messagesLoadedAt,
     receiptPatches,
+    reactionPatches,
     ownSenderUserId,
   ]);
 
@@ -946,6 +950,30 @@ export function ChatPage() {
     [],
   );
 
+  const patchMessageReactions = useCallback((messageId: string, reactions: ChatMessageItem['reactions']) => {
+    setApiMessages(prev =>
+      prev.map(message => (message.id === messageId ? {...message, reactions} : message)),
+    );
+    useRealtimeStore.getState().updateLiveChatMessageReactions(messageId, reactions);
+  }, []);
+
+  const handleToggleReaction = useCallback(
+    (message: ChatMessageItem, emoji: string) => {
+      if (!selectedRoomId || busy) {
+        return;
+      }
+      void chatApi
+        .setMessageReaction(selectedRoomId, message.id, emoji)
+        .then(({data}) => {
+          patchMessageReactions(message.id, data.data ?? []);
+        })
+        .catch(() => {
+          setError('Could not update reaction');
+        });
+    },
+    [busy, patchMessageReactions, selectedRoomId],
+  );
+
   function handleCopyMessage(message: ChatMessageItem) {
     if (!message.body) {
       return;
@@ -998,7 +1026,8 @@ export function ChatPage() {
         onDelete={() => void handleDeleteMessage(message)}
         onCopy={() => handleCopyMessage(message)}
         onReply={() => startReplyMessage(message)}
-        onQuoteClick={scrollToMessage}>
+        onQuoteClick={scrollToMessage}
+        onToggleReaction={emoji => handleToggleReaction(message, emoji)}>
         {renderMessageBody(message)}
       </MessageBubble>
     );

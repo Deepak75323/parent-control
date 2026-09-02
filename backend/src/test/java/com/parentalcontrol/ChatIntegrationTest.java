@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -466,6 +467,50 @@ class ChatIntegrationTest {
                 .content("{\"enabled\":false}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.enabled").value(false));
+  }
+
+  @Test
+  @Order(74)
+  void messageEmojiReactionsToggleLikeWhatsApp() throws Exception {
+    MvcResult sent =
+        mockMvc
+            .perform(
+                post("/api/v1/chat/rooms/" + roomId + "/messages")
+                    .header("Authorization", "Bearer " + tokenA)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"body\":\"React to me\"}"))
+            .andExpect(status().isOk())
+            .andReturn();
+    String messageId = readData(sent).get("id").asText();
+
+    mockMvc
+        .perform(
+            put("/api/v1/chat/rooms/" + roomId + "/messages/" + messageId + "/reactions")
+                .header("Authorization", "Bearer " + tokenB)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"emoji\":\"👍\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].emoji").value("👍"))
+        .andExpect(jsonPath("$.data[0].count").value(1))
+        .andExpect(jsonPath("$.data[0].reactedByMe").value(true));
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenA))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[?(@.id=='" + messageId + "')].reactions[0].emoji").value("👍"))
+        .andExpect(jsonPath("$.data[?(@.id=='" + messageId + "')].reactions[0].count").value(1))
+        .andExpect(jsonPath("$.data[?(@.id=='" + messageId + "')].reactions[0].reactedByMe").value(false));
+
+    mockMvc
+        .perform(
+            put("/api/v1/chat/rooms/" + roomId + "/messages/" + messageId + "/reactions")
+                .header("Authorization", "Bearer " + tokenB)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"emoji\":\"👍\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data").isEmpty());
   }
 
   @Test

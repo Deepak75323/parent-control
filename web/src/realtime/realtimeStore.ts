@@ -31,6 +31,8 @@ interface RealtimeState {
   deletedChatMessageIds: Record<string, true>;
   /** Latest receipt status per message (WebSocket updates). */
   receiptPatches: Record<string, ChatMessageItem['receiptStatus']>;
+  /** Latest reactions per message (WebSocket updates). */
+  reactionPatches: Record<string, ChatMessageItem['reactions']>;
   chatClearedEpoch: Record<string, number>;
   /** Wall-clock ms when history was cleared per room — stale WS cache is ignored before this. */
   chatClearedAt: Record<string, number>;
@@ -44,6 +46,10 @@ interface RealtimeState {
   updateLiveChatMessageReceipt: (
     messageId: string,
     receiptStatus: ChatMessageItem['receiptStatus'],
+  ) => void;
+  updateLiveChatMessageReactions: (
+    messageId: string,
+    reactions: ChatMessageItem['reactions'],
   ) => void;
   removeLiveChatMessage: (messageId: string) => void;
   clearLiveChatMessagesForRoom: (roomId: string) => void;
@@ -75,6 +81,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   liveChatMessages: [],
   deletedChatMessageIds: {},
   receiptPatches: {},
+  reactionPatches: {},
   chatClearedEpoch: {},
   chatClearedAt: {},
   removedChatRoomIds: {},
@@ -101,6 +108,13 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       receiptPatches: {...state.receiptPatches, [messageId]: receiptStatus},
       liveChatMessages: state.liveChatMessages.map(message =>
         message.id === messageId ? {...message, receiptStatus} : message,
+      ),
+    })),
+  updateLiveChatMessageReactions: (messageId, reactions) =>
+    set(state => ({
+      reactionPatches: {...state.reactionPatches, [messageId]: reactions},
+      liveChatMessages: state.liveChatMessages.map(message =>
+        message.id === messageId ? {...message, reactions} : message,
       ),
     })),
   removeLiveChatMessage: messageId =>
@@ -190,6 +204,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       liveChatMessages: [],
       deletedChatMessageIds: {},
       receiptPatches: {},
+      reactionPatches: {},
       chatClearedEpoch: {},
       chatClearedAt: {},
       removedChatRoomIds: {},

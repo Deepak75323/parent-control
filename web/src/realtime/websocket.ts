@@ -176,6 +176,20 @@ export function connectWebSocket(): void {
             );
           return;
         }
+        if (
+          'eventType' in event &&
+          event.eventType === 'MESSAGE_REACTIONS_UPDATED' &&
+          event.messageId &&
+          'reactions' in event
+        ) {
+          useRealtimeStore
+            .getState()
+            .updateLiveChatMessageReactions(
+              event.messageId,
+              event.reactions as ChatMessageItem['reactions'],
+            );
+          return;
+        }
         useRealtimeStore.getState().upsertLiveChatMessage(event as ChatMessageItem);
       });
 
