@@ -3270,10 +3270,26 @@ body.chat-resizing * {
   }
 
   .dc-app:has(.dc-content--chat) {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
     height: 100dvh;
     max-height: 100dvh;
     overflow: hidden;
-    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .dc-app:has(.dc-content--chat) .dc-rail,
+  .dc-app:has(.dc-content--chat) .dc-sidebar {
+    display: none;
+  }
+
+  .dc-app:has(.dc-content--chat) .dc-topbar {
+    display: none;
+  }
+
+  .dc-app:has(.dc-content--chat) .dc-main {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
 
   html:has(.dc-content--chat),
@@ -3283,13 +3299,31 @@ body.chat-resizing * {
     overflow: hidden;
   }
 
-  .dc-app:has(.dc-content--chat) .dc-main {
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
+  /* Chat-specific mobile tweaks */
+  .chat-page {
+    width: 100%;
+    min-width: 0;
   }
 
-  /* Chat-specific mobile tweaks */
+  .chat-thread-wrap,
+  .chat-thread-panel {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .chat-message-content {
+    max-width: 100%;
+  }
+
+  .chat-message-bubble {
+    min-width: 0;
+  }
+
+  .chat-message-bubble-body {
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+
   .chat-invite-row.is-open {
     display: none;
   }
