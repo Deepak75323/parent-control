@@ -27,6 +27,10 @@ import {ComposerReplyBar} from '../components/chat/ChatMessageReplyQuote';
 import {EditMessageComposer, MessageComposer} from '../components/chat/MessageComposer';
 import {collectMentionTokens} from '../lib/chatMentions';
 import {replyPreviewFromMessage} from '../lib/chatReplyPreview';
+import {
+  flashChatMessageHighlight,
+  scrollChatMessageIntoView,
+} from '../lib/chatScrollToMessage';
 import {ChatMessageText} from '../components/chat/ChatMessageText';
 import type {ChatInviteItem, ChatMemberItem, ChatMessageItem, ChatRoomSummary} from '../types/api';
 
@@ -57,6 +61,9 @@ export function ChatPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const pendingScrollMessageIdRef = useRef<string | null>(null);
+  const highlightClearRef = useRef<(() => void) | null>(null);
   const composerFileInputRef = useRef<HTMLInputElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const initialRoomLoadRef = useRef(true);
@@ -829,17 +836,115 @@ export function ChatPage() {
     setReplyingTo(null);
   }
 
-  function scrollToMessage(messageId: string) {
-    const element = document.getElementById(`chat-message-${messageId}`);
-    if (!element) {
+  const mergeRoomMessages = useCallback((roomId: string, batch: ChatMessageItem[]) => {
+    setApiMessages(prev => {
+      const otherRooms = prev.filter(message => message.roomId !== roomId);
+      const merged = new Map<string, ChatMessageItem>();
+      for (const message of prev) {
+        if (message.roomId === roomId) {
+          merged.set(message.id, message);
+        }
+      }
+      for (const message of batch) {
+        merged.set(message.id, message);
+      }
+      return [...otherRooms, ...Array.from(merged.values())];
+    });
+  }, []);
+
+  const loadOlderMessagesUntil = useCallback(
+    async (roomId: string, messageId: string) => {
+      const pageSize = 50;
+      for (let page = 1; page < 20; page += 1) {
+        const {data} = await chatApi.listMessages(roomId, page, pageSize);
+        const batch = data.data ?? [];
+        if (batch.length === 0) {
+          break;
+        }
+        mergeRoomMessages(roomId, batch);
+        if (batch.some(message => message.id === messageId)) {
+          return true;
+        }
+        if (batch.length < pageSize) {
+          break;
+        }
+      }
+      return false;
+    },
+    [mergeRoomMessages],
+  );
+
+  const revealQuotedMessage = useCallback((messageId: string) => {
+    highlightClearRef.current?.();
+    highlightClearRef.current = null;
+
+    const scrolled = scrollChatMessageIntoView(messagesScrollRef.current, messageId);
+    if (scrolled) {
+      highlightClearRef.current = flashChatMessageHighlight(messageId);
+    }
+  }, []);
+
+  const scrollToMessage = useCallback(
+    (messageId: string) => {
+      if (!selectedRoomId) {
+        return;
+      }
+
+      const messageLoaded = messages.some(message => message.id === messageId);
+      const messageVisible = visibleMessages.some(message => message.id === messageId);
+
+      if (messageLoaded && !messageVisible && searchQuery.trim()) {
+        pendingScrollMessageIdRef.current = messageId;
+        setSearchQuery('');
+        return;
+      }
+
+      if (messageLoaded) {
+        window.requestAnimationFrame(() => {
+          revealQuotedMessage(messageId);
+        });
+        return;
+      }
+
+      pendingScrollMessageIdRef.current = messageId;
+      void loadOlderMessagesUntil(selectedRoomId, messageId)
+        .then(found => {
+          if (!found) {
+            pendingScrollMessageIdRef.current = null;
+            setNotice('Original message is no longer available in this chat.');
+            return;
+          }
+          if (pendingScrollMessageIdRef.current !== messageId) {
+            return;
+          }
+        })
+        .catch(() => {
+          pendingScrollMessageIdRef.current = null;
+          setError('Could not jump to the quoted message');
+        });
+    },
+    [loadOlderMessagesUntil, messages, revealQuotedMessage, searchQuery, selectedRoomId, visibleMessages],
+  );
+
+  useEffect(() => {
+    const messageId = pendingScrollMessageIdRef.current;
+    if (!messageId || !visibleMessages.some(message => message.id === messageId)) {
       return;
     }
-    element.scrollIntoView({behavior: 'smooth', block: 'center'});
-    element.classList.add('chat-message-row--highlight');
-    window.setTimeout(() => {
-      element.classList.remove('chat-message-row--highlight');
-    }, 1600);
-  }
+    pendingScrollMessageIdRef.current = null;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        revealQuotedMessage(messageId);
+      });
+    });
+  }, [visibleMessages, revealQuotedMessage]);
+
+  useEffect(
+    () => () => {
+      highlightClearRef.current?.();
+    },
+    [],
+  );
 
   function handleCopyMessage(message: ChatMessageItem) {
     if (!message.body) {
@@ -1063,7 +1168,7 @@ export function ChatPage() {
                   </div>
                 ) : null}
 
-                <div className="chat-messages">
+                <div className="chat-messages" ref={messagesScrollRef}>
                   {messages.length === 0 ? (
                     <EmptyChatState
                       title={`Start a conversation with ${selectedRoom.name}`}
