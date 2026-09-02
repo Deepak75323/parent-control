@@ -1,5 +1,6 @@
 package com.parentalcontrol.chat.controller;
 
+import com.parentalcontrol.chat.domain.ChatMessageDeleteScope;
 import com.parentalcontrol.chat.dto.ChatInviteResponse;
 import com.parentalcontrol.chat.dto.ChatMemberResponse;
 import com.parentalcontrol.chat.dto.ChatMessageReactionSummary;
@@ -68,8 +69,15 @@ public class ChatController {
     return ApiResponse.ok(null);
   }
 
+  @PostMapping("/rooms/{roomId}/clear-chat")
+  @Operation(summary = "Clear chat for yourself only (other members still see messages)")
+  public ApiResponse<Void> clearChat(@PathVariable UUID roomId) {
+    chatService.clearChat(roomId);
+    return ApiResponse.ok(null);
+  }
+
   @PostMapping("/rooms/{roomId}/clear-history")
-  @Operation(summary = "Clear all messages in a room (owner only, room stays)")
+  @Operation(summary = "Clear all messages for everyone (owner only, room stays)")
   public ApiResponse<Void> clearChatHistory(@PathVariable UUID roomId) {
     chatService.clearChatHistory(roomId);
     return ApiResponse.ok(null);
@@ -125,10 +133,12 @@ public class ChatController {
   }
 
   @DeleteMapping("/rooms/{roomId}/messages/{messageId}")
-  @Operation(summary = "Delete a chat message (sender or room owner)")
+  @Operation(summary = "Delete a chat message for yourself or for everyone (sender only)")
   public ApiResponse<Void> deleteMessage(
-      @PathVariable UUID roomId, @PathVariable UUID messageId) {
-    chatService.deleteMessage(roomId, messageId);
+      @PathVariable UUID roomId,
+      @PathVariable UUID messageId,
+      @RequestParam(defaultValue = "FOR_ME") ChatMessageDeleteScope scope) {
+    chatService.deleteMessage(roomId, messageId, scope);
     return ApiResponse.ok(null);
   }
 
@@ -203,6 +213,14 @@ public class ChatController {
   public ApiResponse<Void> markRead(
       @PathVariable UUID roomId, @Valid @RequestBody MarkChatReadRequest request) {
     chatService.markRoomRead(roomId, request);
+    return ApiResponse.ok(null);
+  }
+
+  @PostMapping("/rooms/{roomId}/messages/{messageId}/mark-unread")
+  @Operation(summary = "Mark this message and everything below it as unread for the current user")
+  public ApiResponse<Void> markUnread(
+      @PathVariable UUID roomId, @PathVariable UUID messageId) {
+    chatService.markMessageUnread(roomId, messageId);
     return ApiResponse.ok(null);
   }
 }

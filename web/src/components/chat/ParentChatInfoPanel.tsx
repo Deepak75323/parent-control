@@ -13,11 +13,7 @@ export function ParentChatInfoPanel({
   isResizable = false,
   onClose,
 }: Props) {
-  if (!open && isMobile) {
-    return null;
-  }
-
-  if (!open && !isResizable) {
+  if (!open) {
     return null;
   }
 

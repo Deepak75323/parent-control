@@ -52,6 +52,7 @@ export function ChatWorkspaceLayout({
         ref={layoutRef}
         className={[
           'chat-layout',
+          layout.roomsOpen ? 'chat-layout--rooms-open' : 'chat-layout--rooms-closed',
           layout.infoOpen ? 'chat-layout--info-open' : 'chat-layout--info-closed',
           layout.isResizable ? 'chat-layout--resizable' : '',
           layout.isMobile ? 'chat-layout--mobile' : '',
@@ -68,9 +69,11 @@ export function ChatWorkspaceLayout({
               } as React.CSSProperties)
             : undefined
         }>
-        {!layout.isMobile ? <div className="chat-rooms-wrap">{renderRooms()}</div> : null}
+        {!layout.isMobile && layout.roomsOpen ? (
+          <div className="chat-rooms-wrap">{renderRooms()}</div>
+        ) : null}
 
-        {layout.isResizable ? (
+        {layout.isResizable && layout.roomsOpen ? (
           <ResizeHandle
             label="Resize rooms panel"
             onDrag={layout.dragRooms}

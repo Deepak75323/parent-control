@@ -197,6 +197,8 @@ export interface ChatRoomSummary {
   memberCount: number;
   createdAt: string;
   updatedAt: string;
+  /** When set, messages before this time are hidden for this user only. */
+  chatClearedAt?: string;
 }
 
 export interface ChatMemberItem {
@@ -254,6 +256,8 @@ export interface ChatMessageItem {
   createdAt: string;
   editedAt?: string | null;
   receiptStatus?: 'SENT' | 'DELIVERED' | 'READ';
+  /** Incoming messages not yet read by this user. */
+  unread?: boolean;
   replyTo?: ChatMessageReplyPreview | null;
   reactions?: ChatMessageReactionSummary[];
 }

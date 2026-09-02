@@ -30,6 +30,8 @@ public class ChatMessageResponse {
   Instant editedAt;
   /** SENT, DELIVERED, or READ — only set on own messages. */
   ChatReceiptStatus receiptStatus;
+  /** True when this incoming message has not been read by the viewer yet. */
+  Boolean unread;
   /** Quoted parent message, when this message is a reply. */
   ChatMessageReplyPreview replyTo;
   /** Emoji reactions grouped by emoji. */

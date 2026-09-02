@@ -21,6 +21,7 @@ import {ChatWorkspaceLayout} from '../components/chat/ChatWorkspaceLayout';
 import {useChatWorkspaceLayout} from '../hooks/useChatWorkspaceLayout';
 import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {DateSeparator} from '../components/chat/DateSeparator';
+import {UnreadSeparator} from '../components/chat/UnreadSeparator';
 import {EmptyChatState} from '../components/chat/EmptyChatState';
 import {MessageBubble} from '../components/chat/MessageBubble';
 import {ComposerReplyBar} from '../components/chat/ChatMessageReplyQuote';
@@ -68,7 +69,9 @@ export function ChatPage() {
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const initialRoomLoadRef = useRef(true);
   const messagesLoadGenRef = useRef(0);
+  const initialScrollDoneRef = useRef<string | null>(null);
   const roomsDrawerDismissedRef = useRef(false);
+  const [atBottom, setAtBottom] = useState(true);
   const {confirm, dialog: confirmDialog} = useConfirmDialog(busy);
 
   const ownDisplayName = useMemo(
@@ -86,17 +89,21 @@ export function ChatPage() {
   const unmarkChatRoomRemoved = useRealtimeStore(s => s.unmarkChatRoomRemoved);
   const pruneLiveChatMessages = useRealtimeStore(s => s.pruneLiveChatMessages);
   const clearLiveChatMessagesForRoom = useRealtimeStore(s => s.clearLiveChatMessagesForRoom);
+  const clearPersonalChatForRoom = useRealtimeStore(s => s.clearPersonalChatForRoom);
+  const syncPersonalChatClearedAt = useRealtimeStore(s => s.syncPersonalChatClearedAt);
   const syncLiveChatMessagesFromApi = useRealtimeStore(s => s.syncLiveChatMessagesFromApi);
   const chatInvitesEpoch = useRealtimeStore(s => s.chatInvitesEpoch);
   const liveChatMessages = useRealtimeStore(s => s.liveChatMessages);
   const deletedChatMessageIds = useRealtimeStore(s => s.deletedChatMessageIds);
   const chatClearedEpoch = useRealtimeStore(s => s.chatClearedEpoch);
   const chatClearedAt = useRealtimeStore(s => s.chatClearedAt);
+  const personalChatClearedAt = useRealtimeStore(s => s.personalChatClearedAt);
   const removeLiveChatMessage = useRealtimeStore(s => s.removeLiveChatMessage);
   const receiptPatches = useRealtimeStore(s => s.receiptPatches);
   const reactionPatches = useRealtimeStore(s => s.reactionPatches);
   const deliveredMarkedRef = useRef<Set<string>>(new Set());
   const lastReadMarkedRef = useRef<string | null>(null);
+  const [unreadHold, setUnreadHold] = useState(false);
 
   const selectedRoom = useMemo(
     () => rooms.find(room => room.id === selectedRoomId) ?? null,
@@ -116,15 +123,22 @@ export function ChatPage() {
       return [];
     }
     const loadedAt = messagesLoadedAt[selectedRoomId] ?? 0;
-    const clearedAt = chatClearedAt[selectedRoomId];
+    const globalClearedAt = chatClearedAt[selectedRoomId];
+    const personalClearedAt = personalChatClearedAt[selectedRoomId];
     const byId = new Map<string, ChatMessageItem>();
 
     for (const message of apiMessages) {
       if (message.roomId !== selectedRoomId) {
         continue;
       }
+      if (deletedChatMessageIds[message.id]) {
+        continue;
+      }
       const createdMs = new Date(message.createdAt).getTime();
-      if (clearedAt && createdMs <= clearedAt) {
+      if (globalClearedAt && createdMs <= globalClearedAt) {
+        continue;
+      }
+      if (personalClearedAt && createdMs <= personalClearedAt) {
         continue;
       }
       byId.set(message.id, message);
@@ -139,14 +153,22 @@ export function ChatPage() {
           continue;
         }
         const createdMs = new Date(message.createdAt).getTime();
-        if (clearedAt && createdMs <= clearedAt) {
+        if (globalClearedAt && createdMs <= globalClearedAt) {
+          continue;
+        }
+        if (personalClearedAt && createdMs <= personalClearedAt) {
           continue;
         }
         if (createdMs <= loadedAt && !byId.has(message.id)) {
           continue;
         }
         const existing = byId.get(message.id);
-        byId.set(message.id, existing ? {...existing, ...message} : message);
+        byId.set(
+          message.id,
+          existing
+            ? {...existing, ...message, unread: Boolean(existing.unread || message.unread)}
+            : message,
+        );
       }
     }
 
@@ -169,6 +191,7 @@ export function ChatPage() {
     selectedRoomId,
     deletedChatMessageIds,
     chatClearedAt,
+    personalChatClearedAt,
     messagesLoadedAt,
     receiptPatches,
     reactionPatches,
@@ -182,6 +205,13 @@ export function ChatPage() {
     }
     return messages.filter(message => message.body?.toLowerCase().includes(query));
   }, [messages, searchQuery]);
+
+  const unreadMessages = useMemo(
+    () => visibleMessages.filter(message => message.unread && !message.ownMessage),
+    [visibleMessages],
+  );
+  const unreadCount = unreadMessages.length;
+  const firstUnreadId = unreadMessages[0]?.id ?? null;
 
   const messageGroups = useMemo(
     () => groupMessagesByDate(visibleMessages),
@@ -220,29 +250,20 @@ export function ChatPage() {
     workspace.closeRoomsDrawer();
   }, [workspace.closeRoomsDrawer]);
 
-  const handleDismissRoomsDrawer = useCallback(() => {
-    handleCloseRoomsDrawer();
-    navigate('/devices', {replace: true});
-  }, [handleCloseRoomsDrawer, navigate]);
+  function handleRemoveRoom(roomId: string) {
+    const room = rooms.find(entry => entry.id === roomId);
+    if (!room) {
+      return;
+    }
+    if (room.owner) {
+      void handleDeleteRoom(roomId);
+      return;
+    }
+    void handleLeaveRoom(roomId);
+  }
 
   useEffect(() => {
     if (!workspace.isMobile || !location.pathname.endsWith('/chat')) {
-      return;
-    }
-    if (!roomsDrawerDismissedRef.current || selectedRoomId || workspace.roomsDrawerOpen) {
-      return;
-    }
-    navigate('/devices', {replace: true});
-  }, [
-    workspace.isMobile,
-    workspace.roomsDrawerOpen,
-    selectedRoomId,
-    location.pathname,
-    navigate,
-  ]);
-
-  useEffect(() => {
-    if (!workspace.isMobile) {
       return;
     }
     if (selectedRoomId) {
@@ -279,6 +300,11 @@ export function ChatPage() {
         }
       }
       pruneLiveChatMessages(next.map(room => room.id));
+      for (const room of next) {
+        if (room.chatClearedAt) {
+          syncPersonalChatClearedAt(room.id, new Date(room.chatClearedAt).getTime());
+        }
+      }
       setRooms(next);
       setSelectedRoomId(prev => {
         if (prev && next.some(room => room.id === prev)) {
@@ -309,7 +335,7 @@ export function ChatPage() {
     } catch {
       setError('Failed to load chat rooms');
     }
-  }, [pruneLiveChatMessages, unmarkChatRoomRemoved]);
+  }, [pruneLiveChatMessages, unmarkChatRoomRemoved, syncPersonalChatClearedAt]);
 
   const mentionTokens = useMemo(() => collectMentionTokens(roomMembers), [roomMembers]);
 
@@ -412,15 +438,64 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
+    setApiMessages(prev => {
+      const next = prev.filter(message => !deletedChatMessageIds[message.id]);
+      return next.length === prev.length ? prev : next;
+    });
+  }, [deletedChatMessageIds]);
+
+  useEffect(() => {
     deliveredMarkedRef.current.clear();
     lastReadMarkedRef.current = null;
+    initialScrollDoneRef.current = null;
+    setAtBottom(true);
+    setUnreadHold(false);
   }, [selectedRoomId]);
 
   useEffect(() => {
-    if (!selectedRoomId || messages.length === 0) {
+    const root = messagesScrollRef.current;
+    const end = messagesEndRef.current;
+    if (!root || !end || !selectedRoomId) {
       return;
     }
-    const pending = messages
+    const observer = new IntersectionObserver(
+      ([entry]) => setAtBottom(entry?.isIntersecting ?? false),
+      {root, threshold: 0.25},
+    );
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, [selectedRoomId, visibleMessages.length]);
+
+  useEffect(() => {
+    if (!selectedRoomId || visibleMessages.length === 0 || searchQuery.trim()) {
+      return;
+    }
+    if (initialScrollDoneRef.current === selectedRoomId) {
+      return;
+    }
+    if (!messagesLoadedAt[selectedRoomId]) {
+      return;
+    }
+    initialScrollDoneRef.current = selectedRoomId;
+    const firstUnread = visibleMessages.find(message => message.unread && !message.ownMessage);
+    requestAnimationFrame(() => {
+      if (firstUnread) {
+        document
+          .getElementById(`chat-message-${firstUnread.id}`)
+          ?.scrollIntoView({block: 'center', behavior: 'auto'});
+        setAtBottom(false);
+      } else {
+        messagesEndRef.current?.scrollIntoView({behavior: 'auto'});
+        setAtBottom(true);
+      }
+    });
+  }, [selectedRoomId, visibleMessages, messagesLoadedAt, searchQuery]);
+
+  useEffect(() => {
+    if (!selectedRoomId || visibleMessages.length === 0) {
+      return;
+    }
+    const pending = visibleMessages
       .filter(message => !message.ownMessage && !deliveredMarkedRef.current.has(message.id))
       .map(message => message.id);
     if (pending.length === 0) {
@@ -428,23 +503,38 @@ export function ChatPage() {
     }
     pending.forEach(id => deliveredMarkedRef.current.add(id));
     void chatApi.markDelivered(selectedRoomId, pending).catch(() => undefined);
-  }, [selectedRoomId, messages]);
+  }, [selectedRoomId, visibleMessages]);
 
   useEffect(() => {
-    if (!selectedRoomId || messages.length === 0) {
+    if (!selectedRoomId || !atBottom || visibleMessages.length === 0 || unreadHold) {
       return;
     }
-    const lastIncoming = [...messages].reverse().find(message => !message.ownMessage);
+    const lastIncoming = [...visibleMessages].reverse().find(message => !message.ownMessage);
     if (!lastIncoming || lastIncoming.id === lastReadMarkedRef.current) {
       return;
     }
     lastReadMarkedRef.current = lastIncoming.id;
-    void chatApi.markRead(selectedRoomId, lastIncoming.id).catch(() => undefined);
-  }, [selectedRoomId, messages]);
+    void chatApi
+      .markRead(selectedRoomId, lastIncoming.id)
+      .then(() => {
+        setUnreadHold(false);
+        setApiMessages(prev =>
+          prev.map(message =>
+            message.roomId === selectedRoomId && !message.ownMessage
+              ? {...message, unread: false}
+              : message,
+          ),
+        );
+      })
+      .catch(() => undefined);
+  }, [selectedRoomId, atBottom, visibleMessages, unreadHold]);
 
   useEffect(() => {
+    if (!atBottom || searchQuery.trim()) {
+      return;
+    }
     messagesEndRef.current?.scrollIntoView({behavior: 'smooth'});
-  }, [messages, searchQuery]);
+  }, [visibleMessages.length, atBottom, searchQuery]);
 
   useEffect(() => {
     if (!pendingFile) {
@@ -555,6 +645,44 @@ export function ChatPage() {
     }
   }
 
+  async function handleClearChat(roomId: string) {
+    const room = rooms.find(entry => entry.id === roomId);
+    if (!room) {
+      return;
+    }
+    if (
+      !(await confirm({
+        title: 'Clear chat',
+        message: `Clear messages in "${room.name}" on this device only? Other members will still see the chat.`,
+        confirmLabel: 'Clear chat',
+        danger: true,
+      }))
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    messagesLoadGenRef.current += 1;
+    try {
+      await chatApi.clearChat(roomId);
+      clearPersonalChatForRoom(roomId);
+      setApiMessages(prev => prev.filter(message => message.roomId !== roomId));
+      setMessagesLoadedAt(prev => ({...prev, [roomId]: Date.now()}));
+      if (selectedRoomId === roomId) {
+        await loadMessages(roomId);
+      }
+      setNotice('Chat cleared on this device.');
+    } catch {
+      setError('Could not clear chat');
+      if (selectedRoomId === roomId) {
+        void loadMessages(roomId);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleClearHistory(roomId: string) {
     const room = rooms.find(entry => entry.id === roomId);
     if (!room?.owner) {
@@ -562,8 +690,8 @@ export function ChatPage() {
     }
     if (
       !(await confirm({
-        title: 'Clear chat history',
-        message: `Clear all messages in "${room.name}"? The room and members stay — only chat history is removed.`,
+        title: 'Clear history for everyone',
+        message: `Remove all messages in "${room.name}" for every member? The room stays — only the owner can do this.`,
         confirmLabel: 'Clear history',
         danger: true,
       }))
@@ -741,11 +869,12 @@ export function ChatPage() {
     }
   }
 
-  function canDeleteMessage(message: ChatMessageItem): boolean {
-    if (!selectedRoom) {
-      return false;
-    }
-    return Boolean(message.ownMessage || selectedRoom.owner);
+  function canDeleteMessage(_message: ChatMessageItem): boolean {
+    return Boolean(selectedRoom);
+  }
+
+  function canDeleteForEveryone(message: ChatMessageItem): boolean {
+    return Boolean(message.ownMessage);
   }
 
   function canEditMessage(message: ChatMessageItem): boolean {
@@ -797,15 +926,19 @@ export function ChatPage() {
     }
   }
 
-  async function handleDeleteMessage(message: ChatMessageItem) {
+  async function handleDeleteMessage(message: ChatMessageItem, scope: 'FOR_ME' | 'FOR_EVERYONE') {
     if (!selectedRoomId || !canDeleteMessage(message)) {
       return;
     }
+    if (scope === 'FOR_EVERYONE' && !canDeleteForEveryone(message)) {
+      return;
+    }
     const confirmed = await confirm({
-      title: 'Delete message',
-      message: message.ownMessage
-        ? 'Delete this message for everyone?'
-        : 'Delete this message?',
+      title: scope === 'FOR_EVERYONE' ? 'Delete for everyone' : 'Delete for me',
+      message:
+        scope === 'FOR_EVERYONE'
+          ? 'Delete this message for all members?'
+          : 'Delete this message on your device only? Other members will still see it.',
       confirmLabel: 'Delete',
       danger: true,
     });
@@ -817,7 +950,7 @@ export function ChatPage() {
     setApiMessages(prev => prev.filter(entry => entry.id !== message.id));
     removeLiveChatMessage(message.id);
     try {
-      await chatApi.deleteMessage(selectedRoomId, message.id);
+      await chatApi.deleteMessage(selectedRoomId, message.id, scope);
     } catch {
       setError('Could not delete message');
       void loadMessages(selectedRoomId);
@@ -930,6 +1063,12 @@ export function ChatPage() {
     [loadOlderMessagesUntil, messages, revealQuotedMessage, searchQuery, selectedRoomId, visibleMessages],
   );
 
+  const scrollToFirstUnread = useCallback(() => {
+    if (firstUnreadId) {
+      scrollToMessage(firstUnreadId);
+    }
+  }, [firstUnreadId, scrollToMessage]);
+
   useEffect(() => {
     const messageId = pendingScrollMessageIdRef.current;
     if (!messageId || !visibleMessages.some(message => message.id === messageId)) {
@@ -983,6 +1122,36 @@ export function ChatPage() {
     });
   }
 
+  async function handleMarkUnread(message: ChatMessageItem) {
+    if (!selectedRoomId || busy) {
+      return;
+    }
+    const anchorTime = message.createdAt;
+    lastReadMarkedRef.current = null;
+    setUnreadHold(true);
+    setAtBottom(false);
+    setApiMessages(prev =>
+      prev.map(entry =>
+        entry.roomId === selectedRoomId &&
+        !entry.ownMessage &&
+        entry.createdAt >= anchorTime
+          ? {...entry, unread: true}
+          : entry,
+      ),
+    );
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`chat-message-${message.id}`)
+        ?.scrollIntoView({block: 'center', behavior: 'smooth'});
+    });
+    try {
+      await chatApi.markUnread(selectedRoomId, message.id);
+    } catch {
+      setError('Could not mark as unread');
+      void loadMessages(selectedRoomId);
+    }
+  }
+
   function renderMessageBody(message: ChatMessageItem) {
     const isMedia = message.messageType === 'IMAGE' || message.messageType === 'VIDEO';
     const showMedia =
@@ -1021,43 +1190,54 @@ export function ChatPage() {
         isEditing={editingMessageId === message.id}
         canEdit={canEditMessage(message)}
         canDelete={canDeleteMessage(message)}
+        canDeleteForEveryone={canDeleteForEveryone(message)}
         swipeToReplyEnabled={workspace.isMobile}
         onEdit={() => startEditMessage(message)}
-        onDelete={() => void handleDeleteMessage(message)}
+        onDeleteForMe={() => void handleDeleteMessage(message, 'FOR_ME')}
+        onDeleteForEveryone={() => void handleDeleteMessage(message, 'FOR_EVERYONE')}
         onCopy={() => handleCopyMessage(message)}
         onReply={() => startReplyMessage(message)}
         onQuoteClick={scrollToMessage}
-        onToggleReaction={emoji => handleToggleReaction(message, emoji)}>
+        onToggleReaction={emoji => handleToggleReaction(message, emoji)}
+        onMarkUnread={() => void handleMarkUnread(message)}>
         {renderMessageBody(message)}
       </MessageBubble>
     );
   }
 
   const headerMenuActions = selectedRoom
-    ? selectedRoom.owner
-      ? [
-          {
-            id: 'clear',
-            label: 'Clear history',
-            disabled: busy,
-            onSelect: () => void handleClearHistory(selectedRoom.id),
-          },
-          {
-            id: 'delete',
-            label: 'Delete room',
-            danger: true,
-            disabled: busy,
-            onSelect: () => void handleDeleteRoom(selectedRoom.id),
-          },
-        ]
-      : [
-          {
-            id: 'leave',
-            label: 'Leave room',
-            disabled: busy,
-            onSelect: () => void handleLeaveRoom(selectedRoom.id),
-          },
-        ]
+    ? [
+        {
+          id: 'clear-chat',
+          label: 'Clear chat',
+          disabled: busy,
+          onSelect: () => void handleClearChat(selectedRoom.id),
+        },
+        ...(selectedRoom.owner
+          ? [
+              {
+                id: 'clear-history',
+                label: 'Clear history',
+                disabled: busy,
+                onSelect: () => void handleClearHistory(selectedRoom.id),
+              },
+              {
+                id: 'delete',
+                label: 'Delete room',
+                danger: true,
+                disabled: busy,
+                onSelect: () => void handleDeleteRoom(selectedRoom.id),
+              },
+            ]
+          : [
+              {
+                id: 'leave',
+                label: 'Leave room',
+                disabled: busy,
+                onSelect: () => void handleLeaveRoom(selectedRoom.id),
+              },
+            ]),
+      ]
     : [];
 
   const renderRoomsPanel = () => (
@@ -1066,8 +1246,11 @@ export function ChatPage() {
       selectedRoomId={selectedRoomId}
       newRoomName={newRoomName}
       busy={busy}
+      swipeEnabled={workspace.isMobile}
+      showClose={!workspace.isMobile}
       onSelectRoom={selectRoom}
-      onDeleteRoom={roomId => void handleDeleteRoom(roomId)}
+      onRemoveRoom={roomId => void handleRemoveRoom(roomId)}
+      onClose={workspace.closeRoomsPanel}
       onNewRoomNameChange={setNewRoomName}
       onCreateRoom={handleCreateRoom}
     />
@@ -1121,14 +1304,40 @@ export function ChatPage() {
 
       <ChatWorkspaceLayout
         layout={workspace}
-        mobileThreadVisible={!workspace.isMobile || Boolean(selectedRoomId)}
+        mobileThreadVisible
         onMobileBackToApp={() => navigate('/devices', {replace: true})}
-        onCloseRoomsDrawer={handleDismissRoomsDrawer}
+        onCloseRoomsDrawer={handleCloseRoomsDrawer}
         renderRooms={renderRoomsPanel}
         thread={
           <section className="chat-thread-panel">
             {!selectedRoom ? (
               <div className="chat-empty">
+                {!workspace.roomsOpen && !workspace.isMobile ? (
+                  <button
+                    type="button"
+                    className="chat-info-reopen-btn chat-rooms-reopen-btn"
+                    aria-label="Show rooms panel"
+                    title="Show rooms"
+                    onClick={workspace.openRoomsPanel}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <path d="M4 6h16M4 12h16M4 18h10" />
+                    </svg>
+                    <span>Rooms</span>
+                  </button>
+                ) : null}
+                {workspace.isMobile && !workspace.roomsDrawerOpen ? (
+                  <button
+                    type="button"
+                    className="chat-info-reopen-btn chat-rooms-reopen-btn"
+                    aria-label="Open rooms list"
+                    title="Open rooms"
+                    onClick={workspace.openRoomsDrawer}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <path d="M4 6h16M4 12h16M4 18h10" />
+                    </svg>
+                    <span>Rooms</span>
+                  </button>
+                ) : null}
                 {!workspace.infoOpen ? (
                   <button
                     type="button"
@@ -1169,8 +1378,12 @@ export function ChatPage() {
                   menuActions={headerMenuActions}
                   infoPanelOpen={workspace.infoOpen}
                   showInfoPanelToggle={!workspace.infoOpen}
+                  showRoomsPanelToggle={!workspace.isMobile && !workspace.roomsOpen}
+                  onOpenRoomsPanel={workspace.openRoomsPanel}
                   showBack={workspace.isMobile}
                   onBack={handleMobileBackFromChat}
+                  showRoomsMenu={workspace.isMobile}
+                  onOpenRooms={workspace.openRoomsDrawer}
                   compact={workspace.isMobile}
                   onOpenInfoPanel={workspace.openInfoPanel}
                   onToggleInvite={() => setShowInvite(prev => !prev)}
@@ -1198,6 +1411,14 @@ export function ChatPage() {
                 ) : null}
 
                 <div className="chat-messages" ref={messagesScrollRef}>
+                  {unreadCount > 0 && (unreadHold || !atBottom) && !searchQuery.trim() ? (
+                    <button
+                      type="button"
+                      className="chat-unread-banner"
+                      onClick={scrollToFirstUnread}>
+                      {unreadCount === 1 ? '1 unread message' : `${unreadCount} unread messages`}
+                    </button>
+                  ) : null}
                   {messages.length === 0 ? (
                     <EmptyChatState
                       title={`Start a conversation with ${selectedRoom.name}`}
@@ -1216,7 +1437,17 @@ export function ChatPage() {
                     messageGroups.map(group => (
                       <Fragment key={group.dateKey}>
                         <DateSeparator label={group.label} />
-                        {group.messages.map(message => renderMessage(message))}
+                        {group.messages.map(message => (
+                          <Fragment key={message.id}>
+                            {message.id === firstUnreadId ? (
+                              <UnreadSeparator
+                                count={unreadCount}
+                                onClick={scrollToFirstUnread}
+                              />
+                            ) : null}
+                            {renderMessage(message)}
+                          </Fragment>
+                        ))}
                       </Fragment>
                     ))
                   )}

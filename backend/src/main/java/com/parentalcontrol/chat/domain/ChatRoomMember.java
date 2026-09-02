@@ -37,4 +37,12 @@ public class ChatRoomMember extends BaseEntity {
   @Column(name = "joined_at", nullable = false)
   @Builder.Default
   private Instant joinedAt = Instant.now();
+
+  /** When set, messages at or before this time are hidden for this member only. */
+  @Column(name = "chat_cleared_at")
+  private Instant chatClearedAt;
+
+  /** When set, incoming messages at or after this time show as unread for this member. */
+  @Column(name = "unread_from_at")
+  private Instant unreadFromAt;
 }

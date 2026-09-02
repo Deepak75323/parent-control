@@ -17,6 +17,7 @@ type PersistedLayout = {
   roomsWidth: number;
   infoWidth: number;
   infoOpen: boolean;
+  roomsOpen: boolean;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -28,6 +29,7 @@ function loadPersistedLayout(): PersistedLayout {
     roomsWidth: CHAT_LAYOUT_LIMITS.roomsDefault,
     infoWidth: CHAT_LAYOUT_LIMITS.infoDefault,
     infoOpen: true,
+    roomsOpen: true,
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -47,6 +49,7 @@ function loadPersistedLayout(): PersistedLayout {
         CHAT_LAYOUT_LIMITS.infoMax,
       ),
       infoOpen: parsed.infoOpen ?? defaults.infoOpen,
+      roomsOpen: parsed.roomsOpen ?? defaults.roomsOpen,
     };
   } catch {
     return defaults;
@@ -75,6 +78,7 @@ export function useChatWorkspaceLayout() {
   const [roomsWidth, setRoomsWidth] = useState(initial.current.roomsWidth);
   const [infoWidth, setInfoWidth] = useState(initial.current.infoWidth);
   const [infoOpen, setInfoOpen] = useState(initial.current.infoOpen);
+  const [roomsOpen, setRoomsOpen] = useState(initial.current.roomsOpen);
   const [viewport, setViewport] = useState(readViewportMode);
   const layoutWidthRef = useRef(0);
   const hasAppliedTabletDefault = useRef(false);
@@ -85,10 +89,11 @@ export function useChatWorkspaceLayout() {
         roomsWidth: next.roomsWidth ?? roomsWidth,
         infoWidth: next.infoWidth ?? infoWidth,
         infoOpen: next.infoOpen ?? infoOpen,
+        roomsOpen: next.roomsOpen ?? roomsOpen,
       };
       savePersistedLayout(merged);
     },
-    [roomsWidth, infoWidth, infoOpen],
+    [roomsWidth, infoWidth, infoOpen, roomsOpen],
   );
 
   useEffect(() => {
@@ -172,6 +177,16 @@ export function useChatWorkspaceLayout() {
     persist({infoOpen: true});
   }, [persist]);
 
+  const closeRoomsPanel = useCallback(() => {
+    setRoomsOpen(false);
+    persist({roomsOpen: false});
+  }, [persist]);
+
+  const openRoomsPanel = useCallback(() => {
+    setRoomsOpen(true);
+    persist({roomsOpen: true});
+  }, [persist]);
+
   const [roomsDrawerOpen, setRoomsDrawerOpen] = useState(false);
 
   const openRoomsDrawer = useCallback(() => {
@@ -202,6 +217,7 @@ export function useChatWorkspaceLayout() {
     roomsWidth,
     infoWidth,
     infoOpen,
+    roomsOpen,
     isMobile: viewport.isMobile,
     isResizable: viewport.isResizable,
     observeLayout,
@@ -211,6 +227,8 @@ export function useChatWorkspaceLayout() {
     resetInfoWidth,
     closeInfoPanel,
     openInfoPanel,
+    closeRoomsPanel,
+    openRoomsPanel,
     roomsDrawerOpen,
     openRoomsDrawer,
     closeRoomsDrawer,

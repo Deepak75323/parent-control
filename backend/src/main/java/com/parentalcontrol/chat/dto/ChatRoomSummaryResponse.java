@@ -15,4 +15,6 @@ public class ChatRoomSummaryResponse {
   int memberCount;
   Instant createdAt;
   Instant updatedAt;
+  /** Per-member: local clear-chat timestamp (messages before this are hidden for this user). */
+  Instant chatClearedAt;
 }

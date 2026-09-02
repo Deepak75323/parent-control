@@ -21,6 +21,8 @@ type Props = {
   infoPanelOpen?: boolean;
   onOpenInfoPanel?: () => void;
   showInfoPanelToggle?: boolean;
+  showRoomsPanelToggle?: boolean;
+  onOpenRoomsPanel?: () => void;
   showBack?: boolean;
   onBack?: () => void;
   showRoomsMenu?: boolean;
@@ -39,6 +41,8 @@ export function ChatHeader({
   infoPanelOpen = true,
   onOpenInfoPanel,
   showInfoPanelToggle = false,
+  showRoomsPanelToggle = false,
+  onOpenRoomsPanel,
   showBack = false,
   onBack,
   showRoomsMenu = false,
@@ -112,7 +116,20 @@ export function ChatHeader({
         </div>
       </div>
       <div className="chat-thread-toolbar">
-        {showInfoPanelToggle && !infoPanelOpen && onOpenInfoPanel ? (
+        {showRoomsPanelToggle && onOpenRoomsPanel ? (
+          <button
+            type="button"
+            className="chat-icon-btn"
+            aria-label="Show rooms panel"
+            title="Show rooms"
+            disabled={busy}
+            onClick={onOpenRoomsPanel}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M4 6h16M4 12h16M4 18h10" />
+            </svg>
+          </button>
+        ) : null}
+        {showInfoPanelToggle && !infoPanelOpen && onOpenInfoPanel && !compact ? (
           <button
             type="button"
             className="chat-icon-btn"
@@ -158,6 +175,18 @@ export function ChatHeader({
           </button>
           {menuOpen ? (
             <div className="chat-header-dropdown" id={menuId} role="menu">
+              {showRoomsPanelToggle && onOpenRoomsPanel ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="chat-header-dropdown-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenRoomsPanel();
+                  }}>
+                  Show rooms panel
+                </button>
+              ) : null}
               {showInfoPanelToggle && !infoPanelOpen && onOpenInfoPanel ? (
                 <button
                   type="button"
@@ -167,7 +196,7 @@ export function ChatHeader({
                     setMenuOpen(false);
                     onOpenInfoPanel();
                   }}>
-                  Show parent chat help
+                  {compact ? 'Parent chat help' : 'Show parent chat help'}
                 </button>
               ) : null}
               {onToggleInvite ? (

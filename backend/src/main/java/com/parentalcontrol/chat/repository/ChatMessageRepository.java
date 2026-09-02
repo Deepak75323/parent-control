@@ -14,10 +14,23 @@ import org.springframework.data.repository.query.Param;
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> {
 
   @Query(
-      "SELECT m FROM ChatMessage m WHERE m.roomId = :roomId AND m.deletedAt IS NULL "
-          + "ORDER BY m.createdAt DESC")
-  Page<ChatMessage> findActiveByRoomIdOrderByCreatedAtDesc(
-      @Param("roomId") UUID roomId, Pageable pageable);
+      value =
+          "SELECT m FROM ChatMessage m WHERE m.roomId = :roomId AND m.deletedAt IS NULL "
+              + "AND m.createdAt > :clearedAfter "
+              + "AND NOT EXISTS ("
+              + "SELECT 1 FROM ChatMessageHide h WHERE h.messageId = m.id "
+              + "AND h.userId = :userId AND h.deletedAt IS NULL)",
+      countQuery =
+          "SELECT COUNT(m) FROM ChatMessage m WHERE m.roomId = :roomId AND m.deletedAt IS NULL "
+              + "AND m.createdAt > :clearedAfter "
+              + "AND NOT EXISTS ("
+              + "SELECT 1 FROM ChatMessageHide h WHERE h.messageId = m.id "
+              + "AND h.userId = :userId AND h.deletedAt IS NULL)")
+  Page<ChatMessage> findVisibleForMemberOrderByCreatedAtDesc(
+      @Param("roomId") UUID roomId,
+      @Param("userId") UUID userId,
+      @Param("clearedAfter") Instant clearedAfter,
+      Pageable pageable);
 
   @Query("SELECT m FROM ChatMessage m WHERE m.roomId = :roomId AND m.deletedAt IS NULL")
   List<ChatMessage> findActiveByRoomId(@Param("roomId") UUID roomId);

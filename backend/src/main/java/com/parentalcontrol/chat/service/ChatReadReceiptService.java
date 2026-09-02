@@ -14,9 +14,12 @@ import com.parentalcontrol.user.dao.ParentProfileDao;
 import com.parentalcontrol.user.domain.ParentProfile;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.Collection;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -63,8 +66,9 @@ public class ChatReadReceiptService {
 
   @Transactional
   public void markRead(UUID roomId, UUID recipientUserId, UUID lastMessageId) {
-    requireMember(roomId, recipientUserId);
+    ChatRoomMember member = requireMember(roomId, recipientUserId);
     if (!isReadReceiptsEnabled(recipientUserId)) {
+      clearUnreadFromIfReadPast(member, lastMessageId);
       return;
     }
 
@@ -86,6 +90,7 @@ public class ChatReadReceiptService {
             .map(ChatMessage::getId)
             .toList();
     if (messageIds.isEmpty()) {
+      clearUnreadFromIfReadPast(member, lastMessageId);
       return;
     }
 
@@ -94,6 +99,24 @@ public class ChatReadReceiptService {
     if (updated > 0) {
       notifySendersForMessages(messageIds);
     }
+    clearUnreadFromIfReadPast(member, lastMessage);
+  }
+
+  @Transactional
+  public void markUnread(UUID roomId, UUID recipientUserId, UUID anchorMessageId) {
+    ChatRoomMember member = requireMember(roomId, recipientUserId);
+    ChatMessage anchor =
+        messageRepository
+            .findById(anchorMessageId)
+            .orElseThrow(
+                () ->
+                    new BusinessException(
+                        ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND));
+    if (!anchor.getRoomId().equals(roomId)) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND);
+    }
+    member.setUnreadFromAt(anchor.getCreatedAt());
+    memberRepository.save(member);
   }
 
   @Transactional(readOnly = true)
@@ -147,9 +170,66 @@ public class ChatReadReceiptService {
     }
   }
 
-  private void requireMember(UUID roomId, UUID userId) {
-    if (!memberRepository.existsByRoomIdAndUserId(roomId, userId)) {
-      throw new BusinessException(ErrorCode.FORBIDDEN, MessageConstants.CHAT_NOT_A_MEMBER);
+  @Transactional(readOnly = true)
+  public Map<UUID, Boolean> unreadForViewer(
+      Collection<ChatMessage> messages, UUID viewerUserId, Instant unreadFromAt) {
+    if (messages == null || messages.isEmpty()) {
+      return Map.of();
+    }
+    List<UUID> messageIds = messages.stream().map(ChatMessage::getId).toList();
+    Map<UUID, ChatMessageReceipt> receiptsByMessage =
+        receiptRepository.findByMessageIdIn(messageIds).stream()
+            .filter(receipt -> receipt.getRecipientUserId().equals(viewerUserId))
+            .collect(
+                java.util.stream.Collectors.toMap(
+                    ChatMessageReceipt::getMessageId, receipt -> receipt, (left, right) -> left));
+
+    Map<UUID, Boolean> unreadByMessage = new HashMap<>();
+    for (ChatMessage message : messages) {
+      if (message.getSenderUserId().equals(viewerUserId)) {
+        continue;
+      }
+      ChatMessageReceipt receipt = receiptsByMessage.get(message.getId());
+      boolean unread = receipt == null || receipt.getReadAt() == null;
+      if (!unread
+          && unreadFromAt != null
+          && !message.getCreatedAt().isBefore(unreadFromAt)) {
+        unread = true;
+      }
+      unreadByMessage.put(message.getId(), unread);
+    }
+    return unreadByMessage;
+  }
+
+  @Transactional(readOnly = true)
+  public Map<UUID, Boolean> unreadForViewer(Collection<UUID> messageIds, UUID viewerUserId) {
+    if (messageIds == null || messageIds.isEmpty()) {
+      return Map.of();
+    }
+    List<ChatMessage> messages = messageRepository.findAllById(messageIds);
+    return unreadForViewer(messages, viewerUserId, null);
+  }
+
+  private ChatRoomMember requireMember(UUID roomId, UUID userId) {
+    return memberRepository
+        .findByRoomIdAndUserId(roomId, userId)
+        .orElseThrow(
+            () -> new BusinessException(ErrorCode.FORBIDDEN, MessageConstants.CHAT_NOT_A_MEMBER));
+  }
+
+  private void clearUnreadFromIfReadPast(ChatRoomMember member, UUID lastMessageId) {
+    messageRepository
+        .findById(lastMessageId)
+        .ifPresent(message -> clearUnreadFromIfReadPast(member, message));
+  }
+
+  private void clearUnreadFromIfReadPast(ChatRoomMember member, ChatMessage lastMessage) {
+    if (member.getUnreadFromAt() == null) {
+      return;
+    }
+    if (!lastMessage.getCreatedAt().isBefore(member.getUnreadFromAt())) {
+      member.setUnreadFromAt(null);
+      memberRepository.save(member);
     }
   }
 }

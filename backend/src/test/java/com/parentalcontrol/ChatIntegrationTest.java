@@ -215,8 +215,16 @@ class ChatIntegrationTest {
     mockMvc
         .perform(
             delete("/api/v1/chat/rooms/" + roomId + "/messages/" + ownMessageId)
+                .param("scope", "FOR_EVERYONE")
                 .header("Authorization", "Bearer " + tokenB))
         .andExpect(status().isOk());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenA))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data").isEmpty());
 
     MvcResult other =
         mockMvc
@@ -224,7 +232,7 @@ class ChatIntegrationTest {
                 post("/api/v1/chat/rooms/" + roomId + "/messages")
                     .header("Authorization", "Bearer " + tokenB)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"body\":\"Owner can delete this\"}"))
+                    .content("{\"body\":\"Hide for me only\"}"))
             .andExpect(status().isOk())
             .andReturn();
     String otherMessageId = readData(other).get("id").asText();
@@ -232,14 +240,30 @@ class ChatIntegrationTest {
     mockMvc
         .perform(
             delete("/api/v1/chat/rooms/" + roomId + "/messages/" + otherMessageId)
-                .header("Authorization", "Bearer " + tokenB))
+                .param("scope", "FOR_EVERYONE")
+                .header("Authorization", "Bearer " + tokenA))
         .andExpect(status().isForbidden());
 
     mockMvc
         .perform(
             delete("/api/v1/chat/rooms/" + roomId + "/messages/" + otherMessageId)
+                .param("scope", "FOR_ME")
                 .header("Authorization", "Bearer " + tokenA))
         .andExpect(status().isOk());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenA))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data").isEmpty());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenB))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].body").value("Hide for me only"));
   }
 
   @Test
@@ -320,6 +344,34 @@ class ChatIntegrationTest {
   void ownerClearsHistory() throws Exception {
     mockMvc
         .perform(
+            post("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenB)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"body\":\"Before personal clear\"}"))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(
+            post("/api/v1/chat/rooms/" + roomId + "/clear-chat")
+                .header("Authorization", "Bearer " + tokenB))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenB))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data").isEmpty());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenA))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].body").value("Before personal clear"));
+
+    mockMvc
+        .perform(
             post("/api/v1/chat/rooms/" + roomId + "/clear-history")
                 .header("Authorization", "Bearer " + tokenB))
         .andExpect(status().isForbidden());
@@ -334,6 +386,13 @@ class ChatIntegrationTest {
         .perform(
             get("/api/v1/chat/rooms/" + roomId + "/messages")
                 .header("Authorization", "Bearer " + tokenA))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data").isEmpty());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenB))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data").isEmpty());
 
@@ -467,6 +526,88 @@ class ChatIntegrationTest {
                 .content("{\"enabled\":false}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.enabled").value(false));
+  }
+
+  @Test
+  @Order(73)
+  void markUnreadFromAnchorMessage() throws Exception {
+    MvcResult first =
+        mockMvc
+            .perform(
+                post("/api/v1/chat/rooms/" + roomId + "/messages")
+                    .header("Authorization", "Bearer " + tokenA)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"body\":\"Unread line one\"}"))
+            .andExpect(status().isOk())
+            .andReturn();
+    String firstId = readData(first).get("id").asText();
+
+    MvcResult second =
+        mockMvc
+            .perform(
+                post("/api/v1/chat/rooms/" + roomId + "/messages")
+                    .header("Authorization", "Bearer " + tokenA)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"body\":\"Unread line two\"}"))
+            .andExpect(status().isOk())
+            .andReturn();
+    String secondId = readData(second).get("id").asText();
+
+    MvcResult third =
+        mockMvc
+            .perform(
+                post("/api/v1/chat/rooms/" + roomId + "/messages")
+                    .header("Authorization", "Bearer " + tokenA)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"body\":\"Unread line three\"}"))
+            .andExpect(status().isOk())
+            .andReturn();
+    String thirdId = readData(third).get("id").asText();
+
+    mockMvc
+        .perform(
+            post("/api/v1/chat/rooms/" + roomId + "/read")
+                .header("Authorization", "Bearer " + tokenB)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"lastMessageId\":\"" + thirdId + "\"}"))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenB))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[?(@.id=='" + firstId + "')].unread").value(false))
+        .andExpect(jsonPath("$.data[?(@.id=='" + secondId + "')].unread").value(false))
+        .andExpect(jsonPath("$.data[?(@.id=='" + thirdId + "')].unread").value(false));
+
+    mockMvc
+        .perform(
+            post(
+                    "/api/v1/chat/rooms/"
+                        + roomId
+                        + "/messages/"
+                        + secondId
+                        + "/mark-unread")
+                .header("Authorization", "Bearer " + tokenB))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenB))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[?(@.id=='" + firstId + "')].unread").value(false))
+        .andExpect(jsonPath("$.data[?(@.id=='" + secondId + "')].unread").value(true))
+        .andExpect(jsonPath("$.data[?(@.id=='" + thirdId + "')].unread").value(true));
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenA))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[?(@.id=='" + secondId + "')].receiptStatus").value("READ"))
+        .andExpect(jsonPath("$.data[?(@.id=='" + thirdId + "')].receiptStatus").value("READ"));
   }
 
   @Test

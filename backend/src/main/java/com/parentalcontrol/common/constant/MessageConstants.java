@@ -314,7 +314,10 @@ public final class MessageConstants {
   public static final String CHAT_MESSAGE_BODY_REQUIRED = "Message cannot be empty";
 
   public static final String CHAT_CANNOT_DELETE_MESSAGE =
-      "You can only delete your own messages unless you own this room";
+      "You can only delete your own messages for everyone";
+
+  public static final String CHAT_CANNOT_DELETE_FOR_EVERYONE =
+      "Only the sender can delete a message for everyone";
 
   public static final String CHAT_CANNOT_EDIT_MESSAGE = "You can only edit your own messages";
 

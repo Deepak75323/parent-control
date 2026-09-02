@@ -54,6 +54,7 @@ export const ApiPaths = {
   CHAT_ROOMS: `${V1}/chat/rooms`,
   chatRoom: (roomId: string) => `${V1}/chat/rooms/${roomId}`,
   chatRoomClearHistory: (roomId: string) => `${V1}/chat/rooms/${roomId}/clear-history`,
+  chatRoomClearChat: (roomId: string) => `${V1}/chat/rooms/${roomId}/clear-chat`,
   chatRoomLeave: (roomId: string) => `${V1}/chat/rooms/${roomId}/leave`,
   chatRoomMembers: (roomId: string) => `${V1}/chat/rooms/${roomId}/members`,
   chatRoomInvites: (roomId: string) => `${V1}/chat/rooms/${roomId}/invites`,
@@ -62,6 +63,8 @@ export const ApiPaths = {
   chatRoomRead: (roomId: string) => `${V1}/chat/rooms/${roomId}/read`,
   chatMessage: (roomId: string, messageId: string) =>
     `${V1}/chat/rooms/${roomId}/messages/${messageId}`,
+  chatMessageMarkUnread: (roomId: string, messageId: string) =>
+    `${V1}/chat/rooms/${roomId}/messages/${messageId}/mark-unread`,
   chatMessageReactions: (roomId: string, messageId: string) =>
     `${V1}/chat/rooms/${roomId}/messages/${messageId}/reactions`,
   chatRoomMediaMessages: (roomId: string) => `${V1}/chat/rooms/${roomId}/messages/media`,

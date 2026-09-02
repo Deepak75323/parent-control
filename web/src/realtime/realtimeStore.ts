@@ -34,8 +34,10 @@ interface RealtimeState {
   /** Latest reactions per message (WebSocket updates). */
   reactionPatches: Record<string, ChatMessageItem['reactions']>;
   chatClearedEpoch: Record<string, number>;
-  /** Wall-clock ms when history was cleared per room — stale WS cache is ignored before this. */
+  /** Wall-clock ms when history was cleared for everyone (owner) — stale WS cache is ignored before this. */
   chatClearedAt: Record<string, number>;
+  /** Wall-clock ms when this user cleared chat locally (per-member). */
+  personalChatClearedAt: Record<string, number>;
   removedChatRoomIds: Record<string, true>;
   setWsConnected: (connected: boolean) => void;
   bumpDeviceList: () => void;
@@ -53,6 +55,8 @@ interface RealtimeState {
   ) => void;
   removeLiveChatMessage: (messageId: string) => void;
   clearLiveChatMessagesForRoom: (roomId: string) => void;
+  clearPersonalChatForRoom: (roomId: string) => void;
+  syncPersonalChatClearedAt: (roomId: string, clearedAtMs: number) => void;
   syncLiveChatMessagesFromApi: (roomId: string, messages: ChatMessageItem[]) => void;
   notifyChatRoomDeleted: () => void;
   markChatRoomRemoved: (roomId: string) => void;
@@ -84,6 +88,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   reactionPatches: {},
   chatClearedEpoch: {},
   chatClearedAt: {},
+  personalChatClearedAt: {},
   removedChatRoomIds: {},
   setWsConnected: wsConnected => set({wsConnected}),
   bumpDeviceList: () => set(state => ({deviceListEpoch: state.deviceListEpoch + 1})),
@@ -132,6 +137,21 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       chatClearedAt: {
         ...state.chatClearedAt,
         [roomId]: Date.now(),
+      },
+    })),
+  clearPersonalChatForRoom: roomId =>
+    set(state => ({
+      liveChatMessages: state.liveChatMessages.filter(message => message.roomId !== roomId),
+      personalChatClearedAt: {
+        ...state.personalChatClearedAt,
+        [roomId]: Date.now(),
+      },
+    })),
+  syncPersonalChatClearedAt: (roomId, clearedAtMs) =>
+    set(state => ({
+      personalChatClearedAt: {
+        ...state.personalChatClearedAt,
+        [roomId]: Math.max(state.personalChatClearedAt[roomId] ?? 0, clearedAtMs),
       },
     })),
   syncLiveChatMessagesFromApi: (roomId, messages) =>
@@ -207,6 +227,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       reactionPatches: {},
       chatClearedEpoch: {},
       chatClearedAt: {},
+      personalChatClearedAt: {},
       removedChatRoomIds: {},
     }),
 }));

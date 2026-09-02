@@ -20,13 +20,16 @@ type Props = {
   isEditing?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
+  canDeleteForEveryone?: boolean;
   swipeToReplyEnabled?: boolean;
   onEdit?: () => void;
-  onDelete?: () => void;
+  onDeleteForMe?: () => void;
+  onDeleteForEveryone?: () => void;
   onCopy?: () => void;
   onReply?: () => void;
   onQuoteClick?: (messageId: string) => void;
   onToggleReaction?: (emoji: string) => void;
+  onMarkUnread?: () => void;
   children: ReactNode;
 };
 
@@ -40,13 +43,16 @@ export function MessageBubble({
   isEditing = false,
   canEdit = false,
   canDelete = false,
+  canDeleteForEveryone = false,
   swipeToReplyEnabled = false,
   onEdit,
-  onDelete,
+  onDeleteForMe,
+  onDeleteForEveryone,
   onCopy,
   onReply,
   onQuoteClick,
   onToggleReaction,
+  onMarkUnread,
   children,
 }: Props) {
   const isOwn = Boolean(message.ownMessage);
@@ -68,7 +74,7 @@ export function MessageBubble({
   });
 
   const longPress = useLongPress({
-    enabled: !isEditing && !busy && Boolean(onToggleReaction),
+    enabled: !isEditing && !busy && Boolean(onToggleReaction) && !reactionPickerOpen,
     onLongPress: () => setReactionPickerOpen(true),
   });
 
@@ -84,16 +90,33 @@ export function MessageBubble({
   if (onReply && !isEditing) {
     actions.push({id: 'reply', label: 'Reply', icon: '↩', onSelect: onReply});
   }
+  if (onMarkUnread && !isEditing) {
+    actions.push({
+      id: 'mark-unread',
+      label: 'Mark as unread',
+      icon: '●',
+      onSelect: onMarkUnread,
+    });
+  }
   if (isOwn && canEdit && onEdit && !isEditing) {
     actions.push({id: 'edit', label: 'Edit', icon: '✏', onSelect: onEdit});
   }
-  if (canDelete && onDelete) {
+  if (canDelete && onDeleteForMe) {
     actions.push({
-      id: 'delete',
-      label: isOwn ? 'Delete for everyone' : 'Delete',
+      id: 'delete-me',
+      label: 'Delete for me',
       icon: '🗑',
       danger: true,
-      onSelect: onDelete,
+      onSelect: onDeleteForMe,
+    });
+  }
+  if (canDeleteForEveryone && onDeleteForEveryone) {
+    actions.push({
+      id: 'delete-everyone',
+      label: 'Delete for everyone',
+      icon: '🗑',
+      danger: true,
+      onSelect: onDeleteForEveryone,
     });
   }
   if (!isOwn && onCopy) {
@@ -103,11 +126,16 @@ export function MessageBubble({
   const bubble = (
     <div
       ref={bubbleRef}
-      className={`chat-message-bubble${isOwn ? ' chat-message-bubble--own' : ''}`}
+      className={`chat-message-bubble${isOwn ? ' chat-message-bubble--own' : ''}${reactionPickerOpen ? ' chat-message-bubble--reacting' : ''}`}
       onTouchStart={longPress.onTouchStart}
       onTouchEnd={longPress.onTouchEnd}
       onTouchMove={longPress.onTouchMove}
-      onTouchCancel={longPress.onTouchCancel}>
+      onTouchCancel={longPress.onTouchCancel}
+      onMouseDown={longPress.onMouseDown}
+      onMouseUp={longPress.onMouseUp}
+      onMouseLeave={longPress.onMouseLeave}
+      onMouseMove={longPress.onMouseMove}
+      onContextMenu={longPress.onContextMenu}>
       {isOwn ? (
         <>
           {actions.length > 0 ? (
@@ -169,7 +197,7 @@ export function MessageBubble({
   return (
     <article
       id={`chat-message-${message.id}`}
-      className={`chat-message-row${isOwn ? ' chat-message-row--own' : ' chat-message-row--incoming'}${isEditing ? ' chat-message-row--editing' : ''}${swipe.swipingReply || swipe.swipingEdit ? ' chat-message-row--swiping' : ''}`}
+      className={`chat-message-row${isOwn ? ' chat-message-row--own' : ' chat-message-row--incoming'}${isEditing ? ' chat-message-row--editing' : ''}${swipe.swipingReply || swipe.swipingEdit ? ' chat-message-row--swiping' : ''}${reactionPickerOpen ? ' chat-message-row--reacting' : ''}`}
       aria-label={isOwn ? `Your message at ${time}` : `${displayName}, ${time}`}>
       {!isOwn ? (
         <Avatar name={avatarName} seed={avatarSeed} size="sm" className="chat-message-avatar" />

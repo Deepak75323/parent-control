@@ -187,6 +187,8 @@ export const policiesApi = {
   delete: (policyId: string) => api.delete(ApiPaths.policy(policyId)),
 };
 
+export type ChatMessageDeleteScope = 'FOR_ME' | 'FOR_EVERYONE';
+
 export const chatApi = {
   listRooms: () => api.get<ApiResponse<ChatRoomSummary[]>>(ApiPaths.CHAT_ROOMS),
   createRoom: (name: string) =>
@@ -194,6 +196,8 @@ export const chatApi = {
   deleteRoom: (roomId: string) => api.delete<ApiResponse<void>>(ApiPaths.chatRoom(roomId)),
   clearHistory: (roomId: string) =>
     api.post<ApiResponse<void>>(ApiPaths.chatRoomClearHistory(roomId), {}),
+  clearChat: (roomId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomClearChat(roomId), {}),
   leaveRoom: (roomId: string) => api.post<ApiResponse<void>>(ApiPaths.chatRoomLeave(roomId), {}),
   listMembers: (roomId: string) =>
     api.get<ApiResponse<ChatMemberItem[]>>(ApiPaths.chatRoomMembers(roomId)),
@@ -212,8 +216,8 @@ export const chatApi = {
       body,
       ...(replyToMessageId ? {replyToMessageId} : {}),
     }),
-  deleteMessage: (roomId: string, messageId: string) =>
-    api.delete<ApiResponse<void>>(ApiPaths.chatMessage(roomId, messageId)),
+  deleteMessage: (roomId: string, messageId: string, scope: ChatMessageDeleteScope = 'FOR_ME') =>
+    api.delete<ApiResponse<void>>(ApiPaths.chatMessage(roomId, messageId), {params: {scope}}),
   editMessage: (roomId: string, messageId: string, body: string) =>
     api.patch<ApiResponse<ChatMessageItem>>(ApiPaths.chatMessage(roomId, messageId), {body}),
   sendMediaMessage: (roomId: string, file: File, caption?: string, replyToMessageId?: string) =>
@@ -239,6 +243,8 @@ export const chatApi = {
     api.post<ApiResponse<void>>(ApiPaths.chatRoomDelivered(roomId), {messageIds}),
   markRead: (roomId: string, lastMessageId: string) =>
     api.post<ApiResponse<void>>(ApiPaths.chatRoomRead(roomId), {lastMessageId}),
+  markUnread: (roomId: string, messageId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatMessageMarkUnread(roomId, messageId)),
   setMessageReaction: (roomId: string, messageId: string, emoji: string) =>
     api.put<ApiResponse<ChatMessageReactionSummary[]>>(
       ApiPaths.chatMessageReactions(roomId, messageId),
