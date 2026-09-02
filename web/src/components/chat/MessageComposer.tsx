@@ -5,6 +5,8 @@ type Props = {
   placeholder: string;
   busy?: boolean;
   canSend: boolean;
+  formId?: string;
+  emphasizeSend?: boolean;
   fileInputRef?: RefObject<HTMLInputElement | null>;
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
@@ -16,6 +18,8 @@ export function MessageComposer({
   placeholder,
   busy = false,
   canSend,
+  formId = 'chat-compose-form',
+  emphasizeSend = false,
   fileInputRef: externalFileInputRef,
   onDraftChange,
   onSubmit,
@@ -35,7 +39,7 @@ export function MessageComposer({
   }
 
   return (
-    <form className="chat-compose" onSubmit={onSubmit}>
+    <form id={formId} className="chat-compose" onSubmit={onSubmit}>
       <input
         ref={fileInputRef}
         type="file"
@@ -82,9 +86,16 @@ export function MessageComposer({
       </button>
       <button
         type="submit"
-        className={`chat-compose-send${canSend ? ' chat-compose-send--active' : ''}`}
+        className={[
+          'chat-compose-send',
+          canSend ? 'chat-compose-send--active' : '',
+          emphasizeSend ? 'chat-compose-send--emphasized' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         disabled={busy || !canSend}
-        aria-label="Send message">
+        aria-label={emphasizeSend ? 'Send attachment' : 'Send message'}>
+        {emphasizeSend ? <span className="chat-compose-send-text">Send</span> : null}
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
           <path d="M3.4 20.6l17.2-8.6L3.4 3.4l2.9 6.8 7.5 1.1-7.5 1.1-2.9 6.8z" />
         </svg>

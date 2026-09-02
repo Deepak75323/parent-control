@@ -9,6 +9,7 @@ import {
 } from '../api/services';
 import {useAuthStore} from '../auth/authStore';
 import {useLogout} from '../auth/useLogout';
+import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {chatDisplayNickname} from '../lib/chatDisplayNickname';
 import {disconnectWebSocket} from '../realtime/websocket';
 import {useRealtimeStore} from '../realtime/realtimeStore';
@@ -34,6 +35,7 @@ export function SettingsPage() {
   const [deletePassword, setDeletePassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const {confirm, dialog: confirmDialog} = useConfirmDialog(busy);
 
   const load = useCallback(async () => {
     setError(null);
@@ -134,7 +136,18 @@ export function SettingsPage() {
 
   const onDeleteAccount = async (e: FormEvent) => {
     e.preventDefault();
-    if (!deletePassword || !window.confirm('Permanently delete this parent account?')) {
+    if (!deletePassword) {
+      return;
+    }
+    if (
+      !(await confirm({
+        title: 'Delete account',
+        message:
+          'Permanently delete this parent account? Devices, chat history, and settings cannot be recovered.',
+        confirmLabel: 'Delete account',
+        danger: true,
+      }))
+    ) {
       return;
     }
     setBusy(true);
@@ -153,6 +166,7 @@ export function SettingsPage() {
 
   return (
     <div className="page">
+      {confirmDialog}
       <div className="page-header">
         <div>
           <h1>Settings</h1>

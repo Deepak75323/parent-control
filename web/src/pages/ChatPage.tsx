@@ -19,6 +19,7 @@ import {ChatHeader} from '../components/chat/ChatHeader';
 import {ChatRoomsPanel} from '../components/chat/ChatRoomsPanel';
 import {ChatWorkspaceLayout} from '../components/chat/ChatWorkspaceLayout';
 import {useChatWorkspaceLayout} from '../hooks/useChatWorkspaceLayout';
+import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {DateSeparator} from '../components/chat/DateSeparator';
 import {EmptyChatState} from '../components/chat/EmptyChatState';
 import {MessageBubble} from '../components/chat/MessageBubble';
@@ -54,6 +55,7 @@ export function ChatPage() {
   const initialRoomLoadRef = useRef(true);
   const messagesLoadGenRef = useRef(0);
   const roomsDrawerDismissedRef = useRef(false);
+  const {confirm, dialog: confirmDialog} = useConfirmDialog(busy);
 
   const ownDisplayName = useMemo(
     () =>
@@ -465,7 +467,14 @@ export function ChatPage() {
     if (!room?.owner) {
       return;
     }
-    if (!window.confirm(`Delete "${room.name}"? This removes the room for all members.`)) {
+    if (
+      !(await confirm({
+        title: 'Delete room',
+        message: `Delete "${room.name}"? This removes the room for all members.`,
+        confirmLabel: 'Delete room',
+        danger: true,
+      }))
+    ) {
       return;
     }
     setBusy(true);
@@ -506,9 +515,12 @@ export function ChatPage() {
       return;
     }
     if (
-      !window.confirm(
-        `Clear all messages in "${room.name}"? The room and members stay — only chat history is removed.`,
-      )
+      !(await confirm({
+        title: 'Clear chat history',
+        message: `Clear all messages in "${room.name}"? The room and members stay — only chat history is removed.`,
+        confirmLabel: 'Clear history',
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -549,7 +561,14 @@ export function ChatPage() {
     if (!room || room.owner) {
       return;
     }
-    if (!window.confirm(`Leave "${room.name}"? You can be invited again later.`)) {
+    if (
+      !(await confirm({
+        title: 'Leave room',
+        message: `Leave "${room.name}"? You can be invited again later.`,
+        confirmLabel: 'Leave room',
+        danger: true,
+      }))
+    ) {
       return;
     }
     setBusy(true);
@@ -725,10 +744,15 @@ export function ChatPage() {
     if (!selectedRoomId || !canDeleteMessage(message)) {
       return;
     }
-    const confirmText = message.ownMessage
-      ? 'Delete this message for everyone?'
-      : 'Delete this message?';
-    if (!window.confirm(confirmText)) {
+    const confirmed = await confirm({
+      title: 'Delete message',
+      message: message.ownMessage
+        ? 'Delete this message for everyone?'
+        : 'Delete this message?',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!confirmed) {
       return;
     }
     setBusy(true);
@@ -841,6 +865,7 @@ export function ChatPage() {
 
   return (
     <div className="chat-page">
+      {confirmDialog}
       {invites.length > 0 ? (
         <div className="chat-invites-banner">
           <div className="chat-invites-banner-head">
@@ -988,6 +1013,7 @@ export function ChatPage() {
                   <div ref={messagesEndRef} />
                 </div>
 
+                <div className="chat-compose-footer">
                 {pendingFile ? (
                   <div className="chat-compose-preview">
                     {pendingPreviewUrl && pendingFile.type.startsWith('video/') ? (
@@ -1012,13 +1038,22 @@ export function ChatPage() {
                     ) : null}
                     <div className="chat-compose-preview-meta">
                       <span className="tiny">{pendingFile.name}</span>
-                      <button
-                        type="button"
-                        className="btn ghost sm"
-                        disabled={busy}
-                        onClick={clearPendingFile}>
-                        Remove
-                      </button>
+                      <div className="chat-compose-preview-actions">
+                        <button
+                          type="button"
+                          className="btn ghost sm"
+                          disabled={busy}
+                          onClick={clearPendingFile}>
+                          Remove
+                        </button>
+                        <button
+                          type="submit"
+                          form="chat-compose-form"
+                          className="btn primary sm"
+                          disabled={busy}>
+                          Send
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ) : null}
@@ -1042,12 +1077,14 @@ export function ChatPage() {
                     }
                     busy={busy}
                     canSend={Boolean(draft.trim() || pendingFile)}
+                    emphasizeSend={Boolean(pendingFile)}
                     fileInputRef={composerFileInputRef}
                     onDraftChange={setDraft}
                     onSubmit={handleSendMessage}
                     onFileSelected={handleFileSelected}
                   />
                 )}
+                </div>
               </ChatFileDropZone>
             )}
           </section>
