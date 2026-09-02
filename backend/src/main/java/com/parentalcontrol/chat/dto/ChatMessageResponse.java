@@ -29,4 +29,6 @@ public class ChatMessageResponse {
   Instant editedAt;
   /** SENT, DELIVERED, or READ — only set on own messages. */
   ChatReceiptStatus receiptStatus;
+  /** Quoted parent message, when this message is a reply. */
+  ChatMessageReplyPreview replyTo;
 }

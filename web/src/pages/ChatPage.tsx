@@ -23,8 +23,12 @@ import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {DateSeparator} from '../components/chat/DateSeparator';
 import {EmptyChatState} from '../components/chat/EmptyChatState';
 import {MessageBubble} from '../components/chat/MessageBubble';
+import {ComposerReplyBar} from '../components/chat/ChatMessageReplyQuote';
 import {EditMessageComposer, MessageComposer} from '../components/chat/MessageComposer';
-import type {ChatInviteItem, ChatMessageItem, ChatRoomSummary} from '../types/api';
+import {collectMentionTokens} from '../lib/chatMentions';
+import {replyPreviewFromMessage} from '../lib/chatReplyPreview';
+import {ChatMessageText} from '../components/chat/ChatMessageText';
+import type {ChatInviteItem, ChatMemberItem, ChatMessageItem, ChatRoomSummary} from '../types/api';
 
 export function ChatPage() {
   const location = useLocation();
@@ -47,11 +51,14 @@ export function ChatPage() {
   const [busy, setBusy] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
+  const [replyingTo, setReplyingTo] = useState<ChatMessageItem | null>(null);
+  const [roomMembers, setRoomMembers] = useState<ChatMemberItem[]>([]);
   const [showInvite, setShowInvite] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerFileInputRef = useRef<HTMLInputElement>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const initialRoomLoadRef = useRef(true);
   const messagesLoadGenRef = useRef(0);
   const roomsDrawerDismissedRef = useRef(false);
@@ -178,6 +185,7 @@ export function ChatPage() {
   const selectRoom = useCallback(
     (roomId: string) => {
       setSelectedRoomId(roomId);
+      setReplyingTo(null);
       if (workspace.isMobile) {
         workspace.closeRoomsDrawer();
       }
@@ -189,6 +197,7 @@ export function ChatPage() {
     setSelectedRoomId(null);
     setShowInvite(false);
     setSearchOpen(false);
+    setReplyingTo(null);
     if (workspace.isMobile) {
       roomsDrawerDismissedRef.current = false;
       workspace.openRoomsDrawer();
@@ -291,6 +300,17 @@ export function ChatPage() {
     }
   }, [pruneLiveChatMessages, unmarkChatRoomRemoved]);
 
+  const mentionTokens = useMemo(() => collectMentionTokens(roomMembers), [roomMembers]);
+
+  const loadRoomMembers = useCallback(async (roomId: string) => {
+    try {
+      const {data} = await chatApi.listMembers(roomId);
+      setRoomMembers(data.data ?? []);
+    } catch {
+      setRoomMembers([]);
+    }
+  }, []);
+
   const loadInvites = useCallback(async () => {
     try {
       const {data} = await chatApi.listPendingInvites();
@@ -348,7 +368,15 @@ export function ChatPage() {
     });
     setApiMessages(prev => prev.filter(message => message.roomId !== selectedRoomId));
     void loadMessages(selectedRoomId);
-  }, [selectedRoomId, loadMessages]);
+    void loadRoomMembers(selectedRoomId);
+  }, [selectedRoomId, loadMessages, loadRoomMembers]);
+
+  useEffect(() => {
+    if (!selectedRoomId) {
+      return;
+    }
+    void loadRoomMembers(selectedRoomId);
+  }, [selectedRoomId, loadRoomMembers, chatRoomsEpoch]);
 
   useEffect(() => {
     if (!selectedRoomId || !chatClearedEpoch[selectedRoomId]) {
@@ -657,7 +685,12 @@ export function ChatPage() {
           setError('Caption is too long after encoding — use fewer words');
           return;
         }
-        const {data} = await chatApi.sendMediaMessage(selectedRoomId, pendingFile, caption);
+        const {data} = await chatApi.sendMediaMessage(
+          selectedRoomId,
+          pendingFile,
+          caption,
+          replyingTo?.id,
+        );
         if (data.data) {
           setApiMessages(prev =>
             prev.some(message => message.id === data.data!.id) ? prev : [...prev, data.data!],
@@ -670,7 +703,11 @@ export function ChatPage() {
           setError('Message is too long after encoding — use fewer words');
           return;
         }
-        const {data} = await chatApi.sendMessage(selectedRoomId, obfuscatedBody);
+        const {data} = await chatApi.sendMessage(
+          selectedRoomId,
+          obfuscatedBody,
+          replyingTo?.id,
+        );
         if (data.data) {
           setApiMessages(prev =>
             prev.some(message => message.id === data.data!.id) ? prev : [...prev, data.data!],
@@ -678,6 +715,7 @@ export function ChatPage() {
         }
       }
       setDraft('');
+      setReplyingTo(null);
     } catch {
       setError(pendingFile ? 'Could not send media' : 'Could not send message');
     } finally {
@@ -699,6 +737,7 @@ export function ChatPage() {
   function startEditMessage(message: ChatMessageItem) {
     setEditingMessageId(message.id);
     setEditDraft(message.body ?? '');
+    setReplyingTo(null);
     setError(null);
     setDraft('');
   }
@@ -769,6 +808,32 @@ export function ChatPage() {
     }
   }
 
+  function startReplyMessage(message: ChatMessageItem) {
+    setReplyingTo(message);
+    setEditingMessageId(null);
+    setEditDraft('');
+    setError(null);
+    window.requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus();
+    });
+  }
+
+  function cancelReplyMessage() {
+    setReplyingTo(null);
+  }
+
+  function scrollToMessage(messageId: string) {
+    const element = document.getElementById(`chat-message-${messageId}`);
+    if (!element) {
+      return;
+    }
+    element.scrollIntoView({behavior: 'smooth', block: 'center'});
+    element.classList.add('chat-message-row--highlight');
+    window.setTimeout(() => {
+      element.classList.remove('chat-message-row--highlight');
+    }, 1600);
+  }
+
   function handleCopyMessage(message: ChatMessageItem) {
     if (!message.body) {
       return;
@@ -791,10 +856,11 @@ export function ChatPage() {
       <>
         {showMedia ? <ChatMessageMedia message={message} onConsumed={patchMessage} /> : null}
         {message.body ? (
-          <p className="chat-message-body">
-            {message.body}
-            {message.editedAt ? <span className="chat-message-edited"> (edited)</span> : null}
-          </p>
+          <ChatMessageText
+            text={message.body}
+            mentionTokens={mentionTokens}
+            edited={Boolean(message.editedAt)}
+          />
         ) : null}
         {!isMedia && !message.body ? <p className="chat-message-body muted">—</p> : null}
       </>
@@ -815,9 +881,12 @@ export function ChatPage() {
         isEditing={editingMessageId === message.id}
         canEdit={canEditMessage(message)}
         canDelete={canDeleteMessage(message)}
+        swipeToReplyEnabled={workspace.isMobile}
         onEdit={() => startEditMessage(message)}
         onDelete={() => void handleDeleteMessage(message)}
-        onCopy={() => handleCopyMessage(message)}>
+        onCopy={() => handleCopyMessage(message)}
+        onReply={() => startReplyMessage(message)}
+        onQuoteClick={scrollToMessage}>
         {renderMessageBody(message)}
       </MessageBubble>
     );
@@ -1058,6 +1127,13 @@ export function ChatPage() {
                   </div>
                 ) : null}
 
+                {replyingTo && !editingMessage ? (
+                  <ComposerReplyBar
+                    preview={replyPreviewFromMessage(replyingTo)}
+                    onDismiss={cancelReplyMessage}
+                  />
+                ) : null}
+
                 {editingMessage ? (
                   <EditMessageComposer
                     draft={editDraft}
@@ -1073,12 +1149,14 @@ export function ChatPage() {
                     placeholder={
                       pendingFile
                         ? `Caption for ${pendingFile.name} (optional)`
-                        : 'Write a message…'
+                        : 'Write a message… (@ to mention)'
                     }
                     busy={busy}
                     canSend={Boolean(draft.trim() || pendingFile)}
                     emphasizeSend={Boolean(pendingFile)}
+                    members={roomMembers}
                     fileInputRef={composerFileInputRef}
+                    textareaRef={composerTextareaRef}
                     onDraftChange={setDraft}
                     onSubmit={handleSendMessage}
                     onFileSelected={handleFileSelected}

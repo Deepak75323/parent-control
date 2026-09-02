@@ -62,4 +62,7 @@ public class ChatMessage extends BaseEntity {
 
   @Column(name = "edited_at")
   private Instant editedAt;
+
+  @Column(name = "reply_to_message_id")
+  private UUID replyToMessageId;
 }

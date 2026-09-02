@@ -199,6 +199,14 @@ export interface ChatRoomSummary {
   updatedAt: string;
 }
 
+export interface ChatMemberItem {
+  userId: string;
+  label: string;
+  nickname?: string;
+  role: 'OWNER' | 'MEMBER';
+  joinedAt: string;
+}
+
 export interface ChatInviteItem {
   id: string;
   roomId: string;
@@ -209,6 +217,15 @@ export interface ChatInviteItem {
   inviteeIdentifier: string;
   status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED';
   createdAt: string;
+}
+
+export interface ChatMessageReplyPreview {
+  messageId: string;
+  senderLabel: string;
+  senderNickname?: string;
+  messageType?: 'TEXT' | 'IMAGE' | 'VIDEO';
+  bodyPreview: string;
+  deleted: boolean;
 }
 
 export interface ChatMessageItem {
@@ -230,5 +247,6 @@ export interface ChatMessageItem {
   createdAt: string;
   editedAt?: string | null;
   receiptStatus?: 'SENT' | 'DELIVERED' | 'READ';
+  replyTo?: ChatMessageReplyPreview | null;
 }
 

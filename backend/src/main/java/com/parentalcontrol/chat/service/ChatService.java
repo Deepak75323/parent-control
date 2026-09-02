@@ -10,6 +10,7 @@ import com.parentalcontrol.chat.domain.ChatRoomMember;
 import com.parentalcontrol.chat.domain.ChatRoomMemberRole;
 import com.parentalcontrol.chat.dto.ChatInviteResponse;
 import com.parentalcontrol.chat.dto.ChatMemberResponse;
+import com.parentalcontrol.chat.dto.ChatMessageReplyPreview;
 import com.parentalcontrol.chat.dto.ChatMessageResponse;
 import com.parentalcontrol.chat.dto.ChatRoomSummaryResponse;
 import com.parentalcontrol.chat.dto.CreateChatInviteRequest;
@@ -111,6 +112,7 @@ public class ChatService {
                 ChatMemberResponse.builder()
                     .userId(member.getUserId())
                     .label(displayLabel(member.getUserId()))
+                    .nickname(chatNicknameForUser(member.getUserId()))
                     .role(member.getRole())
                     .joinedAt(member.getJoinedAt())
                     .build())
@@ -401,6 +403,7 @@ public class ChatService {
     ChatRoom room = requireRoom(roomId);
 
     String body = request.getBody().trim();
+    UUID replyToMessageId = resolveReplyTarget(roomId, request.getReplyToMessageId());
     ChatMessage message =
         messageRepository.save(
             ChatMessage.builder()
@@ -408,6 +411,7 @@ public class ChatService {
                 .senderUserId(userId)
                 .body(body)
                 .messageType(ChatMessageType.TEXT)
+                .replyToMessageId(replyToMessageId)
                 .build());
 
     room.setUpdatedAt(Instant.now());
@@ -432,7 +436,8 @@ public class ChatService {
   }
 
   @Transactional
-  public ChatMessageResponse sendMediaMessage(UUID roomId, MultipartFile file, String caption) {
+  public ChatMessageResponse sendMediaMessage(
+      UUID roomId, MultipartFile file, String caption, UUID replyToMessageId) {
     UUID userId = SecurityUtils.requireUserId();
     requireActiveMember(roomId, userId);
     ChatRoom room = requireRoom(roomId);
@@ -443,6 +448,7 @@ public class ChatService {
           ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_CAPTION_TOO_LONG);
     }
 
+    UUID resolvedReplyTo = resolveReplyTarget(roomId, replyToMessageId);
     ChatAttachmentStorageService.ValidatedAttachment validated =
         attachmentStorageService.validate(file);
 
@@ -453,6 +459,7 @@ public class ChatService {
                 .senderUserId(userId)
                 .body(body)
                 .messageType(ChatMessageType.TEXT)
+                .replyToMessageId(resolvedReplyTo)
                 .build());
 
     try {
@@ -709,7 +716,64 @@ public class ChatService {
         .createdAt(message.getCreatedAt())
         .editedAt(message.getEditedAt())
         .receiptStatus(ownMessage ? readReceiptService.statusForMessage(message.getId()) : null)
+        .replyTo(buildReplyPreview(message))
         .build();
+  }
+
+  private UUID resolveReplyTarget(UUID roomId, UUID replyToMessageId) {
+    if (replyToMessageId == null) {
+      return null;
+    }
+    if (!messageRepository.existsActiveInRoom(replyToMessageId, roomId)) {
+      throw new BusinessException(
+          ErrorCode.NOT_FOUND, MessageConstants.CHAT_REPLY_MESSAGE_NOT_FOUND);
+    }
+    return replyToMessageId;
+  }
+
+  private ChatMessageReplyPreview buildReplyPreview(ChatMessage message) {
+    UUID replyToId = message.getReplyToMessageId();
+    if (replyToId == null) {
+      return null;
+    }
+
+    return messageRepository
+        .findIncludingDeletedByIdAndRoomId(replyToId, message.getRoomId())
+        .map(
+            target -> {
+              boolean deleted = target.getDeletedAt() != null;
+              return ChatMessageReplyPreview.builder()
+                  .messageId(replyToId)
+                  .senderLabel(displayLabel(target.getSenderUserId()))
+                  .senderNickname(chatNicknameForUser(target.getSenderUserId()))
+                  .messageType(target.getMessageType())
+                  .bodyPreview(deleted ? "" : replyBodyPreview(target))
+                  .deleted(deleted)
+                  .build();
+            })
+        .orElse(
+            ChatMessageReplyPreview.builder()
+                .messageId(replyToId)
+                .senderLabel("")
+                .senderNickname("")
+                .messageType(ChatMessageType.TEXT)
+                .bodyPreview("")
+                .deleted(true)
+                .build());
+  }
+
+  private static String replyBodyPreview(ChatMessage message) {
+    if (message.getMessageType() == ChatMessageType.IMAGE) {
+      return StringUtils.hasText(message.getBody()) ? message.getBody() : "Photo";
+    }
+    if (message.getMessageType() == ChatMessageType.VIDEO) {
+      return StringUtils.hasText(message.getBody()) ? message.getBody() : "Video";
+    }
+    String body = message.getBody();
+    if (!StringUtils.hasText(body)) {
+      return "";
+    }
+    return body.length() <= 240 ? body : body.substring(0, 237) + "…";
   }
 
   private String chatNicknameForUser(UUID userId) {

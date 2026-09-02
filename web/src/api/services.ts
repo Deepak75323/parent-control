@@ -20,6 +20,7 @@ import type {
   UsageStatsItem,
   ChatRoomSummary,
   ChatInviteItem,
+  ChatMemberItem,
   ChatMessageItem,
 } from '../types/api';
 
@@ -193,6 +194,8 @@ export const chatApi = {
   clearHistory: (roomId: string) =>
     api.post<ApiResponse<void>>(ApiPaths.chatRoomClearHistory(roomId), {}),
   leaveRoom: (roomId: string) => api.post<ApiResponse<void>>(ApiPaths.chatRoomLeave(roomId), {}),
+  listMembers: (roomId: string) =>
+    api.get<ApiResponse<ChatMemberItem[]>>(ApiPaths.chatRoomMembers(roomId)),
   listPendingInvites: () =>
     api.get<ApiResponse<ChatInviteItem[]>>(ApiPaths.CHAT_INVITES_PENDING),
   invite: (roomId: string, identifier: string) =>
@@ -203,13 +206,16 @@ export const chatApi = {
     api.get<ApiResponse<ChatMessageItem[]>>(ApiPaths.chatRoomMessages(roomId), {
       params: {page, size},
     }),
-  sendMessage: (roomId: string, body: string) =>
-    api.post<ApiResponse<ChatMessageItem>>(ApiPaths.chatRoomMessages(roomId), {body}),
+  sendMessage: (roomId: string, body: string, replyToMessageId?: string) =>
+    api.post<ApiResponse<ChatMessageItem>>(ApiPaths.chatRoomMessages(roomId), {
+      body,
+      ...(replyToMessageId ? {replyToMessageId} : {}),
+    }),
   deleteMessage: (roomId: string, messageId: string) =>
     api.delete<ApiResponse<void>>(ApiPaths.chatMessage(roomId, messageId)),
   editMessage: (roomId: string, messageId: string, body: string) =>
     api.patch<ApiResponse<ChatMessageItem>>(ApiPaths.chatMessage(roomId, messageId), {body}),
-  sendMediaMessage: (roomId: string, file: File, caption?: string) =>
+  sendMediaMessage: (roomId: string, file: File, caption?: string, replyToMessageId?: string) =>
     postMultipart<ApiResponse<ChatMessageItem>>(
       ApiPaths.chatRoomMediaMessages(roomId),
       () => {
@@ -217,6 +223,9 @@ export const chatApi = {
         form.append('file', file, file.name);
         if (caption?.trim()) {
           form.append('caption', caption.trim());
+        }
+        if (replyToMessageId) {
+          form.append('replyToMessageId', replyToMessageId);
         }
         return form;
       },

@@ -1,4 +1,20 @@
-import {type FormEvent, type KeyboardEvent, type RefObject, useRef} from 'react';
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type RefObject,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  buildMentionCandidates,
+  filterMentionCandidates,
+  findActiveMentionQuery,
+  insertMention,
+  type MentionCandidate,
+} from '../../lib/chatMentions';
+import type {ChatMemberItem} from '../../types/api';
+import {MentionAutocomplete} from './MentionAutocomplete';
 
 type Props = {
   draft: string;
@@ -7,7 +23,9 @@ type Props = {
   canSend: boolean;
   formId?: string;
   emphasizeSend?: boolean;
+  members?: ChatMemberItem[];
   fileInputRef?: RefObject<HTMLInputElement | null>;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
   onFileSelected: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -20,15 +38,82 @@ export function MessageComposer({
   canSend,
   formId = 'chat-compose-form',
   emphasizeSend = false,
+  members = [],
   fileInputRef: externalFileInputRef,
+  textareaRef: externalTextareaRef,
   onDraftChange,
   onSubmit,
   onFileSelected,
 }: Props) {
   const internalFileInputRef = useRef<HTMLInputElement>(null);
+  const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = externalFileInputRef ?? internalFileInputRef;
+  const textareaRef = externalTextareaRef ?? internalTextareaRef;
+  const [mentionIndex, setMentionIndex] = useState(0);
+
+  const mentionCandidates = useMemo(() => buildMentionCandidates(members), [members]);
+
+  const activeMention = useMemo(() => {
+    const cursor = textareaRef.current?.selectionStart ?? draft.length;
+    return findActiveMentionQuery(draft, cursor);
+  }, [draft, textareaRef]);
+
+  const filteredMentions = useMemo(() => {
+    if (!activeMention) {
+      return [];
+    }
+    return filterMentionCandidates(mentionCandidates, activeMention.query);
+  }, [activeMention, mentionCandidates]);
+
+  function applyMention(candidate: MentionCandidate) {
+    if (!activeMention) {
+      return;
+    }
+    const {nextText, cursor} = insertMention(
+      draft,
+      activeMention.start,
+      activeMention.end,
+      candidate.token,
+    );
+    onDraftChange(nextText);
+    setMentionIndex(0);
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        return;
+      }
+      textarea.focus();
+      textarea.setSelectionRange(cursor, cursor);
+    });
+  }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (filteredMentions.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setMentionIndex(prev => (prev + 1) % filteredMentions.length);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setMentionIndex(prev => (prev - 1 + filteredMentions.length) % filteredMentions.length);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        const candidate = filteredMentions[mentionIndex];
+        if (candidate) {
+          applyMention(candidate);
+        }
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onDraftChange(draft.replace(/@[^\s@]*$/, ''));
+        return;
+      }
+    }
+
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       if (canSend && !busy) {
@@ -59,17 +144,54 @@ export function MessageComposer({
         </svg>
       </button>
       <div className="chat-compose-input-wrap">
+        {filteredMentions.length > 0 ? (
+          <MentionAutocomplete
+            candidates={filteredMentions}
+            activeIndex={mentionIndex}
+            onSelect={applyMention}
+          />
+        ) : null}
         <textarea
+          ref={textareaRef}
           className="chat-compose-textarea"
           placeholder={placeholder}
           value={draft}
           rows={1}
           aria-label={placeholder}
           disabled={busy}
-          onChange={event => onDraftChange(event.target.value)}
+          onChange={event => {
+            onDraftChange(event.target.value);
+            setMentionIndex(0);
+          }}
           onKeyDown={handleKeyDown}
         />
       </div>
+      <button
+        type="button"
+        className="chat-compose-icon-btn"
+        disabled={busy}
+        title="Mention a parent"
+        aria-label="Mention a parent"
+        onClick={() => {
+          const textarea = textareaRef.current;
+          if (!textarea) {
+            onDraftChange(`${draft}@`);
+            return;
+          }
+          const start = textarea.selectionStart ?? draft.length;
+          const end = textarea.selectionEnd ?? draft.length;
+          const next = `${draft.slice(0, start)}@${draft.slice(end)}`;
+          onDraftChange(next);
+          window.requestAnimationFrame(() => {
+            textarea.focus();
+            const cursor = start + 1;
+            textarea.setSelectionRange(cursor, cursor);
+          });
+        }}>
+        <span className="chat-compose-at" aria-hidden>
+          @
+        </span>
+      </button>
       <button
         type="button"
         className="chat-compose-icon-btn"

@@ -27,4 +27,18 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
       "UPDATE ChatMessage m SET m.deletedAt = :now, m.updatedAt = :now "
           + "WHERE m.roomId = :roomId AND m.deletedAt IS NULL")
   int softDeleteAllByRoomId(@Param("roomId") UUID roomId, @Param("now") Instant now);
+
+  @Query(
+      value =
+          "SELECT COUNT(*) > 0 FROM chat_messages "
+              + "WHERE id = :messageId AND room_id = :roomId AND deleted_at IS NULL",
+      nativeQuery = true)
+  boolean existsActiveInRoom(
+      @Param("messageId") UUID messageId, @Param("roomId") UUID roomId);
+
+  @Query(
+      value = "SELECT * FROM chat_messages WHERE id = :messageId AND room_id = :roomId",
+      nativeQuery = true)
+  java.util.Optional<ChatMessage> findIncludingDeletedByIdAndRoomId(
+      @Param("messageId") UUID messageId, @Param("roomId") UUID roomId);
 }

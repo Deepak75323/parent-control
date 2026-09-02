@@ -351,5 +351,8 @@ public final class MessageConstants {
 
   public static final String CHAT_CAPTION_TOO_LONG = "Caption is too long (max 2000 characters)";
 
+  public static final String CHAT_REPLY_MESSAGE_NOT_FOUND =
+      "The message you are replying to was not found";
+
   private MessageConstants() {}
 }

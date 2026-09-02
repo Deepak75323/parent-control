@@ -145,8 +145,9 @@ public class ChatController {
   public ApiResponse<ChatMessageResponse> sendMediaMessage(
       @PathVariable UUID roomId,
       @RequestPart("file") MultipartFile file,
-      @RequestPart(value = "caption", required = false) String caption) {
-    return ApiResponse.ok(chatService.sendMediaMessage(roomId, file, caption));
+      @RequestPart(value = "caption", required = false) String caption,
+      @RequestPart(value = "replyToMessageId", required = false) UUID replyToMessageId) {
+    return ApiResponse.ok(chatService.sendMediaMessage(roomId, file, caption, replyToMessageId));
   }
 
   @GetMapping("/rooms/{roomId}/messages/{messageId}/attachment")

@@ -34,6 +34,15 @@ class ChatMessageResponseSerializationTest {
             .createdAt(Instant.parse("2026-09-02T03:59:20Z"))
             .editedAt(null)
             .receiptStatus(ChatReceiptStatus.SENT)
+            .replyTo(
+                ChatMessageReplyPreview.builder()
+                    .messageId(UUID.randomUUID())
+                    .senderLabel("@family")
+                    .senderNickname("Golden Aurora")
+                    .messageType(ChatMessageType.TEXT)
+                    .bodyPreview("Original message")
+                    .deleted(false)
+                    .build())
             .build();
 
     assertThatCode(() -> objectMapper.writeValueAsString(response)).doesNotThrowAnyException();
