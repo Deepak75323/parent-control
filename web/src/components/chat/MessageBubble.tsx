@@ -1,7 +1,7 @@
 import type {ReactNode} from 'react';
 import {Avatar} from '../Avatar';
 import {formatChatTime} from '../../lib/formatChatTime';
-import {useSwipeToReply} from '../../hooks/useSwipeToReply';
+import {useMessageSwipeActions} from '../../hooks/useSwipeToReply';
 import type {ChatMessageItem} from '../../types/api';
 import {ChatMessageReplyQuote} from './ChatMessageReplyQuote';
 import {MessageActions, type MessageAction} from './MessageActions';
@@ -49,9 +49,15 @@ export function MessageBubble({
   const avatarSeed = isOwn ? ownSeed : senderSeed;
   const time = formatChatTime(message.createdAt);
 
-  const swipe = useSwipeToReply({
-    enabled: swipeToReplyEnabled && Boolean(onReply) && !isEditing && !busy,
-    onReply: () => onReply?.(),
+  const swipe = useMessageSwipeActions({
+    enabled:
+      swipeToReplyEnabled &&
+      !isEditing &&
+      !busy &&
+      (Boolean(onReply) || (canEdit && Boolean(onEdit))),
+    canEdit: canEdit && Boolean(onEdit),
+    onReply: onReply ? () => onReply() : undefined,
+    onEdit: onEdit ? () => onEdit() : undefined,
   });
 
   const actions: MessageAction[] = [];
@@ -129,7 +135,7 @@ export function MessageBubble({
   return (
     <article
       id={`chat-message-${message.id}`}
-      className={`chat-message-row${isOwn ? ' chat-message-row--own' : ' chat-message-row--incoming'}${isEditing ? ' chat-message-row--editing' : ''}${swipe.swiping ? ' chat-message-row--swiping' : ''}`}
+      className={`chat-message-row${isOwn ? ' chat-message-row--own' : ' chat-message-row--incoming'}${isEditing ? ' chat-message-row--editing' : ''}${swipe.swipingReply || swipe.swipingEdit ? ' chat-message-row--swiping' : ''}`}
       aria-label={isOwn ? `Your message at ${time}` : `${displayName}, ${time}`}>
       {!isOwn ? (
         <Avatar name={avatarName} seed={avatarSeed} size="sm" className="chat-message-avatar" />
@@ -149,8 +155,16 @@ export function MessageBubble({
           </svg>
         </div>
         <div
+          className={`chat-message-swipe-edit${swipe.offset < 0 ? ' chat-message-swipe-edit--visible' : ''}`}
+          aria-hidden>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z" />
+          </svg>
+        </div>
+        <div
           className="chat-message-content"
-          style={swipe.offset > 0 ? {transform: `translateX(${swipe.offset}px)`} : undefined}>
+          style={swipe.offset !== 0 ? {transform: `translateX(${swipe.offset}px)`} : undefined}>
           {bubble}
           {isOwn && message.receiptStatus === 'READ' ? (
             <span className="chat-receipt-read-label" aria-label={`Read at ${time}`}>

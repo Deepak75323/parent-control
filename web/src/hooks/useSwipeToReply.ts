@@ -5,11 +5,19 @@ const MAX_OFFSET = 72;
 
 type Options = {
   enabled: boolean;
-  onReply: () => void;
+  canEdit?: boolean;
+  onReply?: () => void;
+  onEdit?: () => void;
   threshold?: number;
 };
 
-export function useSwipeToReply({enabled, onReply, threshold = DEFAULT_THRESHOLD}: Options) {
+export function useMessageSwipeActions({
+  enabled,
+  canEdit = false,
+  onReply,
+  onEdit,
+  threshold = DEFAULT_THRESHOLD,
+}: Options) {
   const [offset, setOffset] = useState(0);
   const [active, setActive] = useState(false);
   const startXRef = useRef(0);
@@ -62,14 +70,21 @@ export function useSwipeToReply({enabled, onReply, threshold = DEFAULT_THRESHOLD
         return;
       }
 
-      if (deltaX > 0) {
+      if (deltaX > 0 && onReply) {
         event.preventDefault();
         setOffset(Math.min(deltaX, MAX_OFFSET));
-      } else {
-        setOffset(0);
+        return;
       }
+
+      if (deltaX < 0 && canEdit && onEdit) {
+        event.preventDefault();
+        setOffset(Math.max(deltaX, -MAX_OFFSET));
+        return;
+      }
+
+      setOffset(0);
     },
-    [active, enabled],
+    [active, canEdit, enabled, onEdit, onReply],
   );
 
   const onTouchEnd = useCallback(() => {
@@ -77,10 +92,12 @@ export function useSwipeToReply({enabled, onReply, threshold = DEFAULT_THRESHOLD
       return;
     }
     if (offset >= threshold) {
-      onReply();
+      onReply?.();
+    } else if (offset <= -threshold) {
+      onEdit?.();
     }
     reset();
-  }, [enabled, offset, onReply, reset, threshold]);
+  }, [enabled, offset, onEdit, onReply, reset, threshold]);
 
   const onTouchCancel = useCallback(() => {
     reset();
@@ -88,7 +105,8 @@ export function useSwipeToReply({enabled, onReply, threshold = DEFAULT_THRESHOLD
 
   return {
     offset,
-    swiping: active && offset > 0,
+    swipingReply: active && offset > 0,
+    swipingEdit: active && offset < 0,
     onTouchStart,
     onTouchMove,
     onTouchEnd,

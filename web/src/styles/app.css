@@ -2433,6 +2433,26 @@ body.chat-resizing * {
   opacity: 1;
 }
 
+.chat-message-swipe-edit {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f59e0b;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+
+.chat-message-swipe-edit--visible {
+  opacity: 1;
+}
+
 .chat-message-row--own .chat-message-content {
   align-items: flex-end;
 }
