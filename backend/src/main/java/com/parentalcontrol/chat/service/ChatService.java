@@ -413,7 +413,7 @@ public class ChatService {
 
     ChatMessageResponse response = toMessageResponse(message, userId);
     readReceiptService.createReceiptsForMessage(message);
-    publishMessageToRoom(roomId, response);
+    publishMessageToRoom(roomId, message);
     return response;
   }
 
@@ -466,7 +466,7 @@ public class ChatService {
 
     ChatMessageResponse response = toMessageResponse(message, userId);
     readReceiptService.createReceiptsForMessage(message);
-    publishMessageToRoom(roomId, response);
+    publishMessageToRoom(roomId, message);
     return response;
   }
 
@@ -634,9 +634,10 @@ public class ChatService {
         .build();
   }
 
-  private void publishMessageToRoom(UUID roomId, ChatMessageResponse response) {
+  private void publishMessageToRoom(UUID roomId, ChatMessage message) {
     for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
-      realtimeService.publishMessage(member.getUserId(), response);
+      realtimeService.publishMessage(
+          member.getUserId(), toMessageResponse(message, member.getUserId()));
     }
   }
 

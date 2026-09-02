@@ -286,21 +286,7 @@ export function AppShell() {
           </>
         ) : null}
       </aside>
-      ) : (
-      <aside className="dc-members dc-members--chat" aria-label="Chat help">
-        <div className="dc-members-cat">Parent chat</div>
-        <div className="chat-side-help">
-          <p>Create a room, then invite another parent by <strong>@handle</strong> or <strong>email</strong>.</p>
-          <ol>
-            <li>Create a room on the left</li>
-            <li>Invite a parent</li>
-            <li>They accept the invite</li>
-            <li>Chat in real time</li>
-          </ol>
-          <p className="muted tiny">Room owners can delete a room for everyone.</p>
-        </div>
-      </aside>
-      )}
+      ) : null}
     </div>
     <LiveStreamHost />
     </>

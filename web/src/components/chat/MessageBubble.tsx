@@ -37,7 +37,6 @@ export function MessageBubble({
   children,
 }: Props) {
   const isOwn = Boolean(message.ownMessage);
-  const name = isOwn ? 'You' : displayName;
   const avatarName = isOwn ? ownDisplayName : displayName;
   const avatarSeed = isOwn ? ownSeed : senderSeed;
   const time = formatChatTime(message.createdAt);
@@ -61,25 +60,40 @@ export function MessageBubble({
 
   return (
     <article
-      className={`chat-message-row${isOwn ? ' chat-message-row--own' : ' chat-message-row--incoming'}${isEditing ? ' chat-message-row--editing' : ''}`}>
+      className={`chat-message-row${isOwn ? ' chat-message-row--own' : ' chat-message-row--incoming'}${isEditing ? ' chat-message-row--editing' : ''}`}
+      aria-label={isOwn ? `Your message at ${time}` : `${displayName}, ${time}`}>
       {!isOwn ? (
         <Avatar name={avatarName} seed={avatarSeed} size="sm" className="chat-message-avatar" />
       ) : null}
       <div className="chat-message-content">
         <div className={`chat-message-bubble${isOwn ? ' chat-message-bubble--own' : ''}`}>
-          <div className="chat-message-bubble-head">
-            <span className="chat-message-bubble-name">{name}</span>
-            <time className="chat-message-bubble-time" dateTime={message.createdAt}>
-              {time}
-            </time>
-            <MessageActions actions={actions} disabled={busy} />
-          </div>
-          <div className="chat-message-bubble-body">{children}</div>
           {isOwn ? (
-            <div className="chat-message-bubble-foot">
-              <ReadReceipt status={message.receiptStatus} compact />
-            </div>
-          ) : null}
+            <>
+              {actions.length > 0 ? (
+                <div className="chat-message-bubble-head chat-message-bubble-head--own">
+                  <MessageActions actions={actions} disabled={busy} />
+                </div>
+              ) : null}
+              <div className="chat-message-bubble-body">{children}</div>
+              <div className="chat-message-bubble-foot chat-message-bubble-foot--own">
+                <time className="chat-message-bubble-time" dateTime={message.createdAt}>
+                  {time}
+                </time>
+                <ReadReceipt status={message.receiptStatus} compact />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="chat-message-bubble-head">
+                <span className="chat-message-bubble-name">{displayName}</span>
+                <time className="chat-message-bubble-time" dateTime={message.createdAt}>
+                  {time}
+                </time>
+                <MessageActions actions={actions} disabled={busy} />
+              </div>
+              <div className="chat-message-bubble-body">{children}</div>
+            </>
+          )}
         </div>
         {isOwn && message.receiptStatus === 'READ' ? (
           <span className="chat-receipt-read-label" aria-label={`Read at ${time}`}>

@@ -5,12 +5,15 @@ import {chatApi} from '../api/services';
 import {useAuthStore} from '../auth/authStore';
 import {encodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
 import {groupMessagesByDate} from '../lib/chatMessageGrouping';
+import {resolveOwnSenderUserId, withResolvedOwnership} from '../lib/chatMessageOwnership';
 import {resolveChatDisplayNickname} from '../lib/chatDisplayNickname';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {Avatar} from '../components/Avatar';
 import {ChatMessageMedia} from '../components/ChatMessageMedia';
-import {ChatHeader} from '../components/chat/ChatHeader';
 import {ChatInviteBar} from '../components/chat/ChatInviteBar';
+import {ChatHeader} from '../components/chat/ChatHeader';
+import {ChatWorkspaceLayout} from '../components/chat/ChatWorkspaceLayout';
+import {useChatWorkspaceLayout} from '../hooks/useChatWorkspaceLayout';
 import {DateSeparator} from '../components/chat/DateSeparator';
 import {EmptyChatState} from '../components/chat/EmptyChatState';
 import {MessageBubble} from '../components/chat/MessageBubble';
@@ -24,6 +27,7 @@ const VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
 
 export function ChatPage() {
   const location = useLocation();
+  const workspace = useChatWorkspaceLayout();
   const profile = useAuthStore(s => s.profile);
   const email = useAuthStore(s => s.email);
   const [rooms, setRooms] = useState<ChatRoomSummary[]>([]);
@@ -80,6 +84,14 @@ export function ChatPage() {
     [rooms, selectedRoomId],
   );
 
+  const ownSenderUserId = useMemo(
+    () =>
+      selectedRoomId
+        ? resolveOwnSenderUserId(apiMessages.filter(message => message.roomId === selectedRoomId))
+        : null,
+    [apiMessages, selectedRoomId],
+  );
+
   const messages = useMemo(() => {
     if (!selectedRoomId) {
       return [];
@@ -120,6 +132,7 @@ export function ChatPage() {
     }
 
     return Array.from(byId.values())
+      .map(message => withResolvedOwnership(message, ownSenderUserId))
       .map(message => {
         const patch = receiptPatches[message.id];
         return patch ? {...message, receiptStatus: patch} : message;
@@ -135,6 +148,7 @@ export function ChatPage() {
     chatClearedAt,
     messagesLoadedAt,
     receiptPatches,
+    ownSenderUserId,
   ]);
 
   const visibleMessages = useMemo(() => {
@@ -798,190 +812,211 @@ export function ChatPage() {
       {error ? <div className="chat-error">{error}</div> : null}
       {notice ? <div className="chat-notice">{notice}</div> : null}
 
-      <div className="chat-layout">
-        <aside className="chat-rooms-panel">
-          <div className="chat-panel-head">
-            <h2>Rooms</h2>
-            {rooms.length > 0 ? <span className="chat-panel-count">{rooms.length}</span> : null}
-          </div>
-          <div className="chat-room-list">
-            {rooms.length === 0 ? (
-              <p className="chat-room-empty">No rooms yet</p>
-            ) : (
-              rooms.map(room => (
-                <div
-                  key={room.id}
-                  className={`chat-room-item${room.id === selectedRoomId ? ' active' : ''}`}>
+      <ChatWorkspaceLayout
+        layout={workspace}
+        rooms={
+          <aside className="chat-rooms-panel">
+            <div className="chat-panel-head">
+              <h2>Rooms</h2>
+              {rooms.length > 0 ? <span className="chat-panel-count">{rooms.length}</span> : null}
+            </div>
+            <div className="chat-room-list">
+              {rooms.length === 0 ? (
+                <p className="chat-room-empty">No rooms yet</p>
+              ) : (
+                rooms.map(room => (
+                  <div
+                    key={room.id}
+                    className={`chat-room-item${room.id === selectedRoomId ? ' active' : ''}`}>
+                    <button
+                      type="button"
+                      className="chat-room-select"
+                      onClick={() => setSelectedRoomId(room.id)}>
+                      <Avatar name={room.name} seed={room.id} size="md" />
+                      <span className="chat-room-meta">
+                        <span className="chat-room-name">{room.name}</span>
+                        <span className="chat-room-sub">
+                          {room.memberCount} member{room.memberCount === 1 ? '' : 's'}
+                          {room.owner ? ' · owner' : ''}
+                        </span>
+                      </span>
+                    </button>
+                    {room.owner ? (
+                      <button
+                        type="button"
+                        className="chat-room-delete"
+                        title={`Delete ${room.name}`}
+                        aria-label={`Delete ${room.name}`}
+                        disabled={busy}
+                        onClick={() => void handleDeleteRoom(room.id)}>
+                        ×
+                      </button>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+            <form className="chat-create" onSubmit={handleCreateRoom}>
+              <input
+                type="text"
+                placeholder="New room name"
+                value={newRoomName}
+                maxLength={64}
+                onChange={event => setNewRoomName(event.target.value)}
+              />
+              <button type="submit" className="btn primary" disabled={busy || !newRoomName.trim()}>
+                +
+              </button>
+            </form>
+          </aside>
+        }
+        thread={
+          <section className="chat-thread-panel">
+            {!selectedRoom ? (
+              <div className="chat-empty">
+                {!workspace.infoOpen ? (
                   <button
                     type="button"
-                    className="chat-room-select"
-                    onClick={() => setSelectedRoomId(room.id)}>
-                    <Avatar name={room.name} seed={room.id} size="md" />
-                    <span className="chat-room-meta">
-                      <span className="chat-room-name">{room.name}</span>
-                      <span className="chat-room-sub">
-                        {room.memberCount} member{room.memberCount === 1 ? '' : 's'}
-                        {room.owner ? ' · owner' : ''}
-                      </span>
-                    </span>
+                    className="chat-info-reopen-btn"
+                    aria-label="Show parent chat help"
+                    title="Parent chat help"
+                    onClick={workspace.openInfoPanel}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 10v6M12 7h.01" />
+                    </svg>
+                    <span>Help</span>
                   </button>
-                  {room.owner ? (
-                    <button
-                      type="button"
-                      className="chat-room-delete"
-                      title={`Delete ${room.name}`}
-                      aria-label={`Delete ${room.name}`}
-                      disabled={busy}
-                      onClick={() => void handleDeleteRoom(room.id)}>
-                      ×
-                    </button>
-                  ) : null}
-                </div>
-              ))
-            )}
-          </div>
-          <form className="chat-create" onSubmit={handleCreateRoom}>
-            <input
-              type="text"
-              placeholder="New room name"
-              value={newRoomName}
-              maxLength={64}
-              onChange={event => setNewRoomName(event.target.value)}
-            />
-            <button type="submit" className="btn primary" disabled={busy || !newRoomName.trim()}>
-              +
-            </button>
-          </form>
-        </aside>
-
-        <section className="chat-thread-panel">
-          {!selectedRoom ? (
-            <div className="chat-empty">
-              <Avatar name="Chat" seed="chat-empty" size="lg" />
-              <h2>Select a room</h2>
-              <p className="muted">
-                Pick a room from the list, or create one with the + button.
-              </p>
-            </div>
-          ) : (
-            <>
-              <ChatInviteBar
-                visible={showInvite}
-                identifier={inviteIdentifier}
-                busy={busy}
-                onIdentifierChange={setInviteIdentifier}
-                onSubmit={handleInvite}
-              />
-
-              <ChatHeader
-                room={selectedRoom}
-                showInvite={showInvite}
-                busy={busy}
-                searchOpen={searchOpen}
-                menuActions={headerMenuActions}
-                onToggleInvite={() => setShowInvite(prev => !prev)}
-                onToggleSearch={() => setSearchOpen(prev => !prev)}
-              />
-
-              {searchOpen ? (
-                <div className="chat-search-bar">
-                  <input
-                    type="search"
-                    placeholder="Search messages…"
-                    value={searchQuery}
-                    aria-label="Search messages"
-                    onChange={event => setSearchQuery(event.target.value)}
-                  />
-                  {searchQuery ? (
-                    <button
-                      type="button"
-                      className="btn ghost sm"
-                      onClick={() => setSearchQuery('')}>
-                      Clear
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <div className="chat-messages">
-                {messages.length === 0 ? (
-                  <EmptyChatState
-                    title={`Start a conversation with ${selectedRoom.name}`}
-                    subtitle="Send a message to get started, or invite another parent to join."
-                    avatarName={selectedRoom.name}
-                    avatarSeed={selectedRoom.id}
-                    showInvite={selectedRoom.owner}
-                    inviteIdentifier={inviteIdentifier}
-                    busy={busy}
-                    onInviteIdentifierChange={setInviteIdentifier}
-                    onInvite={handleInvite}
-                  />
-                ) : visibleMessages.length === 0 ? (
-                  <p className="chat-messages-empty muted">No messages match your search.</p>
-                ) : (
-                  messageGroups.map(group => (
-                    <Fragment key={group.dateKey}>
-                      <DateSeparator label={group.label} />
-                      {group.messages.map(message => renderMessage(message))}
-                    </Fragment>
-                  ))
-                )}
-                <div ref={messagesEndRef} />
+                ) : null}
+                <Avatar name="Chat" seed="chat-empty" size="lg" />
+                <h2>Select a room</h2>
+                <p className="muted">
+                  Pick a room from the list, or create one with the + button.
+                </p>
               </div>
+            ) : (
+              <>
+                <ChatInviteBar
+                  visible={showInvite}
+                  identifier={inviteIdentifier}
+                  busy={busy}
+                  onIdentifierChange={setInviteIdentifier}
+                  onSubmit={handleInvite}
+                />
 
-              {pendingFile ? (
-                <div className="chat-compose-preview">
-                  {pendingPreviewUrl && pendingFile.type.startsWith('video/') ? (
-                    <video className="chat-compose-preview-media" src={pendingPreviewUrl} controls />
-                  ) : pendingPreviewUrl ? (
-                    <img
-                      className="chat-compose-preview-media"
-                      src={pendingPreviewUrl}
-                      alt={pendingFile.name}
+                <ChatHeader
+                  room={selectedRoom}
+                  showInvite={showInvite}
+                  busy={busy}
+                  searchOpen={searchOpen}
+                  menuActions={headerMenuActions}
+                  infoPanelOpen={workspace.infoOpen}
+                  showInfoPanelToggle={!workspace.infoOpen}
+                  onOpenInfoPanel={workspace.openInfoPanel}
+                  onToggleInvite={() => setShowInvite(prev => !prev)}
+                  onToggleSearch={() => setSearchOpen(prev => !prev)}
+                />
+
+                {searchOpen ? (
+                  <div className="chat-search-bar">
+                    <input
+                      type="search"
+                      placeholder="Search messages…"
+                      value={searchQuery}
+                      aria-label="Search messages"
+                      onChange={event => setSearchQuery(event.target.value)}
                     />
-                  ) : null}
-                  <div className="chat-compose-preview-meta">
-                    <span className="tiny">{pendingFile.name}</span>
-                    <button
-                      type="button"
-                      className="btn ghost sm"
-                      disabled={busy}
-                      onClick={clearPendingFile}>
-                      Remove
-                    </button>
+                    {searchQuery ? (
+                      <button
+                        type="button"
+                        className="btn ghost sm"
+                        onClick={() => setSearchQuery('')}>
+                        Clear
+                      </button>
+                    ) : null}
                   </div>
-                </div>
-              ) : null}
+                ) : null}
 
-              {editingMessage ? (
-                <EditMessageComposer
-                  draft={editDraft}
-                  busy={busy}
-                  isText={!editingMessage.messageType || editingMessage.messageType === 'TEXT'}
-                  onDraftChange={setEditDraft}
-                  onSave={() => void handleSaveEdit(editingMessage)}
-                  onCancel={cancelEditMessage}
-                />
-              ) : (
-                <MessageComposer
-                  draft={draft}
-                  placeholder={
-                    pendingFile
-                      ? `Caption for ${pendingFile.name} (optional)`
-                      : 'Write a message…'
-                  }
-                  busy={busy}
-                  canSend={Boolean(draft.trim() || pendingFile)}
-                  fileInputRef={composerFileInputRef}
-                  onDraftChange={setDraft}
-                  onSubmit={handleSendMessage}
-                  onFileSelected={handleFileSelected}
-                />
-              )}
-            </>
-          )}
-        </section>
-      </div>
+                <div className="chat-messages">
+                  {messages.length === 0 ? (
+                    <EmptyChatState
+                      title={`Start a conversation with ${selectedRoom.name}`}
+                      subtitle="Send a message to get started, or invite another parent to join."
+                      avatarName={selectedRoom.name}
+                      avatarSeed={selectedRoom.id}
+                      showInvite={selectedRoom.owner}
+                      inviteIdentifier={inviteIdentifier}
+                      busy={busy}
+                      onInviteIdentifierChange={setInviteIdentifier}
+                      onInvite={handleInvite}
+                    />
+                  ) : visibleMessages.length === 0 ? (
+                    <p className="chat-messages-empty muted">No messages match your search.</p>
+                  ) : (
+                    messageGroups.map(group => (
+                      <Fragment key={group.dateKey}>
+                        <DateSeparator label={group.label} />
+                        {group.messages.map(message => renderMessage(message))}
+                      </Fragment>
+                    ))
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {pendingFile ? (
+                  <div className="chat-compose-preview">
+                    {pendingPreviewUrl && pendingFile.type.startsWith('video/') ? (
+                      <video className="chat-compose-preview-media" src={pendingPreviewUrl} controls />
+                    ) : pendingPreviewUrl ? (
+                      <img
+                        className="chat-compose-preview-media"
+                        src={pendingPreviewUrl}
+                        alt={pendingFile.name}
+                      />
+                    ) : null}
+                    <div className="chat-compose-preview-meta">
+                      <span className="tiny">{pendingFile.name}</span>
+                      <button
+                        type="button"
+                        className="btn ghost sm"
+                        disabled={busy}
+                        onClick={clearPendingFile}>
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {editingMessage ? (
+                  <EditMessageComposer
+                    draft={editDraft}
+                    busy={busy}
+                    isText={!editingMessage.messageType || editingMessage.messageType === 'TEXT'}
+                    onDraftChange={setEditDraft}
+                    onSave={() => void handleSaveEdit(editingMessage)}
+                    onCancel={cancelEditMessage}
+                  />
+                ) : (
+                  <MessageComposer
+                    draft={draft}
+                    placeholder={
+                      pendingFile
+                        ? `Caption for ${pendingFile.name} (optional)`
+                        : 'Write a message…'
+                    }
+                    busy={busy}
+                    canSend={Boolean(draft.trim() || pendingFile)}
+                    fileInputRef={composerFileInputRef}
+                    onDraftChange={setDraft}
+                    onSubmit={handleSendMessage}
+                    onFileSelected={handleFileSelected}
+                  />
+                )}
+              </>
+            )}
+          </section>
+        }
+      />
     </div>
   );
 }

@@ -146,7 +146,15 @@ class ChatIntegrationTest {
             get("/api/v1/chat/rooms/" + roomId + "/messages")
                 .header("Authorization", "Bearer " + tokenA))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data[0].body").value("Hello parents!"));
+        .andExpect(jsonPath("$.data[0].body").value("Hello parents!"))
+        .andExpect(jsonPath("$.data[0].ownMessage").value(false));
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenB))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].ownMessage").value(true));
   }
 
   @Test

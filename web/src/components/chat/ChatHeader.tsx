@@ -18,6 +18,9 @@ type Props = {
   searchOpen?: boolean;
   menuActions: HeaderAction[];
   busy?: boolean;
+  infoPanelOpen?: boolean;
+  onOpenInfoPanel?: () => void;
+  showInfoPanelToggle?: boolean;
 };
 
 export function ChatHeader({
@@ -28,6 +31,9 @@ export function ChatHeader({
   searchOpen = false,
   menuActions,
   busy = false,
+  infoPanelOpen = true,
+  onOpenInfoPanel,
+  showInfoPanelToggle = false,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuId = useId();
@@ -71,6 +77,20 @@ export function ChatHeader({
         </div>
       </div>
       <div className="chat-thread-toolbar">
+        {showInfoPanelToggle && !infoPanelOpen && onOpenInfoPanel ? (
+          <button
+            type="button"
+            className="chat-icon-btn"
+            aria-label="Show parent chat help"
+            title="Parent chat help"
+            disabled={busy}
+            onClick={onOpenInfoPanel}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 10v6M12 7h.01" />
+            </svg>
+          </button>
+        ) : null}
         {onToggleSearch ? (
           <button
             type="button"
@@ -103,6 +123,18 @@ export function ChatHeader({
           </button>
           {menuOpen ? (
             <div className="chat-header-dropdown" id={menuId} role="menu">
+              {showInfoPanelToggle && !infoPanelOpen && onOpenInfoPanel ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="chat-header-dropdown-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenInfoPanel();
+                  }}>
+                  Show parent chat help
+                </button>
+              ) : null}
               {onToggleInvite ? (
                 <button
                   type="button"
