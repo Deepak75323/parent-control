@@ -3387,7 +3387,7 @@ body.chat-resizing * {
 
 .stream-pip {
   position: fixed;
-  z-index: 1000;
+  z-index: 10050;
   background: var(--gp-surface);
   border: 1px solid var(--gp-border-light);
   border-radius: var(--radius-lg);
@@ -3398,7 +3398,7 @@ body.chat-resizing * {
 
 .stream-pip-dock {
   position: fixed;
-  z-index: 1000;
+  z-index: 10050;
   display: flex;
   align-items: stretch;
   max-width: min(360px, calc(100vw - 24px));
@@ -3449,6 +3449,16 @@ body.chat-resizing * {
 .stream-pip.dragging {
   user-select: none;
   cursor: grabbing;
+  touch-action: none;
+}
+
+body.stream-pip-dragging {
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+body.stream-pip-dragging * {
+  cursor: grabbing !important;
 }
 
 .stream-pip.resizing {
@@ -3710,12 +3720,34 @@ body.chat-resizing * {
   .stream-pip {
     max-width: min(280px, calc(100vw - 20px));
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+    touch-action: none;
+  }
+
+  .stream-pip--mobile .video-wrap {
+    touch-action: none;
+  }
+
+  .stream-pip--mobile .stream-pip-body {
+    touch-action: none;
+    cursor: grab;
+  }
+
+  .stream-pip--mobile.dragging .stream-pip-body {
+    cursor: grabbing;
   }
 
   .stream-pip--mobile .stream-pip-head {
     padding: 6px 8px;
-    cursor: default;
-    touch-action: pan-y;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .stream-pip--mobile.dragging {
+    touch-action: none;
+  }
+
+  .stream-pip--mobile.dragging .stream-pip-head {
+    cursor: grabbing;
   }
 
   .stream-pip--mobile .stream-pip-title {

@@ -1,6 +1,13 @@
-import {useRef, useState, useEffect, type PointerEvent as ReactPointerEvent} from 'react';
+import {useRef, useState, useEffect, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent} from 'react';
+import {createPortal} from 'react-dom';
 import {useLocation} from 'react-router-dom';
 import {useLiveStreamStore} from './liveStreamStore';
+import {
+  clampPipPosition,
+  isPipDragBlockedTarget,
+  startPipDragSession,
+  type PipDragSession,
+} from './pipDrag';
 import {
   getPipSizeLimits,
   isMobilePipViewport,
@@ -17,8 +24,6 @@ const PIP_CHROME_HEIGHT_MOBILE = 108;
 const DOCK_INSET = 12;
 
 type DragState = {
-  startX: number;
-  startY: number;
   originX: number;
   originY: number;
 };
@@ -177,12 +182,14 @@ export function FloatingStreamPip() {
   const stop = useLiveStreamStore(s => s.stop);
 
   const dragRef = useRef<DragState | null>(null);
+  const dragSessionRef = useRef<PipDragSession | null>(null);
   const resizeRef = useRef<ResizeState | null>(null);
   const videoAspectRef = useRef(16 / 10);
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
   const pipSizedForFrame = useRef(false);
   const leftDevicePageRef = useRef(false);
+  const panelSizeRef = useRef({width: 320, height: 288});
 
   const videoAspect = pipVideoAspect(videoFrame, viewRotate, streamType);
   videoAspectRef.current = videoAspect;
@@ -246,6 +253,13 @@ export function FloatingStreamPip() {
   }, [viewRotate, videoAspect, videoFrame.w, pipSize.width, setPipSize]);
 
   useEffect(() => {
+    return () => {
+      dragSessionRef.current?.cleanup();
+      dragSessionRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!resizing) {
       return;
     }
@@ -282,6 +296,7 @@ export function FloatingStreamPip() {
   const mobile = isMobilePipViewport();
   const panelWidth = pipSize.width;
   const panelHeightPx = panelHeight(pipSize.bodyHeight);
+  panelSizeRef.current = {width: panelWidth, height: panelHeightPx};
   const defaultX = mobile
     ? Math.max(8, window.innerWidth - panelWidth - 12)
     : window.innerWidth - panelWidth - 24;
@@ -291,47 +306,69 @@ export function FloatingStreamPip() {
   const x = pipPosition?.x ?? defaultX;
   const y = pipPosition?.y ?? defaultY;
 
+  const beginDrag = (
+    clientX: number,
+    clientY: number,
+    pointerId?: number,
+    captureTarget?: HTMLElement | null,
+  ) => {
+    dragSessionRef.current?.cleanup();
+    dragRef.current = {originX: x, originY: y};
+    setDragging(true);
+    dragSessionRef.current = startPipDragSession({
+      startX: clientX,
+      startY: clientY,
+      originX: x,
+      originY: y,
+      pointerId,
+      captureTarget,
+      onMove: (dx, dy) => {
+        const origin = dragRef.current;
+        if (!origin) {
+          return;
+        }
+        const next = clampPipPosition(
+          origin.originX + dx,
+          origin.originY + dy,
+          panelSizeRef.current.width,
+          panelSizeRef.current.height,
+        );
+        setPipPosition(next);
+      },
+      onEnd: () => {
+        dragRef.current = null;
+        dragSessionRef.current = null;
+        setDragging(false);
+      },
+    });
+  };
+
   const onDragPointerDown = (event: ReactPointerEvent) => {
     if (event.button !== 0) {
       return;
     }
-    if ((event.target as HTMLElement).closest('button, a, .stream-pip-resize')) {
+    if (mobile && event.pointerType === 'touch') {
       return;
     }
-    const target = event.currentTarget as HTMLElement;
-    target.setPointerCapture(event.pointerId);
-    dragRef.current = {
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: x,
-      originY: y,
-    };
-    setDragging(true);
+    if (isPipDragBlockedTarget(event.target)) {
+      return;
+    }
+    beginDrag(event.clientX, event.clientY, event.pointerId, event.currentTarget as HTMLElement);
     event.preventDefault();
+    event.stopPropagation();
   };
 
-  const onDragPointerMove = (event: ReactPointerEvent) => {
-    if (!dragRef.current) {
+  const onDragTouchStart = (event: ReactTouchEvent) => {
+    if (!mobile || event.touches.length !== 1) {
       return;
     }
-    const dx = event.clientX - dragRef.current.startX;
-    const dy = event.clientY - dragRef.current.startY;
-    const maxX = Math.max(8, window.innerWidth - panelWidth - 8);
-    const maxY = Math.max(8, window.innerHeight - panelHeightPx - 8);
-    setPipPosition({
-      x: Math.min(maxX, Math.max(8, dragRef.current.originX + dx)),
-      y: Math.min(maxY, Math.max(8, dragRef.current.originY + dy)),
-    });
-  };
-
-  const endDrag = (event: ReactPointerEvent) => {
-    dragRef.current = null;
-    setDragging(false);
-    try {
-      (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
-    } catch {
-      /* ignore */
+    if (isPipDragBlockedTarget(event.target)) {
+      return;
     }
+    const touch = event.touches[0];
+    beginDrag(touch.clientX, touch.clientY);
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   const onResizeStart =
@@ -359,7 +396,7 @@ export function FloatingStreamPip() {
   const closeStream = () => void stop();
 
   if (pipMinimized) {
-    return (
+    const dock = (
       <div
         className="stream-pip-dock stream-pip-dock--mobile"
         style={{
@@ -385,22 +422,22 @@ export function FloatingStreamPip() {
         </button>
       </div>
     );
+    return createPortal(dock, document.body);
   }
 
-  return (
+  const pip = (
     <div
       className={`stream-pip${mobile ? ' stream-pip--mobile' : ''}${dragging ? ' dragging' : ''}${resizing ? ' resizing' : ''}`}
       style={{
         left: x,
         top: y,
         width: pipSize.width,
-      }}>
+      }}
+      onPointerDownCapture={mobile ? onDragPointerDown : undefined}
+      onTouchStartCapture={mobile ? onDragTouchStart : undefined}>
       <header
         className="stream-pip-head"
-        onPointerDown={onDragPointerDown}
-        onPointerMove={onDragPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}>
+        onPointerDown={mobile ? undefined : onDragPointerDown}>
         <span className="stream-pip-dot" />
         <span className="stream-pip-title">{deviceName ?? 'Live stream'}</span>
         <span className="stream-pip-status">{status}</span>
@@ -440,4 +477,6 @@ export function FloatingStreamPip() {
       {!mobile ? <PipResizeHandles onResizeStart={onResizeStart} /> : null}
     </div>
   );
+
+  return createPortal(pip, document.body);
 }
