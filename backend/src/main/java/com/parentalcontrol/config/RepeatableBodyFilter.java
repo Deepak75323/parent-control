@@ -15,13 +15,25 @@ public class RepeatableBodyFilter implements Filter {
   @Override
   public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
       throws IOException, ServletException {
-    if (request instanceof HttpServletRequest httpRequest
-        && "POST".equalsIgnoreCase(httpRequest.getMethod())
-        && httpRequest.getRequestURI() != null
-        && httpRequest.getRequestURI().startsWith(ApiConstants.API_V1_PREFIX)) {
-      chain.doFilter(new RepeatableBodyRequestWrapper(httpRequest), response);
+    if (!(request instanceof HttpServletRequest httpRequest)) {
+      chain.doFilter(request, response);
       return;
     }
-    chain.doFilter(request, response);
+    if (!"POST".equalsIgnoreCase(httpRequest.getMethod())) {
+      chain.doFilter(request, response);
+      return;
+    }
+    String uri = httpRequest.getRequestURI();
+    if (uri == null || !uri.startsWith(ApiConstants.API_V1_PREFIX)) {
+      chain.doFilter(request, response);
+      return;
+    }
+    // Buffering the body breaks servlet multipart parsing (chat media uploads).
+    String contentType = httpRequest.getContentType();
+    if (contentType != null && contentType.toLowerCase().startsWith("multipart/")) {
+      chain.doFilter(request, response);
+      return;
+    }
+    chain.doFilter(new RepeatableBodyRequestWrapper(httpRequest), response);
   }
 }

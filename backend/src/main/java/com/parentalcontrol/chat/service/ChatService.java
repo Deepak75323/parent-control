@@ -42,6 +42,7 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
@@ -55,6 +56,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ChatService {
 
   private static final Pattern EMAIL_PATTERN =
@@ -441,6 +443,9 @@ public class ChatService {
           ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_CAPTION_TOO_LONG);
     }
 
+    ChatAttachmentStorageService.ValidatedAttachment validated =
+        attachmentStorageService.validate(file);
+
     ChatMessage message =
         messageRepository.save(
             ChatMessage.builder()
@@ -450,16 +455,21 @@ public class ChatService {
                 .messageType(ChatMessageType.TEXT)
                 .build());
 
-    ChatAttachmentStorageService.StoredAttachment stored =
-        attachmentStorageService.store(roomId, message.getId(), file);
+    try {
+      ChatAttachmentStorageService.StoredAttachment stored =
+          attachmentStorageService.store(roomId, message.getId(), file, validated);
 
-    message.setMessageType(stored.messageType());
-    message.setAttachmentStorageKey(stored.storageKey());
-    message.setAttachmentMimeType(stored.mimeType());
-    message.setAttachmentSizeBytes(stored.sizeBytes());
-    message.setAttachmentFileName(stored.originalFileName());
-    message.setAttachmentViewOnce(true);
-    message = messageRepository.save(message);
+      message.setMessageType(stored.messageType());
+      message.setAttachmentStorageKey(stored.storageKey());
+      message.setAttachmentMimeType(stored.mimeType());
+      message.setAttachmentSizeBytes(stored.sizeBytes());
+      message.setAttachmentFileName(stored.originalFileName());
+      message.setAttachmentViewOnce(true);
+      message = messageRepository.save(message);
+    } catch (RuntimeException e) {
+      messageRepository.delete(message);
+      throw e;
+    }
 
     room.setUpdatedAt(Instant.now());
     roomRepository.save(room);
@@ -636,8 +646,17 @@ public class ChatService {
 
   private void publishMessageToRoom(UUID roomId, ChatMessage message) {
     for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
-      realtimeService.publishMessage(
-          member.getUserId(), toMessageResponse(message, member.getUserId()));
+      try {
+        realtimeService.publishMessage(
+            member.getUserId(), toMessageResponse(message, member.getUserId()));
+      } catch (RuntimeException e) {
+        log.warn(
+            "Failed to publish chat message roomId={} messageId={} recipientUserId={}",
+            roomId,
+            message.getId(),
+            member.getUserId(),
+            e);
+      }
     }
   }
 

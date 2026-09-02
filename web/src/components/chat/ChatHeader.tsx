@@ -21,6 +21,11 @@ type Props = {
   infoPanelOpen?: boolean;
   onOpenInfoPanel?: () => void;
   showInfoPanelToggle?: boolean;
+  showBack?: boolean;
+  onBack?: () => void;
+  showRoomsMenu?: boolean;
+  onOpenRooms?: () => void;
+  compact?: boolean;
 };
 
 export function ChatHeader({
@@ -34,6 +39,11 @@ export function ChatHeader({
   infoPanelOpen = true,
   onOpenInfoPanel,
   showInfoPanelToggle = false,
+  showBack = false,
+  onBack,
+  showRoomsMenu = false,
+  onOpenRooms,
+  compact = false,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuId = useId();
@@ -62,9 +72,34 @@ export function ChatHeader({
   }, [menuOpen]);
 
   return (
-    <header className="chat-thread-head">
+    <header className={`chat-thread-head${compact ? ' chat-thread-head--compact' : ''}`}>
       <div className="chat-thread-title">
-        <Avatar name={room.name} seed={room.id} size="lg" />
+        {showBack && onBack ? (
+          <button
+            type="button"
+            className="chat-icon-btn chat-thread-back"
+            aria-label="Back to rooms"
+            title="Back to rooms"
+            disabled={busy}
+            onClick={onBack}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+        ) : showRoomsMenu && onOpenRooms ? (
+          <button
+            type="button"
+            className="chat-icon-btn chat-thread-rooms"
+            aria-label="Open rooms"
+            title="Rooms"
+            disabled={busy}
+            onClick={onOpenRooms}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+        ) : null}
+        <Avatar name={room.name} seed={room.id} size={compact ? 'md' : 'lg'} />
         <div className="chat-thread-title-text">
           <h2>{room.name}</h2>
           <div className="chat-thread-subtitle">

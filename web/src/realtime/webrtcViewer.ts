@@ -29,6 +29,15 @@ let activeSessionId: string | undefined;
 const seenIds = new Set<string>();
 const pendingIce: RTCIceCandidateInit[] = [];
 let callbacks: ViewerCallbacks | null = null;
+let applyOfferChain: Promise<boolean> = Promise.resolve(true);
+
+function isOfferAlreadyAnswered(): boolean {
+  return (
+    pc?.signalingState === 'stable' &&
+    pc.remoteDescription?.type === 'offer' &&
+    pc.localDescription?.type === 'answer'
+  );
+}
 
 function parseSdp(payload: string): RTCSessionDescriptionInit {
   try {
@@ -112,33 +121,66 @@ async function applyOffer(payload: string, messageId: string): Promise<boolean> 
   if (!pc || seenIds.has(messageId)) {
     return false;
   }
-  if (pc.remoteDescription?.type === 'offer' && pc.localDescription?.type === 'answer') {
-    const roomId = activeRoomId;
-    const sessionId = activeSessionId;
-    seenIds.clear();
-    pendingIce.length = 0;
-    remoteStream = null;
-    pc.close();
-    pc = null;
-    if (!roomId) {
+  if (isOfferAlreadyAnswered()) {
+    seenIds.add(messageId);
+    return true;
+  }
+
+  const run = async (): Promise<boolean> => {
+    if (!pc || seenIds.has(messageId)) {
       return false;
     }
-    await createPc(roomId, sessionId);
-  }
-  try {
-    await pc!.setRemoteDescription(parseSdp(payload));
-    seenIds.add(messageId);
-    await flushPendingIce();
-    const answer = await pc!.createAnswer();
-    await pc!.setLocalDescription(answer);
-    if (activeRoomId) {
-      await signalingApi.post(activeRoomId, 'answer', JSON.stringify(answer), activeSessionId);
+    if (isOfferAlreadyAnswered()) {
+      seenIds.add(messageId);
+      return true;
     }
-    return true;
-  } catch (err) {
-    callbacks?.onError(`SDP offer failed: ${String(err)}`);
-    return false;
-  }
+    if (pc.remoteDescription?.type === 'offer' && pc.localDescription?.type === 'answer') {
+      const roomId = activeRoomId;
+      const sessionId = activeSessionId;
+      seenIds.clear();
+      pendingIce.length = 0;
+      remoteStream = null;
+      pc.close();
+      pc = null;
+      if (!roomId) {
+        return false;
+      }
+      await createPc(roomId, sessionId);
+    }
+    if (!pc) {
+      return false;
+    }
+    try {
+      if (!pc.remoteDescription) {
+        await pc.setRemoteDescription(parseSdp(payload));
+      }
+      seenIds.add(messageId);
+      await flushPendingIce();
+      if (isOfferAlreadyAnswered()) {
+        return true;
+      }
+      if (pc.signalingState !== 'have-remote-offer') {
+        return false;
+      }
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      if (activeRoomId) {
+        await signalingApi.post(activeRoomId, 'answer', JSON.stringify(answer), activeSessionId);
+      }
+      return true;
+    } catch (err) {
+      const msg = String(err);
+      if (isOfferAlreadyAnswered() || msg.includes('Called in wrong state: stable')) {
+        seenIds.add(messageId);
+        return true;
+      }
+      callbacks?.onError(`SDP offer failed: ${msg}`);
+      return false;
+    }
+  };
+
+  applyOfferChain = applyOfferChain.then(run, run);
+  return applyOfferChain;
 }
 
 async function applyIce(payload: string, messageId: string): Promise<void> {
@@ -197,7 +239,9 @@ async function pollSignaling(): Promise<boolean> {
     if (latestOffer) {
       const messageId =
         latestOffer.id ?? `${latestOffer.messageType}-${latestOffer.payload.slice(0, 32)}`;
-      await applyOffer(latestOffer.payload, messageId);
+      if (!isOfferAlreadyAnswered() || !seenIds.has(messageId)) {
+        await applyOffer(latestOffer.payload, messageId);
+      }
     }
     return pc?.remoteDescription?.type === 'offer';
   } catch {
@@ -371,6 +415,7 @@ export async function disconnectBrowserViewer(): Promise<void> {
   activeSessionId = undefined;
   seenIds.clear();
   pendingIce.length = 0;
+  applyOfferChain = Promise.resolve(true);
   callbacks = null;
 }
 

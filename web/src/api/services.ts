@@ -1,4 +1,4 @@
-import {api} from './client';
+import {api, postMultipart} from './client';
 import {ApiPaths} from './paths';
 import type {
   ApiResponse,
@@ -209,14 +209,18 @@ export const chatApi = {
     api.delete<ApiResponse<void>>(ApiPaths.chatMessage(roomId, messageId)),
   editMessage: (roomId: string, messageId: string, body: string) =>
     api.patch<ApiResponse<ChatMessageItem>>(ApiPaths.chatMessage(roomId, messageId), {body}),
-  sendMediaMessage: (roomId: string, file: File, caption?: string) => {
-    const form = new FormData();
-    form.append('file', file);
-    if (caption?.trim()) {
-      form.append('caption', caption.trim());
-    }
-    return api.post<ApiResponse<ChatMessageItem>>(ApiPaths.chatRoomMediaMessages(roomId), form);
-  },
+  sendMediaMessage: (roomId: string, file: File, caption?: string) =>
+    postMultipart<ApiResponse<ChatMessageItem>>(
+      ApiPaths.chatRoomMediaMessages(roomId),
+      () => {
+        const form = new FormData();
+        form.append('file', file, file.name);
+        if (caption?.trim()) {
+          form.append('caption', caption.trim());
+        }
+        return form;
+      },
+    ),
   viewOnceAttachment: (roomId: string, messageId: string) =>
     api.post<ArrayBuffer>(ApiPaths.chatMessageAttachmentView(roomId, messageId), null, {
       responseType: 'arraybuffer',

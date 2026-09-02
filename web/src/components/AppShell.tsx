@@ -3,6 +3,8 @@ import {Link, NavLink, Outlet, useLocation, useNavigate} from 'react-router-dom'
 import {authApi, deviceApi} from '../api/services';
 import {useAuthStore} from '../auth/authStore';
 import {deviceInitials, isDevicePresentOnline} from '../lib/devicePresence';
+import {useMediaQuery} from '../hooks/useMediaQuery';
+import {MobileNavDrawer} from './MobileNavDrawer';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {disconnectWebSocket} from '../realtime/websocket';
 import {LiveStreamHost} from '../livestream/LiveStreamHost';
@@ -100,6 +102,70 @@ function mergeLive(device: DeviceSummary): DeviceSummary {
   };
 }
 
+type NavChannelsProps = {
+  pathname: string;
+  onNavigate?: () => void;
+};
+
+function NavChannels({pathname, onNavigate}: NavChannelsProps) {
+  return (
+    <nav className="dc-channels">
+      {NAV_GROUPS.map(group => (
+        <div key={group.label} className="dc-channel-group">
+          <div className="dc-channel-cat">{group.label}</div>
+          {group.items.map(item => {
+            const nestedActive =
+              item.to === '/devices' && pathname.startsWith('/devices/');
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === '/devices'}
+                className={({isActive}) =>
+                  `dc-channel${isActive || nestedActive ? ' active' : ''}`
+                }
+                onClick={onNavigate}>
+                <span className="dc-channel-hash">{item.icon}</span>
+                <span>{item.label}</span>
+              </NavLink>
+            );
+          })}
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+type UserBarProps = {
+  email: string | null;
+  wsConnected: boolean;
+  onSettingsNavigate?: () => void;
+  onLogout: () => void;
+};
+
+function UserBar({email, wsConnected, onSettingsNavigate, onLogout}: UserBarProps) {
+  return (
+    <div className="dc-userbar">
+      <div className="dc-user-avatar">
+        <span>{(email ?? 'P').slice(0, 1).toUpperCase()}</span>
+        <span className={`dc-status-dot ${wsConnected ? 'online' : 'idle'}`} />
+      </div>
+      <div className="dc-user-meta">
+        <div className="dc-user-name">{email?.split('@')[0] ?? 'Parent'}</div>
+        <div className="dc-user-status">{wsConnected ? 'Live sync' : 'Connecting…'}</div>
+      </div>
+      <div className="dc-user-actions">
+        <Link to="/settings" className="dc-icon-btn" title="Settings" onClick={onSettingsNavigate}>
+          ⚙
+        </Link>
+        <button type="button" className="dc-icon-btn" title="Log out" onClick={onLogout}>
+          ⎋
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AppShell() {
   const email = useAuthStore(s => s.email);
   const refreshToken = useAuthStore(s => s.refreshToken);
@@ -110,10 +176,22 @@ export function AppShell() {
   const removedDeviceIds = useRealtimeStore(s => s.removedDeviceIds);
   const navigate = useNavigate();
   const location = useLocation();
+  const isMobile = useMediaQuery('(max-width: 900px)');
+  const [navDrawerOpen, setNavDrawerOpen] = useState(false);
   const meta = channelMeta(location.pathname);
   const isChatRoute = location.pathname === '/chat';
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    setNavDrawerOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      setNavDrawerOpen(false);
+    }
+  }, [isMobile]);
 
   const loadDevices = useCallback(async () => {
     try {
@@ -148,7 +226,7 @@ export function AppShell() {
     d => !isDevicePresentOnline(d.status, d.lastSeenAt, nowMs),
   );
 
-  const onLogout = async () => {
+  const onLogout = useCallback(async () => {
     if (refreshToken) {
       await authApi.logout(refreshToken);
     }
@@ -158,11 +236,27 @@ export function AppShell() {
     useLiveStreamStore.getState().reset();
     clear();
     navigate('/login', {replace: true});
-  };
+  }, [refreshToken, clear, navigate]);
+
+  const closeNavDrawer = useCallback(() => setNavDrawerOpen(false), []);
+
+  const handleLogoutClick = useCallback(() => {
+    void onLogout();
+  }, [onLogout]);
 
   return (
     <>
+    <MobileNavDrawer
+      open={isMobile && !isChatRoute && navDrawerOpen}
+      pathname={location.pathname}
+      email={email}
+      wsConnected={wsConnected}
+      onClose={closeNavDrawer}
+      onLogout={handleLogoutClick}
+    />
     <div className="dc-app">
+      {!isMobile ? (
+      <>
       <aside className="dc-rail" aria-label="Workspaces">
         <Link to="/devices" className="dc-rail-pill active" title="Parent Control">
           <img src={`${import.meta.env.BASE_URL}app-logo.png`} alt="" width={48} height={48} />
@@ -181,53 +275,31 @@ export function AppShell() {
           </span>
         </header>
 
-        <nav className="dc-channels">
-          {NAV_GROUPS.map(group => (
-            <div key={group.label} className="dc-channel-group">
-              <div className="dc-channel-cat">{group.label}</div>
-              {group.items.map(item => {
-                const nestedActive =
-                  item.to === '/devices' && location.pathname.startsWith('/devices/');
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.to === '/devices'}
-                    className={({isActive}) =>
-                      `dc-channel${isActive || nestedActive ? ' active' : ''}`
-                    }>
-                    <span className="dc-channel-hash">{item.icon}</span>
-                    <span>{item.label}</span>
-                  </NavLink>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-
-        <div className="dc-userbar">
-          <div className="dc-user-avatar">
-            <span>{(email ?? 'P').slice(0, 1).toUpperCase()}</span>
-            <span className={`dc-status-dot ${wsConnected ? 'online' : 'idle'}`} />
-          </div>
-          <div className="dc-user-meta">
-            <div className="dc-user-name">{email?.split('@')[0] ?? 'Parent'}</div>
-            <div className="dc-user-status">{wsConnected ? 'Live sync' : 'Connecting…'}</div>
-          </div>
-          <div className="dc-user-actions">
-            <Link to="/settings" className="dc-icon-btn" title="Settings">
-              ⚙
-            </Link>
-            <button type="button" className="dc-icon-btn" title="Log out" onClick={() => void onLogout()}>
-              ⎋
-            </button>
-          </div>
-        </div>
+        <NavChannels pathname={location.pathname} />
+        <UserBar
+          email={email}
+          wsConnected={wsConnected}
+          onLogout={handleLogoutClick}
+        />
       </aside>
+      </>
+      ) : null}
 
       <div className="dc-main">
         <header className="dc-topbar">
           <div className="dc-topbar-left">
+            {isMobile && !isChatRoute ? (
+              <button
+                type="button"
+                className="dc-topbar-menu"
+                aria-label="Open navigation"
+                aria-expanded={navDrawerOpen}
+                onClick={() => setNavDrawerOpen(true)}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <path d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+            ) : null}
             <span className="dc-topbar-hash">{meta.icon}</span>
             <h1 className="dc-topbar-title">{meta.title}</h1>
             <span className="dc-topbar-divider" />
@@ -245,7 +317,7 @@ export function AppShell() {
         </main>
       </div>
 
-      {!isChatRoute ? (
+      {!isChatRoute && !isMobile ? (
       <aside className="dc-members" aria-label="Devices">
         <div className="dc-members-cat">Online — {online.length}</div>
         {online.length === 0 ? (

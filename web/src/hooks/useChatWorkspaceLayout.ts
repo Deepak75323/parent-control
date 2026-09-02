@@ -172,6 +172,24 @@ export function useChatWorkspaceLayout() {
     persist({infoOpen: true});
   }, [persist]);
 
+  const [roomsDrawerOpen, setRoomsDrawerOpen] = useState(false);
+
+  const openRoomsDrawer = useCallback(() => {
+    setRoomsDrawerOpen(true);
+  }, []);
+
+  const closeRoomsDrawer = useCallback(() => {
+    setRoomsDrawerOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!viewport.isMobile) {
+      setRoomsDrawerOpen(false);
+      return;
+    }
+    setInfoOpen(false);
+  }, [viewport.isMobile]);
+
   const onRoomsDragEnd = useCallback(() => {
     persist({roomsWidth});
   }, [persist, roomsWidth]);
@@ -193,6 +211,9 @@ export function useChatWorkspaceLayout() {
     resetInfoWidth,
     closeInfoPanel,
     openInfoPanel,
+    roomsDrawerOpen,
+    openRoomsDrawer,
+    closeRoomsDrawer,
     onRoomsDragEnd,
     onInfoDragEnd,
   };

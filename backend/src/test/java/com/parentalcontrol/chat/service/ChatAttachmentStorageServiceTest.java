@@ -27,6 +27,14 @@ class ChatAttachmentStorageServiceTest {
   }
 
   @Test
+  void validate_rejectsEmptyFile() {
+    MockMultipartFile file = new MockMultipartFile("file", "photo.png", "image/png", new byte[0]);
+
+    assertThatThrownBy(() -> storageService.validate(file))
+        .isInstanceOf(BusinessException.class);
+  }
+
+  @Test
   void store_persistsPngAndReturnsMetadata() {
     byte[] bytes = new byte[] {(byte) 0x89, 0x50, 0x4E, 0x47};
     MockMultipartFile file = new MockMultipartFile("file", "photo.png", "image/png", bytes);

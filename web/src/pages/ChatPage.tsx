@@ -1,5 +1,5 @@
 import {Fragment, type FormEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {useLocation} from 'react-router-dom';
+import {useLocation, useNavigate} from 'react-router-dom';
 import axios from 'axios';
 import {chatApi} from '../api/services';
 import {useAuthStore} from '../auth/authStore';
@@ -14,6 +14,7 @@ import {ChatMessageMedia} from '../components/ChatMessageMedia';
 import {ChatInviteBar} from '../components/chat/ChatInviteBar';
 import {ChatMediaPreview} from '../components/chat/ChatMediaPreview';
 import {ChatHeader} from '../components/chat/ChatHeader';
+import {ChatRoomsPanel} from '../components/chat/ChatRoomsPanel';
 import {ChatWorkspaceLayout} from '../components/chat/ChatWorkspaceLayout';
 import {useChatWorkspaceLayout} from '../hooks/useChatWorkspaceLayout';
 import {DateSeparator} from '../components/chat/DateSeparator';
@@ -29,6 +30,7 @@ const VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
 
 export function ChatPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const workspace = useChatWorkspaceLayout();
   const profile = useAuthStore(s => s.profile);
   const email = useAuthStore(s => s.email);
@@ -54,6 +56,7 @@ export function ChatPage() {
   const composerFileInputRef = useRef<HTMLInputElement>(null);
   const initialRoomLoadRef = useRef(true);
   const messagesLoadGenRef = useRef(0);
+  const roomsDrawerDismissedRef = useRef(false);
 
   const ownDisplayName = useMemo(
     () =>
@@ -173,6 +176,78 @@ export function ChatPage() {
     [messages, editingMessageId],
   );
 
+  const selectRoom = useCallback(
+    (roomId: string) => {
+      setSelectedRoomId(roomId);
+      if (workspace.isMobile) {
+        workspace.closeRoomsDrawer();
+      }
+    },
+    [workspace.isMobile, workspace.closeRoomsDrawer],
+  );
+
+  const handleMobileBackFromChat = useCallback(() => {
+    setSelectedRoomId(null);
+    setShowInvite(false);
+    setSearchOpen(false);
+    if (workspace.isMobile) {
+      roomsDrawerDismissedRef.current = false;
+      workspace.openRoomsDrawer();
+    }
+  }, [workspace.isMobile, workspace.openRoomsDrawer]);
+
+  const handleCloseRoomsDrawer = useCallback(() => {
+    roomsDrawerDismissedRef.current = true;
+    workspace.closeRoomsDrawer();
+  }, [workspace.closeRoomsDrawer]);
+
+  const handleDismissRoomsDrawer = useCallback(() => {
+    handleCloseRoomsDrawer();
+    navigate('/devices', {replace: true});
+  }, [handleCloseRoomsDrawer, navigate]);
+
+  useEffect(() => {
+    if (!workspace.isMobile || !location.pathname.endsWith('/chat')) {
+      return;
+    }
+    if (!roomsDrawerDismissedRef.current || selectedRoomId || workspace.roomsDrawerOpen) {
+      return;
+    }
+    navigate('/devices', {replace: true});
+  }, [
+    workspace.isMobile,
+    workspace.roomsDrawerOpen,
+    selectedRoomId,
+    location.pathname,
+    navigate,
+  ]);
+
+  useEffect(() => {
+    if (!workspace.isMobile) {
+      return;
+    }
+    if (selectedRoomId) {
+      workspace.closeRoomsDrawer();
+    }
+  }, [workspace.isMobile, selectedRoomId, workspace.closeRoomsDrawer]);
+
+  useEffect(() => {
+    if (!workspace.isMobile || !location.pathname.endsWith('/chat')) {
+      return;
+    }
+    if (roomsDrawerDismissedRef.current || selectedRoomId) {
+      return;
+    }
+    workspace.openRoomsDrawer();
+  }, [location.pathname, workspace.isMobile, selectedRoomId, workspace.openRoomsDrawer]);
+
+  useEffect(() => {
+    if (!location.pathname.endsWith('/chat')) {
+      return;
+    }
+    roomsDrawerDismissedRef.current = false;
+  }, [location.pathname]);
+
   const loadRooms = useCallback(async () => {
     try {
       const {data} = await chatApi.listRooms();
@@ -195,7 +270,10 @@ export function ChatPage() {
         }
         if (!prev && initialRoomLoadRef.current && next.length > 0) {
           initialRoomLoadRef.current = false;
-          return next[0]?.id ?? null;
+          if (!window.matchMedia('(max-width: 900px)').matches) {
+            return next[0]?.id ?? null;
+          }
+          return prev;
         }
         return prev;
       });
@@ -379,7 +457,7 @@ export function ChatPage() {
       const room = data.data;
       if (room) {
         setRooms(prev => [room, ...prev]);
-        setSelectedRoomId(room.id);
+        selectRoom(room.id);
         setNewRoomName('');
       }
     } catch {
@@ -404,6 +482,10 @@ export function ChatPage() {
     if (wasSelected) {
       setSelectedRoomId(null);
       setApiMessages([]);
+      if (workspace.isMobile) {
+        roomsDrawerDismissedRef.current = false;
+        workspace.openRoomsDrawer();
+      }
     }
     markChatRoomRemoved(roomId);
     try {
@@ -484,6 +566,10 @@ export function ChatPage() {
     if (wasSelected) {
       setSelectedRoomId(null);
       setApiMessages([]);
+      if (workspace.isMobile) {
+        roomsDrawerDismissedRef.current = false;
+        workspace.openRoomsDrawer();
+      }
     }
     markChatRoomRemoved(roomId);
     try {
@@ -526,7 +612,7 @@ export function ChatPage() {
       const {data} = await chatApi.respondInvite(inviteId, accept);
       setInvites(prev => prev.filter(invite => invite.id !== inviteId));
       if (accept && data.data?.roomId) {
-        setSelectedRoomId(data.data.roomId);
+        selectRoom(data.data.roomId);
         void loadRooms();
       }
     } catch {
@@ -543,6 +629,10 @@ export function ChatPage() {
     }
     const body = draft.trim();
     if (!body && !pendingFile) {
+      return;
+    }
+    if (pendingFile && pendingFile.size === 0) {
+      setError('Selected file is empty — pick the image again');
       return;
     }
 
@@ -743,36 +833,21 @@ export function ChatPage() {
         ]
     : [];
 
+  const renderRoomsPanel = () => (
+    <ChatRoomsPanel
+      rooms={rooms}
+      selectedRoomId={selectedRoomId}
+      newRoomName={newRoomName}
+      busy={busy}
+      onSelectRoom={selectRoom}
+      onDeleteRoom={roomId => void handleDeleteRoom(roomId)}
+      onNewRoomNameChange={setNewRoomName}
+      onCreateRoom={handleCreateRoom}
+    />
+  );
+
   return (
     <div className="chat-page">
-      {rooms.length > 0 ? (
-        <div className="chat-room-mobile-select">
-          <label htmlFor="chat-room-mobile-select">Room</label>
-          <select
-            id="chat-room-mobile-select"
-            value={selectedRoomId ?? ''}
-            onChange={event => setSelectedRoomId(event.target.value || null)}>
-            {rooms.map(room => (
-              <option key={room.id} value={room.id}>
-                {room.name}
-              </option>
-            ))}
-          </select>
-          <form className="chat-create-mobile" onSubmit={handleCreateRoom}>
-            <input
-              type="text"
-              placeholder="New room"
-              value={newRoomName}
-              maxLength={64}
-              onChange={event => setNewRoomName(event.target.value)}
-            />
-            <button type="submit" className="btn primary sm" disabled={busy || !newRoomName.trim()}>
-              +
-            </button>
-          </form>
-        </div>
-      ) : null}
-
       {invites.length > 0 ? (
         <div className="chat-invites-banner">
           <div className="chat-invites-banner-head">
@@ -818,62 +893,10 @@ export function ChatPage() {
 
       <ChatWorkspaceLayout
         layout={workspace}
-        rooms={
-          <aside className="chat-rooms-panel">
-            <div className="chat-panel-head">
-              <h2>Rooms</h2>
-              {rooms.length > 0 ? <span className="chat-panel-count">{rooms.length}</span> : null}
-            </div>
-            <div className="chat-room-list">
-              {rooms.length === 0 ? (
-                <p className="chat-room-empty">No rooms yet</p>
-              ) : (
-                rooms.map(room => (
-                  <div
-                    key={room.id}
-                    className={`chat-room-item${room.id === selectedRoomId ? ' active' : ''}`}>
-                    <button
-                      type="button"
-                      className="chat-room-select"
-                      onClick={() => setSelectedRoomId(room.id)}>
-                      <Avatar name={room.name} seed={room.id} size="md" />
-                      <span className="chat-room-meta">
-                        <span className="chat-room-name">{room.name}</span>
-                        <span className="chat-room-sub">
-                          {room.memberCount} member{room.memberCount === 1 ? '' : 's'}
-                          {room.owner ? ' · owner' : ''}
-                        </span>
-                      </span>
-                    </button>
-                    {room.owner ? (
-                      <button
-                        type="button"
-                        className="chat-room-delete"
-                        title={`Delete ${room.name}`}
-                        aria-label={`Delete ${room.name}`}
-                        disabled={busy}
-                        onClick={() => void handleDeleteRoom(room.id)}>
-                        ×
-                      </button>
-                    ) : null}
-                  </div>
-                ))
-              )}
-            </div>
-            <form className="chat-create" onSubmit={handleCreateRoom}>
-              <input
-                type="text"
-                placeholder="New room name"
-                value={newRoomName}
-                maxLength={64}
-                onChange={event => setNewRoomName(event.target.value)}
-              />
-              <button type="submit" className="btn primary" disabled={busy || !newRoomName.trim()}>
-                +
-              </button>
-            </form>
-          </aside>
-        }
+        mobileThreadVisible={!workspace.isMobile || Boolean(selectedRoomId)}
+        onMobileBackToApp={() => navigate('/devices', {replace: true})}
+        onCloseRoomsDrawer={handleDismissRoomsDrawer}
+        renderRooms={renderRoomsPanel}
         thread={
           <section className="chat-thread-panel">
             {!selectedRoom ? (
@@ -916,6 +939,9 @@ export function ChatPage() {
                   menuActions={headerMenuActions}
                   infoPanelOpen={workspace.infoOpen}
                   showInfoPanelToggle={!workspace.infoOpen}
+                  showBack={workspace.isMobile}
+                  onBack={handleMobileBackFromChat}
+                  compact={workspace.isMobile}
                   onOpenInfoPanel={workspace.openInfoPanel}
                   onToggleInvite={() => setShowInvite(prev => !prev)}
                   onToggleSearch={() => setSearchOpen(prev => !prev)}

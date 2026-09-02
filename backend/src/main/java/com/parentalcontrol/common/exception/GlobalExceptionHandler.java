@@ -1,6 +1,7 @@
 package com.parentalcontrol.common.exception;
 
 import com.parentalcontrol.common.api.ApiResponse;
+import com.parentalcontrol.common.constant.MessageConstants;
 import com.parentalcontrol.observability.SecurityObservabilityService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +11,9 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 @RestControllerAdvice
 @RequiredArgsConstructor
@@ -41,6 +45,27 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ApiResponse<Void>> handleBadCredentials() {
     return ResponseEntity.status(ErrorCode.INVALID_CREDENTIALS.getStatus())
         .body(ApiResponse.error(ErrorCode.INVALID_CREDENTIALS, "Invalid email or password"));
+  }
+
+  @ExceptionHandler(MissingServletRequestPartException.class)
+  public ResponseEntity<ApiResponse<Void>> handleMissingPart(MissingServletRequestPartException ex) {
+    log.warn("Missing multipart part correlationId={} part={}", correlationId(), ex.getRequestPartName());
+    return ResponseEntity.badRequest()
+        .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_ATTACHMENT_REQUIRED));
+  }
+
+  @ExceptionHandler(MaxUploadSizeExceededException.class)
+  public ResponseEntity<ApiResponse<Void>> handleMaxUpload(MaxUploadSizeExceededException ex) {
+    log.warn("Upload too large correlationId={}", correlationId());
+    return ResponseEntity.status(ErrorCode.VALIDATION_ERROR.getStatus())
+        .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_ATTACHMENT_TOO_LARGE));
+  }
+
+  @ExceptionHandler(MultipartException.class)
+  public ResponseEntity<ApiResponse<Void>> handleMultipart(MultipartException ex) {
+    log.warn("Multipart request failed correlationId={}", correlationId(), ex);
+    return ResponseEntity.badRequest()
+        .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_ATTACHMENT_REQUIRED));
   }
 
   @ExceptionHandler(DataIntegrityViolationException.class)

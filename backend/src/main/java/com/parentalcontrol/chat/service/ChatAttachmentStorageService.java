@@ -14,7 +14,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
@@ -25,6 +27,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ChatAttachmentStorageService {
 
   private static final Set<String> IMAGE_MIME_TYPES =
@@ -51,7 +54,23 @@ public class ChatAttachmentStorageService {
       long sizeBytes,
       String originalFileName) {}
 
-  public StoredAttachment store(UUID roomId, UUID messageId, MultipartFile file) {
+  @PostConstruct
+  void ensureStorageDirectory() {
+    Path base = Path.of(properties.getStoragePath()).toAbsolutePath().normalize();
+    try {
+      Files.createDirectories(base);
+      Path probe = base.resolve(".write-probe");
+      Files.writeString(probe, "ok");
+      Files.deleteIfExists(probe);
+      log.info("Chat attachment storage ready at {}", base);
+    } catch (IOException e) {
+      log.error("Chat attachment storage is not usable at {}", base, e);
+      throw new IllegalStateException("Chat attachment storage is not writable", e);
+    }
+  }
+
+  /** Validates upload metadata before any database writes. */
+  public ValidatedAttachment validate(MultipartFile file) {
     if (file == null || file.isEmpty()) {
       throw new BusinessException(
           ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_ATTACHMENT_REQUIRED);
@@ -61,8 +80,16 @@ public class ChatAttachmentStorageService {
     ChatMessageType messageType = resolveMessageType(mimeType);
     long size = file.getSize();
     enforceSizeLimit(messageType, size);
+    return new ValidatedAttachment(messageType, mimeType, size, sanitizeFileName(file.getOriginalFilename()));
+  }
 
-    String extension = MIME_EXTENSIONS.getOrDefault(mimeType, "");
+  public record ValidatedAttachment(
+      ChatMessageType messageType, String mimeType, long sizeBytes, String originalFileName) {}
+
+  public StoredAttachment store(
+      UUID roomId, UUID messageId, MultipartFile file, ValidatedAttachment validated) {
+
+    String extension = MIME_EXTENSIONS.getOrDefault(validated.mimeType(), "");
     String storageKey = roomId + "/" + messageId + extension;
     Path target = resolvePath(storageKey);
 
@@ -72,12 +99,26 @@ public class ChatAttachmentStorageService {
         Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
       }
     } catch (IOException e) {
+      log.warn(
+          "Failed to store chat attachment roomId={} messageId={} path={}",
+          roomId,
+          messageId,
+          target,
+          e);
       throw new BusinessException(
           ErrorCode.INTERNAL_ERROR, MessageConstants.CHAT_ATTACHMENT_STORE_FAILED);
     }
 
-    String originalName = sanitizeFileName(file.getOriginalFilename());
-    return new StoredAttachment(messageType, storageKey, mimeType, size, originalName);
+    return new StoredAttachment(
+        validated.messageType(),
+        storageKey,
+        validated.mimeType(),
+        validated.sizeBytes(),
+        validated.originalFileName());
+  }
+
+  public StoredAttachment store(UUID roomId, UUID messageId, MultipartFile file) {
+    return store(roomId, messageId, file, validate(file));
   }
 
   public Resource loadAsResource(String storageKey) {

@@ -1,5 +1,6 @@
-import {useEffect, useRef, type ReactNode} from 'react';
+import {useEffect, useRef} from 'react';
 import type {useChatWorkspaceLayout} from '../../hooks/useChatWorkspaceLayout';
+import {ChatRoomsDrawer} from './ChatRoomsDrawer';
 import {ParentChatInfoPanel} from './ParentChatInfoPanel';
 import {ResizeHandle} from './ResizeHandle';
 
@@ -7,11 +8,22 @@ export type ChatWorkspaceLayoutState = ReturnType<typeof useChatWorkspaceLayout>
 
 type Props = {
   layout: ChatWorkspaceLayoutState;
-  rooms: ReactNode;
-  thread: ReactNode;
+  renderRooms: () => React.ReactNode;
+  thread: React.ReactNode;
+  /** On mobile, hide the thread until a room is selected. */
+  mobileThreadVisible?: boolean;
+  onMobileBackToApp?: () => void;
+  onCloseRoomsDrawer?: () => void;
 };
 
-export function ChatWorkspaceLayout({layout, rooms, thread}: Props) {
+export function ChatWorkspaceLayout({
+  layout,
+  renderRooms,
+  thread,
+  mobileThreadVisible = true,
+  onMobileBackToApp,
+  onCloseRoomsDrawer,
+}: Props) {
   const layoutRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -20,6 +32,14 @@ export function ChatWorkspaceLayout({layout, rooms, thread}: Props) {
 
   return (
     <>
+      {layout.isMobile && layout.roomsDrawerOpen ? (
+        <ChatRoomsDrawer
+          open
+          onClose={onCloseRoomsDrawer ?? layout.closeRoomsDrawer}
+          onBackToApp={onMobileBackToApp}>
+          {renderRooms()}
+        </ChatRoomsDrawer>
+      ) : null}
       {layout.isMobile && layout.infoOpen ? (
         <button
           type="button"
@@ -30,7 +50,15 @@ export function ChatWorkspaceLayout({layout, rooms, thread}: Props) {
       ) : null}
       <div
         ref={layoutRef}
-        className={`chat-layout${layout.infoOpen ? ' chat-layout--info-open' : ' chat-layout--info-closed'}${layout.isResizable ? ' chat-layout--resizable' : ''}`}
+        className={[
+          'chat-layout',
+          layout.infoOpen ? 'chat-layout--info-open' : 'chat-layout--info-closed',
+          layout.isResizable ? 'chat-layout--resizable' : '',
+          layout.isMobile ? 'chat-layout--mobile' : '',
+          layout.isMobile && !mobileThreadVisible ? 'chat-layout--mobile-list-only' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         style={
           layout.isResizable
             ? ({
@@ -40,7 +68,7 @@ export function ChatWorkspaceLayout({layout, rooms, thread}: Props) {
               } as React.CSSProperties)
             : undefined
         }>
-        <div className="chat-rooms-wrap">{rooms}</div>
+        {!layout.isMobile ? <div className="chat-rooms-wrap">{renderRooms()}</div> : null}
 
         {layout.isResizable ? (
           <ResizeHandle
