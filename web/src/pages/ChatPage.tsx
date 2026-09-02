@@ -11,6 +11,7 @@ import {useRealtimeStore} from '../realtime/realtimeStore';
 import {Avatar} from '../components/Avatar';
 import {ChatMessageMedia} from '../components/ChatMessageMedia';
 import {ChatInviteBar} from '../components/chat/ChatInviteBar';
+import {ChatMediaPreview} from '../components/chat/ChatMediaPreview';
 import {ChatHeader} from '../components/chat/ChatHeader';
 import {ChatWorkspaceLayout} from '../components/chat/ChatWorkspaceLayout';
 import {useChatWorkspaceLayout} from '../hooks/useChatWorkspaceLayout';
@@ -966,12 +967,23 @@ export function ChatPage() {
                 {pendingFile ? (
                   <div className="chat-compose-preview">
                     {pendingPreviewUrl && pendingFile.type.startsWith('video/') ? (
-                      <video className="chat-compose-preview-media" src={pendingPreviewUrl} controls />
-                    ) : pendingPreviewUrl ? (
-                      <img
+                      <ChatMediaPreview
                         className="chat-compose-preview-media"
+                        kind="video"
                         src={pendingPreviewUrl}
                         alt={pendingFile.name}
+                        controls
+                        maxWidth={280}
+                        maxHeight={180}
+                      />
+                    ) : pendingPreviewUrl ? (
+                      <ChatMediaPreview
+                        className="chat-compose-preview-media"
+                        kind="image"
+                        src={pendingPreviewUrl}
+                        alt={pendingFile.name}
+                        maxWidth={280}
+                        maxHeight={180}
                       />
                     ) : null}
                     <div className="chat-compose-preview-meta">

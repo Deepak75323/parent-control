@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {chatApi} from '../api/services';
+import {ChatMediaPreview} from './chat/ChatMediaPreview';
 import type {ChatMessageItem} from '../types/api';
 
 type Props = {
@@ -68,20 +69,20 @@ export function ChatMessageMedia({message, onConsumed}: Props) {
   if (blobUrl) {
     if (message.messageType === 'VIDEO') {
       return (
-        <video
+        <ChatMediaPreview
           className="chat-message-video"
+          kind="video"
           src={blobUrl}
+          alt={message.attachmentFileName ?? 'Video message'}
           controls
           autoPlay
-          playsInline
-          preload="metadata"
-          aria-label={message.attachmentFileName ?? 'Video message'}
         />
       );
     }
     return (
-      <img
+      <ChatMediaPreview
         className="chat-message-image"
+        kind="image"
         src={blobUrl}
         alt={message.attachmentFileName ?? 'Image message'}
       />
