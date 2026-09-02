@@ -659,11 +659,14 @@ h2 {
   position: fixed;
   inset: 0;
   z-index: 10050;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 20px;
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
   background: rgba(15, 18, 32, 0.48);
   backdrop-filter: blur(4px);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .confirm-dialog {
@@ -3606,6 +3609,40 @@ body.chat-resizing * {
   .chat-compose-footer {
     flex-shrink: 0;
     max-height: min(52dvh, 380px);
+  }
+
+  .chat-compose-preview-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .chat-compose-preview-actions .btn {
+    min-height: 44px;
+  }
+
+  .confirm-dialog-overlay {
+    align-items: end;
+    padding: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .confirm-dialog {
+    width: 100%;
+    max-width: none;
+    padding: 20px 18px max(18px, env(safe-area-inset-bottom));
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .confirm-dialog-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .confirm-dialog-actions .btn {
+    min-width: 0;
+    width: 100%;
+    min-height: 44px;
   }
 
   .chat-compose,

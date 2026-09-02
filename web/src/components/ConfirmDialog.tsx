@@ -53,14 +53,20 @@ export function ConfirmDialog({
   }
 
   return createPortal(
-    <div className="confirm-dialog-overlay" role="presentation" onMouseDown={onCancel}>
+    <div
+      className="confirm-dialog-overlay"
+      role="presentation"
+      onClick={event => {
+        if (event.target === event.currentTarget) {
+          onCancel();
+        }
+      }}>
       <div
         className="confirm-dialog"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        aria-describedby="confirm-dialog-message"
-        onMouseDown={event => event.stopPropagation()}>
+        aria-describedby="confirm-dialog-message">
         <h2 id="confirm-dialog-title" className="confirm-dialog-title">
           {title}
         </h2>
