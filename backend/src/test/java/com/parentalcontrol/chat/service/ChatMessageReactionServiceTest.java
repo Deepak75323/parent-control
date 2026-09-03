@@ -38,7 +38,7 @@ class ChatMessageReactionServiceTest {
     UUID userId = UUID.randomUUID();
 
     when(messageRepository.existsActiveInRoom(messageId, roomId)).thenReturn(true);
-    when(reactionRepository.findActiveByMessageIdAndUserId(messageId, userId))
+    when(reactionRepository.findByMessageIdAndUserId(messageId, userId))
         .thenReturn(java.util.Optional.empty());
     when(reactionRepository.save(any(ChatMessageReaction.class)))
         .thenAnswer(invocation -> invocation.getArgument(0));
@@ -75,7 +75,7 @@ class ChatMessageReactionServiceTest {
             .build();
 
     when(messageRepository.existsActiveInRoom(messageId, roomId)).thenReturn(true);
-    when(reactionRepository.findActiveByMessageIdAndUserId(messageId, userId))
+    when(reactionRepository.findByMessageIdAndUserId(messageId, userId))
         .thenReturn(java.util.Optional.of(existing));
     when(reactionRepository.findActiveByMessageId(messageId)).thenReturn(List.of());
 
@@ -84,6 +84,36 @@ class ChatMessageReactionServiceTest {
 
     assertThat(summaries).isEmpty();
     assertThat(existing.getDeletedAt()).isNotNull();
+  }
+
+  @Test
+  void toggleReactionRevivesSoftDeletedReaction() {
+    UUID roomId = UUID.randomUUID();
+    UUID messageId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    ChatMessageReaction existing =
+        ChatMessageReaction.builder()
+            .roomId(roomId)
+            .messageId(messageId)
+            .userId(userId)
+            .emoji("👍")
+            .build();
+    existing.setDeletedAt(java.time.Instant.now());
+
+    when(messageRepository.existsActiveInRoom(messageId, roomId)).thenReturn(true);
+    when(reactionRepository.findByMessageIdAndUserId(messageId, userId))
+        .thenReturn(java.util.Optional.of(existing));
+    when(reactionRepository.save(any(ChatMessageReaction.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    when(reactionRepository.findActiveByMessageId(messageId)).thenReturn(List.of(existing));
+
+    List<ChatMessageReactionSummary> summaries =
+        reactionService.toggleReaction(roomId, messageId, userId, "😂", id -> "Parent");
+
+    assertThat(existing.getDeletedAt()).isNull();
+    assertThat(existing.getEmoji()).isEqualTo("😂");
+    assertThat(summaries).hasSize(1);
+    assertThat(summaries.get(0).getEmoji()).isEqualTo("😂");
   }
 
   @Test

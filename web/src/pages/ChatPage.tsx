@@ -13,7 +13,6 @@ import {useRealtimeStore} from '../realtime/realtimeStore';
 import {Avatar} from '../components/Avatar';
 import {ChatMessageMedia} from '../components/ChatMessageMedia';
 import {ChatInviteBar} from '../components/chat/ChatInviteBar';
-import {ChatMediaPreview} from '../components/chat/ChatMediaPreview';
 import {ChatFileDropZone} from '../components/chat/ChatFileDropZone';
 import {ChatHeader} from '../components/chat/ChatHeader';
 import {ChatRoomsPanel} from '../components/chat/ChatRoomsPanel';
@@ -563,6 +562,9 @@ export function ChatPage() {
       }
       setError(null);
       setPendingFile(file);
+      window.requestAnimationFrame(() => {
+        composerTextareaRef.current?.focus();
+      });
     },
     [],
   );
@@ -824,48 +826,58 @@ export function ChatPage() {
 
     setBusy(true);
     setError(null);
+    const replyId = replyingTo?.id;
+    const fileToSend = pendingFile;
+    // Clear composer immediately so focus stays usable for the next message.
+    setDraft('');
+    setReplyingTo(null);
+    if (fileToSend) {
+      clearPendingFile();
+    }
     try {
-      if (pendingFile) {
+      if (fileToSend) {
         const caption = body ? encodeChatMessagePlaintext(body) : undefined;
         if (caption && caption.length > 2000) {
           setError('Caption is too long after encoding — use fewer words');
+          setDraft(body);
           return;
         }
         const {data} = await chatApi.sendMediaMessage(
           selectedRoomId,
-          pendingFile,
+          fileToSend,
           caption,
-          replyingTo?.id,
+          replyId,
         );
         if (data.data) {
           setApiMessages(prev =>
             prev.some(message => message.id === data.data!.id) ? prev : [...prev, data.data!],
           );
         }
-        clearPendingFile();
       } else {
         const obfuscatedBody = encodeChatMessagePlaintext(body);
         if (obfuscatedBody.length > 2000) {
           setError('Message is too long after encoding — use fewer words');
+          setDraft(body);
           return;
         }
-        const {data} = await chatApi.sendMessage(
-          selectedRoomId,
-          obfuscatedBody,
-          replyingTo?.id,
-        );
+        const {data} = await chatApi.sendMessage(selectedRoomId, obfuscatedBody, replyId);
         if (data.data) {
           setApiMessages(prev =>
             prev.some(message => message.id === data.data!.id) ? prev : [...prev, data.data!],
           );
         }
       }
-      setDraft('');
-      setReplyingTo(null);
     } catch {
-      setError(pendingFile ? 'Could not send media' : 'Could not send message');
+      setError(fileToSend ? 'Could not send media' : 'Could not send message');
+      setDraft(body);
+      if (fileToSend) {
+        setPendingFile(fileToSend);
+      }
     } finally {
       setBusy(false);
+      window.requestAnimationFrame(() => {
+        composerTextareaRef.current?.focus();
+      });
     }
   }
 
@@ -1458,43 +1470,35 @@ export function ChatPage() {
                 {pendingFile ? (
                   <div className="chat-compose-preview">
                     {pendingPreviewUrl && pendingFile.type.startsWith('video/') ? (
-                      <ChatMediaPreview
+                      <video
                         className="chat-compose-preview-media"
-                        kind="video"
                         src={pendingPreviewUrl}
-                        alt={pendingFile.name}
-                        controls
-                        maxWidth={280}
-                        maxHeight={180}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        aria-label={pendingFile.name}
                       />
                     ) : pendingPreviewUrl ? (
-                      <ChatMediaPreview
+                      <img
                         className="chat-compose-preview-media"
-                        kind="image"
                         src={pendingPreviewUrl}
                         alt={pendingFile.name}
-                        maxWidth={280}
-                        maxHeight={180}
                       />
-                    ) : null}
+                    ) : (
+                      <div className="chat-compose-preview-media chat-compose-preview-media--placeholder" />
+                    )}
                     <div className="chat-compose-preview-meta">
-                      <span className="tiny">{pendingFile.name}</span>
-                      <div className="chat-compose-preview-actions">
-                        <button
-                          type="button"
-                          className="btn ghost sm"
-                          disabled={busy}
-                          onClick={clearPendingFile}>
-                          Remove
-                        </button>
-                        <button
-                          type="submit"
-                          form="chat-compose-form"
-                          className="btn primary sm"
-                          disabled={busy}>
-                          Send
-                        </button>
-                      </div>
+                      <span className="chat-compose-preview-name" title={pendingFile.name}>
+                        {pendingFile.name}
+                      </span>
+                      <button
+                        type="button"
+                        className="chat-compose-preview-remove"
+                        disabled={busy}
+                        aria-label="Remove attachment"
+                        onClick={clearPendingFile}>
+                        ×
+                      </button>
                     </div>
                   </div>
                 ) : null}

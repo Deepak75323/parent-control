@@ -211,7 +211,6 @@ export function MessageComposer({
           rows={1}
           aria-label={placeholder}
           aria-expanded={mentionOpen}
-          disabled={busy}
           onChange={event => {
             onDraftChange(event.target.value);
             setMentionIndex(0);

@@ -32,6 +32,12 @@ public interface ChatMessageReactionRepository extends JpaRepository<ChatMessage
   Optional<ChatMessageReaction> findActiveByMessageIdAndUserId(
       @Param("messageId") UUID messageId, @Param("userId") UUID userId);
 
+  @Query(
+      "SELECT r FROM ChatMessageReaction r "
+          + "WHERE r.messageId = :messageId AND r.userId = :userId")
+  Optional<ChatMessageReaction> findByMessageIdAndUserId(
+      @Param("messageId") UUID messageId, @Param("userId") UUID userId);
+
   @Modifying(clearAutomatically = true, flushAutomatically = true)
   @Query(
       "UPDATE ChatMessageReaction r SET r.deletedAt = :now, r.updatedAt = :now "

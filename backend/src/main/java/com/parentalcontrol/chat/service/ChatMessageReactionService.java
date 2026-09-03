@@ -55,16 +55,17 @@ public class ChatMessageReactionService {
     requireActiveMessage(roomId, messageId);
     String emoji = normalizeEmoji(rawEmoji);
 
+    // Include soft-deleted rows: unique (message_id, user_id) means re-react must revive,
+    // not insert a second row.
     ChatMessageReaction existing =
-        reactionRepository
-            .findActiveByMessageIdAndUserId(messageId, userId)
-            .orElse(null);
+        reactionRepository.findByMessageIdAndUserId(messageId, userId).orElse(null);
 
-    if (existing != null && existing.getEmoji().equals(emoji)) {
+    if (existing != null && existing.getDeletedAt() == null && existing.getEmoji().equals(emoji)) {
       existing.setDeletedAt(Instant.now());
       reactionRepository.save(existing);
     } else if (existing != null) {
       existing.setEmoji(emoji);
+      existing.setDeletedAt(null);
       existing.setUpdatedAt(Instant.now());
       reactionRepository.save(existing);
     } else {
