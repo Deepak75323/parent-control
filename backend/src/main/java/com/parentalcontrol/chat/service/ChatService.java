@@ -46,6 +46,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -482,7 +483,17 @@ public class ChatService {
 
     if (Boolean.TRUE.equals(request.getAccept())) {
       invite.setStatus(ChatRoomInviteStatus.ACCEPTED);
-      if (!memberRepository.existsByRoomIdAndUserId(room.getId(), userId)) {
+      Optional<ChatRoomMember> existingMembership =
+          memberRepository.findAnyByRoomIdAndUserId(room.getId(), userId);
+      if (existingMembership.isPresent()) {
+        ChatRoomMember membership = existingMembership.get();
+        if (membership.getDeletedAt() != null) {
+          membership.setDeletedAt(null);
+          membership.setJoinedAt(Instant.now());
+          membership.setRole(ChatRoomMemberRole.MEMBER);
+          memberRepository.save(membership);
+        }
+      } else {
         memberRepository.save(
             ChatRoomMember.builder()
                 .roomId(room.getId())

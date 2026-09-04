@@ -13,9 +13,11 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
 @Table(name = "chat_room_members")
+@SQLRestriction("deleted_at IS NULL")
 @Getter
 @Setter
 @Builder
