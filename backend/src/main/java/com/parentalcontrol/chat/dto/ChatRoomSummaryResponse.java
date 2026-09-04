@@ -17,4 +17,8 @@ public class ChatRoomSummaryResponse {
   Instant updatedAt;
   /** Per-member: local clear-chat timestamp (messages before this are hidden for this user). */
   Instant chatClearedAt;
+  /** WhatsApp-style read cursor for this member in the room. */
+  UUID lastReadMessageId;
+  /** Incoming messages after {@link #lastReadMessageId} (excludes own). */
+  int unreadCount;
 }

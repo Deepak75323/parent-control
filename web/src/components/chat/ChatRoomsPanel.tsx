@@ -36,7 +36,14 @@ function ChatRoomRow({room, selected, busy, swipeEnabled, onSelect, onRemove}: R
         <button type="button" className="chat-room-select" onClick={onSelect}>
           <Avatar name={room.name} seed={room.id} size="md" />
           <span className="chat-room-meta">
-            <span className="chat-room-name">{room.name}</span>
+            <span className="chat-room-name-row">
+              <span className="chat-room-name">{room.name}</span>
+              {(room.unreadCount ?? 0) > 0 ? (
+                <span className="chat-room-unread-badge" aria-label={`${room.unreadCount} unread`}>
+                  {room.unreadCount}
+                </span>
+              ) : null}
+            </span>
             <span className="chat-room-sub">
               {room.memberCount} member{room.memberCount === 1 ? '' : 's'}
               {room.owner ? ' · owner' : ''}

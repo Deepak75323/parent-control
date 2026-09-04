@@ -14,6 +14,7 @@ import com.parentalcontrol.user.dao.ParentProfileDao;
 import com.parentalcontrol.user.domain.ParentProfile;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -64,13 +65,15 @@ public class ChatReadReceiptService {
     }
   }
 
+  /**
+   * Advances the member's WhatsApp-style read cursor to {@code lastMessageId} (never backwards)
+   * and marks receipts through that message as read.
+   *
+   * @return message IDs that are now fully read by every recipient (candidates to purge)
+   */
   @Transactional
-  public void markRead(UUID roomId, UUID recipientUserId, UUID lastMessageId) {
+  public List<UUID> markRead(UUID roomId, UUID recipientUserId, UUID lastMessageId) {
     ChatRoomMember member = requireMember(roomId, recipientUserId);
-    if (!isReadReceiptsEnabled(recipientUserId)) {
-      clearUnreadFromIfReadPast(member, lastMessageId);
-      return;
-    }
 
     ChatMessage lastMessage =
         messageRepository
@@ -83,6 +86,8 @@ public class ChatReadReceiptService {
       throw new BusinessException(ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND);
     }
 
+    advanceReadCursor(member, lastMessage);
+
     List<UUID> messageIds =
         messageRepository.findActiveByRoomId(roomId).stream()
             .filter(m -> !m.getCreatedAt().isAfter(lastMessage.getCreatedAt()))
@@ -90,18 +95,54 @@ public class ChatReadReceiptService {
             .map(ChatMessage::getId)
             .toList();
     if (messageIds.isEmpty()) {
-      clearUnreadFromIfReadPast(member, lastMessageId);
-      return;
+      return List.of();
     }
 
     Instant now = Instant.now();
     int updated = receiptRepository.markRead(recipientUserId, messageIds, now);
+    List<UUID> fullyRead = List.of();
     if (updated > 0) {
       notifySendersForMessages(messageIds);
+      fullyRead =
+          messageIds.stream().filter(this::isFullyReadByAllRecipients).toList();
     }
-    clearUnreadFromIfReadPast(member, lastMessage);
+    return fullyRead;
   }
 
+  @Transactional(readOnly = true)
+  public boolean isFullyReadByAllRecipients(UUID messageId) {
+    List<ChatMessageReceipt> receipts = receiptRepository.findByMessageId(messageId);
+    if (receipts.isEmpty()) {
+      return false;
+    }
+    return receipts.stream().allMatch(r -> r.getReadAt() != null);
+  }
+
+  @Transactional(readOnly = true)
+  public boolean isReadyForAutoDelete(UUID messageId, java.time.Duration grace) {
+    List<ChatMessageReceipt> receipts = receiptRepository.findByMessageId(messageId);
+    if (receipts.isEmpty()) {
+      return false;
+    }
+    Instant lastRead = null;
+    for (ChatMessageReceipt receipt : receipts) {
+      if (receipt.getReadAt() == null) {
+        return false;
+      }
+      if (lastRead == null || receipt.getReadAt().isAfter(lastRead)) {
+        lastRead = receipt.getReadAt();
+      }
+    }
+    if (grace == null || grace.isZero() || grace.isNegative()) {
+      return true;
+    }
+    return !lastRead.plus(grace).isAfter(Instant.now());
+  }
+
+  /**
+   * Moves the read cursor to the message immediately before {@code anchorMessageId}, so the
+   * anchor and everything after it show as unread for this viewer only.
+   */
   @Transactional
   public void markUnread(UUID roomId, UUID recipientUserId, UUID anchorMessageId) {
     ChatRoomMember member = requireMember(roomId, recipientUserId);
@@ -115,7 +156,17 @@ public class ChatReadReceiptService {
     if (!anchor.getRoomId().equals(roomId)) {
       throw new BusinessException(ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND);
     }
-    member.setUnreadFromAt(anchor.getCreatedAt());
+
+    UUID previousId =
+        messageRepository.findActiveByRoomId(roomId).stream()
+            .sorted(Comparator.comparing(ChatMessage::getCreatedAt))
+            .filter(message -> message.getCreatedAt().isBefore(anchor.getCreatedAt()))
+            .reduce((left, right) -> right)
+            .map(ChatMessage::getId)
+            .orElse(null);
+
+    member.setLastReadMessageId(previousId);
+    member.setUnreadFromAt(null);
     memberRepository.save(member);
   }
 
@@ -170,12 +221,29 @@ public class ChatReadReceiptService {
     }
   }
 
+  /**
+   * Unread = incoming messages after the member's read cursor ({@code lastReadMessageId}).
+   * Falls back to receipt {@code readAt} / legacy {@code unreadFromAt} when cursor is unset.
+   */
   @Transactional(readOnly = true)
   public Map<UUID, Boolean> unreadForViewer(
-      Collection<ChatMessage> messages, UUID viewerUserId, Instant unreadFromAt) {
+      Collection<ChatMessage> messages,
+      UUID viewerUserId,
+      UUID lastReadMessageId,
+      Instant unreadFromAt) {
     if (messages == null || messages.isEmpty()) {
       return Map.of();
     }
+
+    Instant cursorAt = null;
+    if (lastReadMessageId != null) {
+      cursorAt =
+          messageRepository
+              .findById(lastReadMessageId)
+              .map(ChatMessage::getCreatedAt)
+              .orElse(null);
+    }
+
     List<UUID> messageIds = messages.stream().map(ChatMessage::getId).toList();
     Map<UUID, ChatMessageReceipt> receiptsByMessage =
         receiptRepository.findByMessageIdIn(messageIds).stream()
@@ -189,11 +257,15 @@ public class ChatReadReceiptService {
       if (message.getSenderUserId().equals(viewerUserId)) {
         continue;
       }
-      ChatMessageReceipt receipt = receiptsByMessage.get(message.getId());
-      boolean unread = receipt == null || receipt.getReadAt() == null;
-      if (!unread
-          && unreadFromAt != null
-          && !message.getCreatedAt().isBefore(unreadFromAt)) {
+      boolean unread;
+      if (cursorAt != null) {
+        unread = message.getCreatedAt().isAfter(cursorAt);
+      } else if (lastReadMessageId == null && unreadFromAt == null) {
+        ChatMessageReceipt receipt = receiptsByMessage.get(message.getId());
+        unread = receipt == null || receipt.getReadAt() == null;
+      } else if (unreadFromAt != null) {
+        unread = !message.getCreatedAt().isBefore(unreadFromAt);
+      } else {
         unread = true;
       }
       unreadByMessage.put(message.getId(), unread);
@@ -207,7 +279,16 @@ public class ChatReadReceiptService {
       return Map.of();
     }
     List<ChatMessage> messages = messageRepository.findAllById(messageIds);
-    return unreadForViewer(messages, viewerUserId, null);
+    return unreadForViewer(messages, viewerUserId, null, null);
+  }
+
+  @Transactional(readOnly = true)
+  public int countUnread(
+      UUID roomId, UUID viewerUserId, UUID lastReadMessageId, Instant unreadFromAt) {
+    List<ChatMessage> messages = messageRepository.findActiveByRoomId(roomId);
+    Map<UUID, Boolean> unread =
+        unreadForViewer(messages, viewerUserId, lastReadMessageId, unreadFromAt);
+    return (int) unread.values().stream().filter(Boolean.TRUE::equals).count();
   }
 
   private ChatRoomMember requireMember(UUID roomId, UUID userId) {
@@ -217,19 +298,21 @@ public class ChatReadReceiptService {
             () -> new BusinessException(ErrorCode.FORBIDDEN, MessageConstants.CHAT_NOT_A_MEMBER));
   }
 
-  private void clearUnreadFromIfReadPast(ChatRoomMember member, UUID lastMessageId) {
-    messageRepository
-        .findById(lastMessageId)
-        .ifPresent(message -> clearUnreadFromIfReadPast(member, message));
-  }
-
-  private void clearUnreadFromIfReadPast(ChatRoomMember member, ChatMessage lastMessage) {
-    if (member.getUnreadFromAt() == null) {
-      return;
+  private void advanceReadCursor(ChatRoomMember member, ChatMessage lastMessage) {
+    UUID currentId = member.getLastReadMessageId();
+    if (currentId != null) {
+      ChatMessage current =
+          messageRepository.findById(currentId).orElse(null);
+      if (current != null
+          && current.getRoomId().equals(lastMessage.getRoomId())
+          && lastMessage.getCreatedAt().isBefore(current.getCreatedAt())) {
+        member.setUnreadFromAt(null);
+        memberRepository.save(member);
+        return;
+      }
     }
-    if (!lastMessage.getCreatedAt().isBefore(member.getUnreadFromAt())) {
-      member.setUnreadFromAt(null);
-      memberRepository.save(member);
-    }
+    member.setLastReadMessageId(lastMessage.getId());
+    member.setUnreadFromAt(null);
+    memberRepository.save(member);
   }
 }

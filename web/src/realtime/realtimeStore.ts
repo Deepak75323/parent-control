@@ -53,6 +53,8 @@ interface RealtimeState {
     messageId: string,
     reactions: ChatMessageItem['reactions'],
   ) => void;
+  markRoomIncomingRead: (roomId: string) => void;
+  markRoomIncomingUnreadFrom: (roomId: string, fromCreatedAt: string) => void;
   removeLiveChatMessage: (messageId: string) => void;
   clearLiveChatMessagesForRoom: (roomId: string) => void;
   clearPersonalChatForRoom: (roomId: string) => void;
@@ -120,6 +122,22 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       reactionPatches: {...state.reactionPatches, [messageId]: reactions},
       liveChatMessages: state.liveChatMessages.map(message =>
         message.id === messageId ? {...message, reactions} : message,
+      ),
+    })),
+  markRoomIncomingRead: roomId =>
+    set(state => ({
+      liveChatMessages: state.liveChatMessages.map(message =>
+        message.roomId === roomId && !message.ownMessage ? {...message, unread: false} : message,
+      ),
+    })),
+  markRoomIncomingUnreadFrom: (roomId, fromCreatedAt) =>
+    set(state => ({
+      liveChatMessages: state.liveChatMessages.map(message =>
+        message.roomId === roomId &&
+        !message.ownMessage &&
+        message.createdAt >= fromCreatedAt
+          ? {...message, unread: true}
+          : message,
       ),
     })),
   removeLiveChatMessage: messageId =>

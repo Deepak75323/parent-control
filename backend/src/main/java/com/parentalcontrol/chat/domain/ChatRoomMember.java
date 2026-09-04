@@ -45,4 +45,11 @@ public class ChatRoomMember extends BaseEntity {
   /** When set, incoming messages at or after this time show as unread for this member. */
   @Column(name = "unread_from_at")
   private Instant unreadFromAt;
+
+  /**
+   * WhatsApp-style read cursor: incoming messages after this message are unread for this member.
+   * Null means the member has not caught up to any message yet.
+   */
+  @Column(name = "last_read_message_id")
+  private UUID lastReadMessageId;
 }

@@ -34,6 +34,7 @@ import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.exception.ErrorCode;
 import com.parentalcontrol.common.security.SecurityUtils;
 import com.parentalcontrol.common.util.ChatNicknameGenerator;
+import com.parentalcontrol.config.ChatAutoDeleteProperties;
 import com.parentalcontrol.user.dao.ParentProfileDao;
 import com.parentalcontrol.user.dao.UserDao;
 import com.parentalcontrol.user.domain.ParentProfile;
@@ -77,6 +78,7 @@ public class ChatService {
   private final ChatAttachmentStorageService attachmentStorageService;
   private final ChatReadReceiptService readReceiptService;
   private final ChatMessageReactionService reactionService;
+  private final ChatAutoDeleteProperties autoDeleteProperties;
   private final FamilyHandleService familyHandleService;
   private final ParentProfileDao parentProfileDao;
   private final UserDao userDao;
@@ -269,9 +271,22 @@ public class ChatService {
           ErrorCode.FORBIDDEN, MessageConstants.CHAT_CANNOT_DELETE_FOR_EVERYONE);
     }
 
+    purgeMessageForEveryone(roomId, message);
+  }
+
+  /**
+   * Soft-deletes a message for all members, removes attachment bytes, and notifies via WebSocket.
+   * Used by explicit delete-for-everyone and by auto-delete-when-everyone-read.
+   */
+  private void purgeMessageForEveryone(UUID roomId, ChatMessage message) {
+    if (message.getDeletedAt() != null) {
+      return;
+    }
+    UUID messageId = message.getId();
     attachmentStorageService.deleteQuietly(message.getAttachmentStorageKey());
     reactionService.deleteReactionsForMessage(messageId);
     message.setDeletedAt(Instant.now());
+    message.setAttachmentStorageKey(null);
     messageRepository.save(message);
 
     ChatRoom room = requireRoom(roomId);
@@ -281,6 +296,49 @@ public class ChatService {
     for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
       realtimeService.publishMessageDeleted(member.getUserId(), roomId, messageId);
     }
+  }
+
+  @Transactional
+  public void autoDeleteMessagesReadByEveryone(UUID roomId, List<UUID> messageIds) {
+    if (!autoDeleteProperties.isEnabled() || messageIds == null || messageIds.isEmpty()) {
+      return;
+    }
+    for (UUID messageId : messageIds) {
+      messageRepository
+          .findById(messageId)
+          .filter(message -> message.getRoomId().equals(roomId))
+          .filter(message -> message.getDeletedAt() == null)
+          .filter(
+              message ->
+                  readReceiptService.isReadyForAutoDelete(
+                      messageId, autoDeleteProperties.getGraceAfterRead()))
+          .ifPresent(message -> purgeMessageForEveryone(roomId, message));
+    }
+  }
+
+  /** Called by the scheduler: purge messages whose full-read grace period has elapsed. */
+  @Transactional
+  public int sweepAutoDeleteReadyMessages() {
+    if (!autoDeleteProperties.isEnabled()) {
+      return 0;
+    }
+    java.time.Duration grace = autoDeleteProperties.getGraceAfterRead();
+    Instant cutoff =
+        Instant.now().minus(grace == null || grace.isNegative() ? java.time.Duration.ZERO : grace);
+    List<UUID> ready = messageRepository.findIdsReadyForAutoDelete(cutoff);
+    int purged = 0;
+    for (UUID messageId : ready) {
+      ChatMessage message = messageRepository.findById(messageId).orElse(null);
+      if (message == null || message.getDeletedAt() != null) {
+        continue;
+      }
+      if (!readReceiptService.isReadyForAutoDelete(messageId, grace)) {
+        continue;
+      }
+      purgeMessageForEveryone(message.getRoomId(), message);
+      purged++;
+    }
+    return purged;
   }
 
   @Transactional
@@ -469,7 +527,8 @@ public class ChatService {
     Map<UUID, List<ChatMessageReactionSummary>> reactionsByMessage =
         reactionService.summariesByMessageIds(messageIds, userId, this::displayLabel);
     Map<UUID, Boolean> unreadByMessage =
-        readReceiptService.unreadForViewer(content, userId, member.getUnreadFromAt());
+        readReceiptService.unreadForViewer(
+            content, userId, member.getLastReadMessageId(), member.getUnreadFromAt());
 
     List<ChatMessageResponse> responses = new ArrayList<>();
     for (ChatMessage message : content) {
@@ -507,7 +566,10 @@ public class ChatService {
 
     ChatMessageResponse response = toMessageResponse(message, userId);
     readReceiptService.createReceiptsForMessage(message);
+    // Sending catches you up (WhatsApp): advance read cursor through this message.
+    readReceiptService.markRead(roomId, userId, message.getId());
     publishMessageToRoom(roomId, message);
+    notifyRoomListBump(roomId);
     return response;
   }
 
@@ -520,7 +582,10 @@ public class ChatService {
   @Transactional
   public void markRoomRead(UUID roomId, MarkChatReadRequest request) {
     UUID userId = SecurityUtils.requireUserId();
-    readReceiptService.markRead(roomId, userId, request.getLastMessageId());
+    List<UUID> fullyRead =
+        readReceiptService.markRead(roomId, userId, request.getLastMessageId());
+    autoDeleteMessagesReadByEveryone(roomId, fullyRead);
+    notifyRoomListBump(roomId);
   }
 
   @Transactional
@@ -528,6 +593,7 @@ public class ChatService {
     UUID userId = SecurityUtils.requireUserId();
     requireActiveMember(roomId, userId);
     readReceiptService.markUnread(roomId, userId, messageId);
+    notifyRoomListBump(roomId);
   }
 
   @Transactional
@@ -578,7 +644,9 @@ public class ChatService {
 
     ChatMessageResponse response = toMessageResponse(message, userId);
     readReceiptService.createReceiptsForMessage(message);
+    readReceiptService.markRead(roomId, userId, message.getId());
     publishMessageToRoom(roomId, message);
+    notifyRoomListBump(roomId);
     return response;
   }
 
@@ -721,11 +789,14 @@ public class ChatService {
   private ChatRoomSummaryResponse toRoomSummary(ChatRoom room, UUID viewerUserId) {
     int memberCount = memberRepository.findByRoomId(room.getId()).size();
     boolean owner = room.getOwnerUserId().equals(viewerUserId);
-    Instant chatClearedAt =
-        memberRepository
-            .findByRoomIdAndUserId(room.getId(), viewerUserId)
-            .map(ChatRoomMember::getChatClearedAt)
-            .orElse(null);
+    ChatRoomMember member =
+        memberRepository.findByRoomIdAndUserId(room.getId(), viewerUserId).orElse(null);
+    Instant chatClearedAt = member != null ? member.getChatClearedAt() : null;
+    UUID lastReadMessageId = member != null ? member.getLastReadMessageId() : null;
+    Instant unreadFromAt = member != null ? member.getUnreadFromAt() : null;
+    int unreadCount =
+        readReceiptService.countUnread(
+            room.getId(), viewerUserId, lastReadMessageId, unreadFromAt);
     return ChatRoomSummaryResponse.builder()
         .id(room.getId())
         .name(room.getName())
@@ -735,6 +806,8 @@ public class ChatService {
         .createdAt(room.getCreatedAt())
         .updatedAt(room.getUpdatedAt())
         .chatClearedAt(chatClearedAt)
+        .lastReadMessageId(lastReadMessageId)
+        .unreadCount(unreadCount)
         .build();
   }
 
@@ -780,7 +853,19 @@ public class ChatService {
         reactionService
             .summariesByMessageIds(List.of(message.getId()), viewerUserId, this::displayLabel)
             .getOrDefault(message.getId(), List.of());
-    return toMessageResponse(message, viewerUserId, reactions, null);
+    ChatRoomMember member =
+        memberRepository
+            .findByRoomIdAndUserId(message.getRoomId(), viewerUserId)
+            .orElse(null);
+    Map<UUID, Boolean> unreadByMessage =
+        member == null
+            ? Map.of()
+            : readReceiptService.unreadForViewer(
+                List.of(message),
+                viewerUserId,
+                member.getLastReadMessageId(),
+                member.getUnreadFromAt());
+    return toMessageResponse(message, viewerUserId, reactions, unreadByMessage);
   }
 
   private ChatMessageResponse toMessageResponse(

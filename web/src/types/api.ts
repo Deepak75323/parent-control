@@ -199,6 +199,10 @@ export interface ChatRoomSummary {
   updatedAt: string;
   /** When set, messages before this time are hidden for this user only. */
   chatClearedAt?: string;
+  /** WhatsApp-style read cursor for this member. */
+  lastReadMessageId?: string | null;
+  /** Incoming messages after lastReadMessageId. */
+  unreadCount?: number;
 }
 
 export interface ChatMemberItem {

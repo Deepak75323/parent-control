@@ -7,6 +7,13 @@ import {encodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
 import {groupMessagesByDate} from '../lib/chatMessageGrouping';
 import {resolveOwnSenderUserId, withResolvedOwnership} from '../lib/chatMessageOwnership';
 import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
+import {
+  advanceReadCursor,
+  isAfterReadCursor,
+  mergeChatUnreadFlag,
+  previousMessageId,
+  unreadAfterCursor,
+} from '../lib/chatUnreadMerge';
 import {resolveChatDisplayNickname} from '../lib/chatDisplayNickname';
 import {validateChatMediaFile} from '../lib/chatMediaUpload';
 import {useRealtimeStore} from '../realtime/realtimeStore';
@@ -102,7 +109,23 @@ export function ChatPage() {
   const reactionPatches = useRealtimeStore(s => s.reactionPatches);
   const deliveredMarkedRef = useRef<Set<string>>(new Set());
   const lastReadMarkedRef = useRef<string | null>(null);
-  const [unreadHold, setUnreadHold] = useState(false);
+  const catchUpReadRef = useRef<() => void>(() => undefined);
+  const readMarkEpochRef = useRef(0);
+  /** Block auto mark-read until the user scrolls (keeps unread divider visible). */
+  const suppressMarkReadRef = useRef(false);
+  /** WhatsApp read cursor — source of truth for unread UI. */
+  const [lastReadMessageId, setLastReadMessageId] = useState<string | null>(null);
+  const lastReadMessageIdRef = useRef<string | null>(null);
+  /** Frozen divider while suppress is on so short chats still show the line. */
+  const [unreadDivider, setUnreadDivider] = useState<{
+    firstId: string;
+    count: number;
+  } | null>(null);
+
+  const setReadCursor = (messageId: string | null) => {
+    lastReadMessageIdRef.current = messageId;
+    setLastReadMessageId(messageId);
+  };
 
   const selectedRoom = useMemo(
     () => rooms.find(room => room.id === selectedRoomId) ?? null,
@@ -165,7 +188,11 @@ export function ChatPage() {
         byId.set(
           message.id,
           existing
-            ? {...existing, ...message, unread: Boolean(existing.unread || message.unread)}
+            ? {
+                ...existing,
+                ...message,
+                unread: mergeChatUnreadFlag(existing.unread, message.unread),
+              }
             : message,
         );
       }
@@ -199,18 +226,25 @@ export function ChatPage() {
 
   const visibleMessages = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) {
-      return messages;
-    }
-    return messages.filter(message => message.body?.toLowerCase().includes(query));
-  }, [messages, searchQuery]);
+    const scoped = query
+      ? messages.filter(message => message.body?.toLowerCase().includes(query))
+      : messages;
+    // Derive unread from the read cursor (not a mutable counter).
+    return scoped.map(message => ({
+      ...message,
+      unread:
+        !message.ownMessage &&
+        isAfterReadCursor(message, lastReadMessageId, scoped),
+    }));
+  }, [messages, searchQuery, lastReadMessageId]);
 
   const unreadMessages = useMemo(
-    () => visibleMessages.filter(message => message.unread && !message.ownMessage),
-    [visibleMessages],
+    () => unreadAfterCursor(visibleMessages, lastReadMessageId),
+    [visibleMessages, lastReadMessageId],
   );
-  const unreadCount = unreadMessages.length;
-  const firstUnreadId = unreadMessages[0]?.id ?? null;
+  const liveUnreadCount = unreadMessages.length;
+  const unreadCount = Math.max(liveUnreadCount, unreadDivider?.count ?? 0);
+  const firstUnreadId = unreadDivider?.firstId ?? unreadMessages[0]?.id ?? null;
 
   const messageGroups = useMemo(
     () => groupMessagesByDate(visibleMessages),
@@ -447,8 +481,13 @@ export function ChatPage() {
     deliveredMarkedRef.current.clear();
     lastReadMarkedRef.current = null;
     initialScrollDoneRef.current = null;
-    setAtBottom(true);
-    setUnreadHold(false);
+    suppressMarkReadRef.current = false;
+    setUnreadDivider(null);
+    setAtBottom(false);
+    const roomCursor =
+      rooms.find(room => room.id === selectedRoomId)?.lastReadMessageId ?? null;
+    setReadCursor(roomCursor ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when switching rooms
   }, [selectedRoomId]);
 
   useEffect(() => {
@@ -475,20 +514,52 @@ export function ChatPage() {
     if (!messagesLoadedAt[selectedRoomId]) {
       return;
     }
+
+    // Seed cursor from raw API unread flags (before cursor overlay).
+    const roomApiMessages = apiMessages.filter(message => message.roomId === selectedRoomId);
+    const serverFirstUnread = roomApiMessages.find(
+      message => !message.ownMessage && message.unread,
+    );
+    if (serverFirstUnread) {
+      const prev = previousMessageId(roomApiMessages, serverFirstUnread.id);
+      setReadCursor(prev);
+    } else if (!lastReadMessageIdRef.current) {
+      const room = rooms.find(entry => entry.id === selectedRoomId);
+      if ((room?.unreadCount ?? 0) > 0 && room?.lastReadMessageId) {
+        setReadCursor(room.lastReadMessageId);
+      }
+    }
+
     initialScrollDoneRef.current = selectedRoomId;
-    const firstUnread = visibleMessages.find(message => message.unread && !message.ownMessage);
+    const cursor = lastReadMessageIdRef.current;
+    const openedUnread = unreadAfterCursor(
+      roomApiMessages.map(message => ({
+        ...message,
+        unread:
+          !message.ownMessage &&
+          (cursor
+            ? isAfterReadCursor(message, cursor, roomApiMessages)
+            : Boolean(message.unread)),
+      })),
+      cursor,
+    );
+    const firstUnread = openedUnread[0];
     requestAnimationFrame(() => {
       if (firstUnread) {
+        suppressMarkReadRef.current = true;
+        setUnreadDivider({firstId: firstUnread.id, count: openedUnread.length});
         document
           .getElementById(`chat-message-${firstUnread.id}`)
           ?.scrollIntoView({block: 'center', behavior: 'auto'});
         setAtBottom(false);
       } else {
+        suppressMarkReadRef.current = false;
+        setUnreadDivider(null);
         messagesEndRef.current?.scrollIntoView({behavior: 'auto'});
         setAtBottom(true);
       }
     });
-  }, [selectedRoomId, visibleMessages, messagesLoadedAt, searchQuery]);
+  }, [selectedRoomId, visibleMessages, messagesLoadedAt, searchQuery, apiMessages, rooms]);
 
   useEffect(() => {
     if (!selectedRoomId || visibleMessages.length === 0) {
@@ -504,19 +575,53 @@ export function ChatPage() {
     void chatApi.markDelivered(selectedRoomId, pending).catch(() => undefined);
   }, [selectedRoomId, visibleMessages]);
 
+  // Keep frozen divider count in sync when more messages arrive while still unread.
   useEffect(() => {
-    if (!selectedRoomId || !atBottom || visibleMessages.length === 0 || unreadHold) {
+    if (!unreadDivider || !suppressMarkReadRef.current) {
+      return;
+    }
+    if (liveUnreadCount > unreadDivider.count) {
+      setUnreadDivider(prev =>
+        prev ? {...prev, count: liveUnreadCount} : prev,
+      );
+    }
+  }, [liveUnreadCount, unreadDivider]);
+
+  // WhatsApp: at the bottom ⇒ advance read cursor — but not until the user scrolls
+  // after opening onto unread (otherwise short chats never show the divider).
+  useEffect(() => {
+    if (!selectedRoomId || !atBottom || visibleMessages.length === 0) {
+      return;
+    }
+    if (initialScrollDoneRef.current !== selectedRoomId) {
+      return;
+    }
+    if (suppressMarkReadRef.current) {
       return;
     }
     const lastIncoming = [...visibleMessages].reverse().find(message => !message.ownMessage);
     if (!lastIncoming || lastIncoming.id === lastReadMarkedRef.current) {
       return;
     }
+    const nextCursor = advanceReadCursor(
+      lastReadMessageIdRef.current,
+      lastIncoming.id,
+      visibleMessages,
+    );
+    if (nextCursor === lastReadMessageIdRef.current && lastIncoming.id === lastReadMarkedRef.current) {
+      return;
+    }
     lastReadMarkedRef.current = lastIncoming.id;
+    const epoch = readMarkEpochRef.current;
+    setReadCursor(nextCursor);
+    setUnreadDivider(null);
     void chatApi
       .markRead(selectedRoomId, lastIncoming.id)
       .then(() => {
-        setUnreadHold(false);
+        if (epoch !== readMarkEpochRef.current) {
+          return;
+        }
+        useRealtimeStore.getState().markRoomIncomingRead(selectedRoomId);
         setApiMessages(prev =>
           prev.map(message =>
             message.roomId === selectedRoomId && !message.ownMessage
@@ -524,16 +629,40 @@ export function ChatPage() {
               : message,
           ),
         );
+        setRooms(prev =>
+          prev.map(room =>
+            room.id === selectedRoomId
+              ? {...room, lastReadMessageId: lastIncoming.id, unreadCount: 0}
+              : room,
+          ),
+        );
       })
       .catch(() => undefined);
-  }, [selectedRoomId, atBottom, visibleMessages, unreadHold]);
+  }, [selectedRoomId, atBottom, visibleMessages]);
 
   useEffect(() => {
     if (!atBottom || searchQuery.trim()) {
       return;
     }
+    if (initialScrollDoneRef.current !== selectedRoomId) {
+      return;
+    }
+    if (suppressMarkReadRef.current) {
+      return;
+    }
     messagesEndRef.current?.scrollIntoView({behavior: 'smooth'});
-  }, [visibleMessages.length, atBottom, searchQuery]);
+  }, [visibleMessages.length, atBottom, searchQuery, selectedRoomId]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || unreadAfterCursor(visibleMessages, lastReadMessageIdRef.current).length === 0) {
+        return;
+      }
+      catchUpReadRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visibleMessages]);
 
   useEffect(() => {
     if (!pendingFile) {
@@ -810,6 +939,44 @@ export function ChatPage() {
     }
   }
 
+  function catchUpRead() {
+    if (!selectedRoomId) {
+      return;
+    }
+    readMarkEpochRef.current += 1;
+    suppressMarkReadRef.current = false;
+    setUnreadDivider(null);
+    const lastIncoming = [...visibleMessages].reverse().find(message => !message.ownMessage);
+    if (!lastIncoming) {
+      setReadCursor(null);
+      return;
+    }
+    lastReadMarkedRef.current = lastIncoming.id;
+    setReadCursor(lastIncoming.id);
+    setAtBottom(true);
+    void chatApi
+      .markRead(selectedRoomId, lastIncoming.id)
+      .then(() => {
+        useRealtimeStore.getState().markRoomIncomingRead(selectedRoomId);
+        setApiMessages(prev =>
+          prev.map(message =>
+            message.roomId === selectedRoomId && !message.ownMessage
+              ? {...message, unread: false}
+              : message,
+          ),
+        );
+        setRooms(prev =>
+          prev.map(room =>
+            room.id === selectedRoomId
+              ? {...room, lastReadMessageId: lastIncoming.id, unreadCount: 0}
+              : room,
+          ),
+        );
+      })
+      .catch(() => undefined);
+  }
+  catchUpReadRef.current = catchUpRead;
+
   async function handleSendMessage(event: FormEvent) {
     event.preventDefault();
     if (!selectedRoomId) {
@@ -867,6 +1034,11 @@ export function ChatPage() {
           );
         }
       }
+      // Sending advances the read cursor (WhatsApp) — atBottom effect will markRead.
+      suppressMarkReadRef.current = false;
+      setUnreadDivider(null);
+      lastReadMarkedRef.current = null;
+      setAtBottom(true);
     } catch {
       setError(fileToSend ? 'Could not send media' : 'Could not send message');
       setDraft(body);
@@ -1138,29 +1310,34 @@ export function ChatPage() {
     if (!selectedRoomId || busy) {
       return;
     }
-    const anchorTime = message.createdAt;
     lastReadMarkedRef.current = null;
-    setUnreadHold(true);
+    readMarkEpochRef.current += 1;
+    const previousId = previousMessageId(visibleMessages, message.id);
+    setReadCursor(previousId);
     setAtBottom(false);
-    setApiMessages(prev =>
-      prev.map(entry =>
-        entry.roomId === selectedRoomId &&
-        !entry.ownMessage &&
-        entry.createdAt >= anchorTime
-          ? {...entry, unread: true}
-          : entry,
+    suppressMarkReadRef.current = true;
+    const held = unreadAfterCursor(visibleMessages, previousId);
+    setUnreadDivider({
+      firstId: message.id,
+      count: Math.max(1, held.length),
+    });
+    setRooms(prev =>
+      prev.map(room =>
+        room.id === selectedRoomId
+          ? {
+              ...room,
+              lastReadMessageId: previousId,
+              unreadCount: Math.max(1, held.length),
+            }
+          : room,
       ),
     );
-    requestAnimationFrame(() => {
-      document
-        .getElementById(`chat-message-${message.id}`)
-        ?.scrollIntoView({block: 'center', behavior: 'smooth'});
-    });
     try {
       await chatApi.markUnread(selectedRoomId, message.id);
     } catch {
       setError('Could not mark as unread');
       void loadMessages(selectedRoomId);
+      void loadRooms();
     }
   }
 
@@ -1219,6 +1396,16 @@ export function ChatPage() {
 
   const headerMenuActions = selectedRoom
     ? [
+        ...(unreadCount > 0
+          ? [
+              {
+                id: 'mark-read',
+                label: 'Mark as read',
+                disabled: busy,
+                onSelect: () => catchUpRead(),
+              },
+            ]
+          : []),
         {
           id: 'clear-chat',
           label: 'Clear chat',
@@ -1422,8 +1609,20 @@ export function ChatPage() {
                   </div>
                 ) : null}
 
-                <div className="chat-messages" ref={messagesScrollRef}>
-                  {unreadCount > 0 && (unreadHold || !atBottom) && !searchQuery.trim() ? (
+                <div
+                  className="chat-messages"
+                  ref={messagesScrollRef}
+                  onWheel={() => {
+                    if (suppressMarkReadRef.current) {
+                      suppressMarkReadRef.current = false;
+                    }
+                  }}
+                  onTouchMove={() => {
+                    if (suppressMarkReadRef.current) {
+                      suppressMarkReadRef.current = false;
+                    }
+                  }}>
+                  {unreadCount > 0 && !searchQuery.trim() ? (
                     <button
                       type="button"
                       className="chat-unread-banner"

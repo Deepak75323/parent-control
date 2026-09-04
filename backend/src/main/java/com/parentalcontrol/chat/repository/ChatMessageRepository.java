@@ -54,4 +54,20 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
       nativeQuery = true)
   java.util.Optional<ChatMessage> findIncludingDeletedByIdAndRoomId(
       @Param("messageId") UUID messageId, @Param("roomId") UUID roomId);
+
+  @Query(
+      value =
+          "SELECT m.id FROM chat_messages m "
+              + "WHERE m.deleted_at IS NULL "
+              + "AND EXISTS (SELECT 1 FROM chat_message_receipts r WHERE r.message_id = m.id) "
+              + "AND NOT EXISTS ("
+              + "  SELECT 1 FROM chat_message_receipts r "
+              + "  WHERE r.message_id = m.id AND r.read_at IS NULL"
+              + ") "
+              + "AND ("
+              + "  SELECT MAX(r.read_at) FROM chat_message_receipts r WHERE r.message_id = m.id"
+              + ") <= :cutoff "
+              + "LIMIT 200",
+      nativeQuery = true)
+  List<UUID> findIdsReadyForAutoDelete(@Param("cutoff") Instant cutoff);
 }

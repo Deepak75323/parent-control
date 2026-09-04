@@ -2,6 +2,7 @@ package com.parentalcontrol;
 
 import com.parentalcontrol.common.security.JwtProperties;
 import com.parentalcontrol.config.ChatAttachmentProperties;
+import com.parentalcontrol.config.ChatAutoDeleteProperties;
 import com.parentalcontrol.config.DeviceCommandProperties;
 import com.parentalcontrol.config.DeviceTrustProperties;
 import com.parentalcontrol.config.FcmProperties;
@@ -36,6 +37,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
   PasswordResetProperties.class,
   DeviceCommandProperties.class,
   ChatAttachmentProperties.class,
+  ChatAutoDeleteProperties.class,
   SecurityProperties.class
 })
 @EnableScheduling

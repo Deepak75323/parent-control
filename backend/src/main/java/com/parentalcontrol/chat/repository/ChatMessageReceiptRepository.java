@@ -34,7 +34,7 @@ public interface ChatMessageReceiptRepository extends JpaRepository<ChatMessageR
       @Param("messageIds") Collection<UUID> messageIds,
       @Param("now") Instant now);
 
-  @Modifying
+  @Modifying(clearAutomatically = true, flushAutomatically = true)
   @Query(
       """
       UPDATE ChatMessageReceipt r

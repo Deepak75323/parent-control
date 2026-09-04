@@ -464,13 +464,22 @@ class ChatIntegrationTest {
                 .content("{\"lastMessageId\":\"" + secondId + "\"}"))
         .andExpect(status().isOk());
 
+    // Auto-delete-when-everyone-read: both messages gone for sender and receiver.
     mockMvc
         .perform(
             get("/api/v1/chat/rooms/" + roomId + "/messages")
                 .header("Authorization", "Bearer " + tokenA))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data[?(@.id=='" + firstId + "')].receiptStatus").value("READ"))
-        .andExpect(jsonPath("$.data[?(@.id=='" + secondId + "')].receiptStatus").value("READ"));
+        .andExpect(jsonPath("$.data[?(@.id=='" + firstId + "')]").isEmpty())
+        .andExpect(jsonPath("$.data[?(@.id=='" + secondId + "')]").isEmpty());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenB))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[?(@.id=='" + firstId + "')]").isEmpty())
+        .andExpect(jsonPath("$.data[?(@.id=='" + secondId + "')]").isEmpty());
   }
 
   @Test
@@ -511,12 +520,20 @@ class ChatIntegrationTest {
                 .content("{\"lastMessageId\":\"" + messageId + "\"}"))
         .andExpect(status().isOk());
 
+    // Fully read by the only other member → auto-deleted for everyone.
     mockMvc
         .perform(
             get("/api/v1/chat/rooms/" + roomId + "/messages")
                 .header("Authorization", "Bearer " + tokenA))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data[0].receiptStatus").value("READ"));
+        .andExpect(jsonPath("$.data[?(@.id=='" + messageId + "')]").isEmpty());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenB))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[?(@.id=='" + messageId + "')]").isEmpty());
 
     mockMvc
         .perform(
