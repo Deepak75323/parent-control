@@ -157,10 +157,32 @@ main() {
     mount_args=(-v "$SA_HOST:/app/secrets/firebase-service-account.json:ro")
   fi
   sudo mkdir -p "$CHAT_ATTACHMENTS_HOST"
-  # JRE image runs as spring (uid 1000).
-  sudo chown -R 1000:1000 "$CHAT_ATTACHMENTS_HOST"
+  # Rootless podman: host uid must map to container spring (100:101).
+  # chown on host to the deploy user first so podman unshare can remap in the namespace.
+  sudo chown -R "${USER}:${USER}" "$CHAT_ATTACHMENTS_HOST"
+  podman unshare chown -R 100:101 "$CHAT_ATTACHMENTS_HOST"
+  podman unshare chmod 755 "$CHAT_ATTACHMENTS_HOST"
   mount_args+=(-v "${CHAT_ATTACHMENTS_HOST}:${CHAT_ATTACHMENTS_CONTAINER}")
   run_args+=(-e "CHAT_ATTACHMENTS_PATH=${CHAT_ATTACHMENTS_CONTAINER}")
+
+  # Optional overlays from host .env (swap otherwise only copies the live container env).
+  ENV_FILE="${ENV_FILE:-$ROOT/.env}"
+  if [[ -x "$ROOT/scripts/deploy/ensure-chat-decrypt-pin.sh" ]]; then
+    ENV_FILE="$ENV_FILE" "$ROOT/scripts/deploy/ensure-chat-decrypt-pin.sh"
+  fi
+  if [[ -f "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
+    set -a
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
+    set +a
+  fi
+  if [[ -n "${CHAT_DECRYPT_PIN:-}" ]]; then
+    run_args+=(-e "CHAT_DECRYPT_PIN=${CHAT_DECRYPT_PIN}")
+  fi
+  if [[ -n "${CHAT_AUTO_DELETE_GRACE:-}" ]]; then
+    run_args+=(-e "CHAT_AUTO_DELETE_GRACE=${CHAT_AUTO_DELETE_GRACE}")
+  fi
 
   echo "==> Starting $CANDIDATE on host port $candidate_port"
   # shellcheck disable=SC2068

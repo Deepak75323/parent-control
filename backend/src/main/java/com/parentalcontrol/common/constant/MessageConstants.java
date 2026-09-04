@@ -306,6 +306,14 @@ public final class MessageConstants {
   public static final String CHAT_ONLY_OWNER_CAN_CLEAR =
       "Only the room owner can clear chat history";
 
+  public static final String CHAT_ONLY_OWNER_CAN_DECRYPT =
+      "Only the room owner can decrypt this chat";
+
+  public static final String CHAT_DECRYPT_NOT_CONFIGURED =
+      "Chat decrypt is not configured on this server";
+
+  public static final String CHAT_DECRYPT_PIN_INVALID = "Invalid decrypt PIN";
+
   public static final String CHAT_OWNER_CANNOT_LEAVE =
       "Room owners must delete the room instead of leaving";
 

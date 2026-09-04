@@ -1,5 +1,8 @@
 import {describe, expect, it} from 'vitest';
-import {encodeChatMessagePlaintext} from './chatMessageObfuscation';
+import {
+  decodeChatMessagePlaintext,
+  encodeChatMessagePlaintext,
+} from './chatMessageObfuscation';
 
 describe('chatMessageObfuscation', () => {
   it('glues three letters before and after each word', () => {
@@ -29,5 +32,21 @@ describe('chatMessageObfuscation', () => {
     const hi = encodeChatMessagePlaintext('hi', {seed: 'draft'});
     const hello = encodeChatMessagePlaintext('hello', {seed: 'draft'});
     expect(hi).not.toBe(hello);
+  });
+
+  it('decodes by stripping three letters from each side of every token', () => {
+    expect(decodeChatMessagePlaintext('abchixyz')).toBe('hi');
+    expect(decodeChatMessagePlaintext('xxxhowyyy zzzarewww aaayoubbb')).toBe('how are you');
+  });
+
+  it('round-trips encode then decode for multi-word plaintext', () => {
+    const plaintext = 'how are you';
+    const encoded = encodeChatMessagePlaintext(plaintext, {seed: 'round-trip'});
+    expect(decodeChatMessagePlaintext(encoded)).toBe(plaintext);
+  });
+
+  it('leaves short tokens unchanged', () => {
+    expect(decodeChatMessagePlaintext('hi')).toBe('hi');
+    expect(decodeChatMessagePlaintext('abcdef')).toBe('abcdef');
   });
 });

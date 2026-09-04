@@ -51,6 +51,25 @@ export function encodeChatMessagePlaintext(plaintext: string, options?: EncodeOp
   return words.map(word => encodeWord(word, rng)).join(' ');
 }
 
+function decodeWord(token: string): string {
+  if (token.length <= LETTERS_PER_SIDE * 2) {
+    return token;
+  }
+  return token.slice(LETTERS_PER_SIDE, -LETTERS_PER_SIDE);
+}
+
+/**
+ * Inverse of encode: strip 3 letters from each side of every whitespace-separated token.
+ * Tokens too short to have been padded are left unchanged.
+ */
+export function decodeChatMessagePlaintext(obfuscated: string): string {
+  const words = splitMessageWords(obfuscated);
+  if (words.length === 0) {
+    return '';
+  }
+  return words.map(decodeWord).join(' ');
+}
+
 export const chatObfuscationConfig = {
   lettersPerSide: LETTERS_PER_SIDE,
 } as const;

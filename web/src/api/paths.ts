@@ -61,6 +61,7 @@ export const ApiPaths = {
   chatRoomMessages: (roomId: string) => `${V1}/chat/rooms/${roomId}/messages`,
   chatRoomDelivered: (roomId: string) => `${V1}/chat/rooms/${roomId}/delivered`,
   chatRoomRead: (roomId: string) => `${V1}/chat/rooms/${roomId}/read`,
+  chatRoomDecryptUnlock: (roomId: string) => `${V1}/chat/rooms/${roomId}/decrypt-unlock`,
   chatMessage: (roomId: string, messageId: string) =>
     `${V1}/chat/rooms/${roomId}/messages/${messageId}`,
   chatMessageMarkUnread: (roomId: string, messageId: string) =>

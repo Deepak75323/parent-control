@@ -10,6 +10,11 @@ export type MessageAction = {
   onSelect: () => void;
 };
 
+const MENU_WIDTH = 180;
+const MENU_ITEM_HEIGHT = 40;
+const MENU_PADDING = 8;
+const VIEWPORT_PAD = 8;
+
 type Props = {
   actions: MessageAction[];
   disabled?: boolean;
@@ -21,6 +26,7 @@ export function MessageActions({actions, disabled = false}: Props) {
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -33,25 +39,33 @@ export function MessageActions({actions, disabled = false}: Props) {
         return;
       }
       const rect = trigger.getBoundingClientRect();
-      const menuWidth = 180;
-      const horizontalPadding = 8;
       const left = Math.min(
-        Math.max(horizontalPadding, rect.right - menuWidth),
-        window.innerWidth - menuWidth - horizontalPadding,
+        Math.max(VIEWPORT_PAD, rect.right - MENU_WIDTH),
+        window.innerWidth - MENU_WIDTH - VIEWPORT_PAD,
       );
-      setMenuStyle({
-        top: rect.bottom + 6,
-        left,
-      });
+      const estimatedHeight =
+        menuRef.current?.offsetHeight ||
+        actions.length * MENU_ITEM_HEIGHT + MENU_PADDING * 2;
+      const spaceBelow = window.innerHeight - rect.bottom - VIEWPORT_PAD;
+      const spaceAbove = rect.top - VIEWPORT_PAD;
+      // Bottom-of-thread menus open upward so "Delete for everyone" stays visible.
+      const openUpward = spaceBelow < estimatedHeight && spaceAbove > spaceBelow;
+      const top = openUpward
+        ? Math.max(VIEWPORT_PAD, rect.top - estimatedHeight - 6)
+        : rect.bottom + 6;
+      setMenuStyle({top, left});
     }
     updatePosition();
+    // Re-measure after paint so real menu height flips correctly.
+    const raf = window.requestAnimationFrame(updatePosition);
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition, true);
     return () => {
+      window.cancelAnimationFrame(raf);
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [open]);
+  }, [open, actions.length]);
 
   useEffect(() => {
     if (!open) {
@@ -93,6 +107,7 @@ export function MessageActions({actions, disabled = false}: Props) {
     open && menuStyle
       ? createPortal(
           <div
+            ref={menuRef}
             className="chat-message-dropdown chat-message-dropdown-portal"
             id={menuId}
             role="menu"

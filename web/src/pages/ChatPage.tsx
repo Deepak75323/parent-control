@@ -3,7 +3,7 @@ import {useLocation, useNavigate} from 'react-router-dom';
 import axios from 'axios';
 import {chatApi} from '../api/services';
 import {useAuthStore} from '../auth/authStore';
-import {encodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
+import {encodeChatMessagePlaintext, decodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
 import {groupMessagesByDate} from '../lib/chatMessageGrouping';
 import {resolveOwnSenderUserId, withResolvedOwnership} from '../lib/chatMessageOwnership';
 import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
@@ -23,6 +23,7 @@ import {ChatInviteBar} from '../components/chat/ChatInviteBar';
 import {ChatFileDropZone} from '../components/chat/ChatFileDropZone';
 import {ChatHeader} from '../components/chat/ChatHeader';
 import {ChatRoomsPanel} from '../components/chat/ChatRoomsPanel';
+import {ChatDecryptPinDialog} from '../components/chat/ChatDecryptPinDialog';
 import {ChatWorkspaceLayout} from '../components/chat/ChatWorkspaceLayout';
 import {useChatWorkspaceLayout} from '../hooks/useChatWorkspaceLayout';
 import {useConfirmDialog} from '../hooks/useConfirmDialog';
@@ -121,6 +122,10 @@ export function ChatPage() {
     firstId: string;
     count: number;
   } | null>(null);
+  /** Owner-only view: decode obfuscated bodies while this room stays open. */
+  const [chatDecrypted, setChatDecrypted] = useState(false);
+  const [decryptPinOpen, setDecryptPinOpen] = useState(false);
+  const [decryptPinError, setDecryptPinError] = useState<string | null>(null);
 
   const setReadCursor = (messageId: string | null) => {
     lastReadMessageIdRef.current = messageId;
@@ -131,6 +136,12 @@ export function ChatPage() {
     () => rooms.find(room => room.id === selectedRoomId) ?? null,
     [rooms, selectedRoomId],
   );
+
+  useEffect(() => {
+    setChatDecrypted(false);
+    setDecryptPinOpen(false);
+    setDecryptPinError(null);
+  }, [selectedRoomId]);
 
   const ownSenderUserId = useMemo(
     () =>
@@ -227,7 +238,13 @@ export function ChatPage() {
   const visibleMessages = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     const scoped = query
-      ? messages.filter(message => message.body?.toLowerCase().includes(query))
+      ? messages.filter(message => {
+          const raw = message.body?.toLowerCase() ?? '';
+          const decoded = message.body
+            ? decodeChatMessagePlaintext(message.body).toLowerCase()
+            : '';
+          return raw.includes(query) || decoded.includes(query);
+        })
       : messages;
     // Derive unread from the read cursor (not a mutable counter).
     return scoped.map(message => ({
@@ -237,6 +254,49 @@ export function ChatPage() {
         isAfterReadCursor(message, lastReadMessageId, scoped),
     }));
   }, [messages, searchQuery, lastReadMessageId]);
+
+  function displayMessage(message: ChatMessageItem): ChatMessageItem {
+    if (!chatDecrypted) {
+      return message;
+    }
+    return {
+      ...message,
+      body: message.body ? decodeChatMessagePlaintext(message.body) : message.body,
+      replyTo: message.replyTo
+        ? {
+            ...message.replyTo,
+            bodyPreview: message.replyTo.bodyPreview
+              ? decodeChatMessagePlaintext(message.replyTo.bodyPreview)
+              : message.replyTo.bodyPreview,
+          }
+        : message.replyTo,
+    };
+  }
+
+  async function handleUnlockDecrypt(pin: string) {
+    if (!selectedRoomId || !selectedRoom?.owner) {
+      return;
+    }
+    setBusy(true);
+    setDecryptPinError(null);
+    try {
+      await chatApi.unlockDecrypt(selectedRoomId, pin);
+      setChatDecrypted(true);
+      setDecryptPinOpen(false);
+    } catch (err) {
+      const apiMessage =
+        axios.isAxiosError(err) &&
+        typeof err.response?.data === 'object' &&
+        err.response.data !== null &&
+        'message' in err.response.data &&
+        typeof (err.response.data as {message?: string}).message === 'string'
+          ? (err.response.data as {message: string}).message
+          : null;
+      setDecryptPinError(apiMessage ?? 'Could not unlock decrypt');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const unreadMessages = useMemo(
     () => unreadAfterCursor(visibleMessages, lastReadMessageId),
@@ -259,6 +319,9 @@ export function ChatPage() {
   const selectRoom = useCallback(
     (roomId: string) => {
       setSelectedRoomId(roomId);
+      setChatDecrypted(false);
+      setDecryptPinOpen(false);
+      setDecryptPinError(null);
       setReplyingTo(null);
       if (workspace.isMobile) {
         workspace.closeRoomsDrawer();
@@ -269,6 +332,9 @@ export function ChatPage() {
 
   const handleMobileBackFromChat = useCallback(() => {
     setSelectedRoomId(null);
+    setChatDecrypted(false);
+    setDecryptPinOpen(false);
+    setDecryptPinError(null);
     setShowInvite(false);
     setSearchOpen(false);
     setReplyingTo(null);
@@ -1067,7 +1133,8 @@ export function ChatPage() {
 
   function startEditMessage(message: ChatMessageItem) {
     setEditingMessageId(message.id);
-    setEditDraft(message.body ?? '');
+    const raw = message.body ?? '';
+    setEditDraft(chatDecrypted && raw ? decodeChatMessagePlaintext(raw) : raw);
     setReplyingTo(null);
     setError(null);
     setDraft('');
@@ -1089,14 +1156,18 @@ export function ChatPage() {
       setError('Message cannot be empty');
       return;
     }
-    if (trimmed === target.body) {
+    const payloadBody = chatDecrypted ? encodeChatMessagePlaintext(trimmed) : trimmed;
+    const currentDisplay = chatDecrypted && target.body
+      ? decodeChatMessagePlaintext(target.body)
+      : target.body;
+    if (trimmed === currentDisplay) {
       cancelEditMessage();
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const {data} = await chatApi.editMessage(selectedRoomId, target.id, trimmed);
+      const {data} = await chatApi.editMessage(selectedRoomId, target.id, payloadBody);
       const updated = data.data;
       if (updated) {
         patchMessage(target.id, updated);
@@ -1298,10 +1369,11 @@ export function ChatPage() {
   );
 
   function handleCopyMessage(message: ChatMessageItem) {
-    if (!message.body) {
+    const text = displayMessage(message).body;
+    if (!text) {
       return;
     }
-    void navigator.clipboard.writeText(message.body).catch(() => {
+    void navigator.clipboard.writeText(text).catch(() => {
       setError('Could not copy message');
     });
   }
@@ -1342,7 +1414,8 @@ export function ChatPage() {
   }
 
   function renderMessageBody(message: ChatMessageItem) {
-    const isMedia = message.messageType === 'IMAGE' || message.messageType === 'VIDEO';
+    const shown = displayMessage(message);
+    const isMedia = shown.messageType === 'IMAGE' || shown.messageType === 'VIDEO';
     const showMedia =
       isMedia &&
       (message.attachmentUrl ||
@@ -1353,24 +1426,25 @@ export function ChatPage() {
     return (
       <>
         {showMedia ? <ChatMessageMedia message={message} onConsumed={patchMessage} /> : null}
-        {message.body ? (
+        {shown.body ? (
           <ChatMessageText
-            text={message.body}
+            text={shown.body}
             mentionTokens={mentionTokens}
-            edited={Boolean(message.editedAt)}
+            edited={Boolean(shown.editedAt)}
           />
         ) : null}
-        {!isMedia && !message.body ? <p className="chat-message-body muted">—</p> : null}
+        {!isMedia && !shown.body ? <p className="chat-message-body muted">—</p> : null}
       </>
     );
   }
 
   function renderMessage(message: ChatMessageItem) {
+    const shown = displayMessage(message);
     const displayName = resolveChatDisplayNickname(message.senderNickname, message.senderLabel);
     return (
       <MessageBubble
         key={message.id}
-        message={message}
+        message={shown}
         displayName={displayName}
         senderSeed={message.senderUserId}
         ownDisplayName={ownDisplayName}
@@ -1404,6 +1478,26 @@ export function ChatPage() {
                 disabled: busy,
                 onSelect: () => catchUpRead(),
               },
+            ]
+          : []),
+        ...(selectedRoom.owner
+          ? [
+              chatDecrypted
+                ? {
+                    id: 'lock-decrypt',
+                    label: 'Lock chat',
+                    disabled: busy,
+                    onSelect: () => setChatDecrypted(false),
+                  }
+                : {
+                    id: 'decrypt-chat',
+                    label: 'Decrypt chat',
+                    disabled: busy,
+                    onSelect: () => {
+                      setDecryptPinError(null);
+                      setDecryptPinOpen(true);
+                    },
+                  },
             ]
           : []),
         {
@@ -1458,6 +1552,16 @@ export function ChatPage() {
   return (
     <div className="chat-page">
       {confirmDialog}
+      <ChatDecryptPinDialog
+        open={decryptPinOpen}
+        busy={busy}
+        error={decryptPinError}
+        onSubmit={pin => void handleUnlockDecrypt(pin)}
+        onCancel={() => {
+          setDecryptPinOpen(false);
+          setDecryptPinError(null);
+        }}
+      />
       {invites.length > 0 ? (
         <div className="chat-invites-banner">
           <div className="chat-invites-banner-head">
@@ -1630,6 +1734,11 @@ export function ChatPage() {
                       {unreadCount === 1 ? '1 unread message' : `${unreadCount} unread messages`}
                     </button>
                   ) : null}
+                  {chatDecrypted ? (
+                    <div className="chat-decrypt-banner" role="status">
+                      Chat decrypted — closes when you leave this room
+                    </div>
+                  ) : null}
                   {messages.length === 0 ? (
                     <EmptyChatState
                       title={`Start a conversation with ${selectedRoom.name}`}
@@ -1704,7 +1813,16 @@ export function ChatPage() {
 
                 {replyingTo && !editingMessage ? (
                   <ComposerReplyBar
-                    preview={replyPreviewFromMessage(replyingTo)}
+                    preview={
+                      chatDecrypted
+                        ? {
+                            ...replyPreviewFromMessage(replyingTo),
+                            bodyPreview: decodeChatMessagePlaintext(
+                              replyPreviewFromMessage(replyingTo).bodyPreview,
+                            ),
+                          }
+                        : replyPreviewFromMessage(replyingTo)
+                    }
                     onDismiss={cancelReplyMessage}
                   />
                 ) : null}

@@ -243,6 +243,8 @@ export const chatApi = {
     api.post<ApiResponse<void>>(ApiPaths.chatRoomDelivered(roomId), {messageIds}),
   markRead: (roomId: string, lastMessageId: string) =>
     api.post<ApiResponse<void>>(ApiPaths.chatRoomRead(roomId), {lastMessageId}),
+  unlockDecrypt: (roomId: string, pin: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomDecryptUnlock(roomId), {pin}),
   markUnread: (roomId: string, messageId: string) =>
     api.post<ApiResponse<void>>(ApiPaths.chatMessageMarkUnread(roomId, messageId)),
   setMessageReaction: (roomId: string, messageId: string, emoji: string) =>

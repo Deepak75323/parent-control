@@ -74,7 +74,19 @@ export TAMPER_MASTER_PIN_ENABLED=false
 export TAMPER_MASTER_PIN=
 export ADMIN_ENDPOINTS_ENABLED=false
 
+# Create-once decrypt PIN if missing (prints once when generated).
+if [[ -x "$ROOT/scripts/deploy/ensure-chat-decrypt-pin.sh" ]]; then
+  ENV_FILE="$ENV_FILE" "$ROOT/scripts/deploy/ensure-chat-decrypt-pin.sh"
+  # Re-source so CHAT_DECRYPT_PIN is in this shell after ensure.
+  set -a
+  # shellcheck source=/dev/null
+  source "$ENV_FILE"
+  set +a
+fi
+
 SA_HOST="${SA_HOST_PATH:-$ROOT/backend/secrets/firebase-service-account.json}"
+CHAT_ATTACHMENTS_HOST="${CHAT_ATTACHMENTS_HOST:-/var/lib/pcp/chat-attachments}"
+CHAT_ATTACHMENTS_CONTAINER="${CHAT_ATTACHMENTS_CONTAINER:-/app/data/chat-attachments}"
 if [[ "${FCM_ENABLED}" == "true" && ! -f "$SA_HOST" ]]; then
   echo "FCM_ENABLED=true but missing $SA_HOST" >&2
   exit 1
@@ -82,6 +94,17 @@ fi
 if [[ -f "$SA_HOST" ]]; then
   chmod 644 "$SA_HOST"
 fi
+
+sudo mkdir -p "$CHAT_ATTACHMENTS_HOST"
+sudo chown -R "${USER}:${USER}" "$CHAT_ATTACHMENTS_HOST"
+podman unshare chown -R 100:101 "$CHAT_ATTACHMENTS_HOST"
+podman unshare chmod 755 "$CHAT_ATTACHMENTS_HOST"
+
+MOUNT_ARGS=()
+if [[ "${FCM_ENABLED}" == "true" && -f "$SA_HOST" ]]; then
+  MOUNT_ARGS+=(-v "$SA_HOST:/app/secrets/firebase-service-account.json:ro")
+fi
+MOUNT_ARGS+=(-v "${CHAT_ATTACHMENTS_HOST}:${CHAT_ATTACHMENTS_CONTAINER}")
 
 echo "==> Stopping $NAME (if present)"
 podman rm -f "$NAME" 2>/dev/null || true
@@ -138,7 +161,10 @@ podman run -d --name "$NAME" --network "$NETWORK" \
   -e TAMPER_MASTER_PIN_ENABLED \
   -e TAMPER_MASTER_PIN \
   -e ADMIN_ENDPOINTS_ENABLED \
-  ${FCM_ENABLED:+-v "$SA_HOST:/app/secrets/firebase-service-account.json:ro"} \
+  -e CHAT_ATTACHMENTS_PATH="${CHAT_ATTACHMENTS_CONTAINER}" \
+  -e CHAT_DECRYPT_PIN="${CHAT_DECRYPT_PIN:-}" \
+  -e CHAT_AUTO_DELETE_GRACE="${CHAT_AUTO_DELETE_GRACE:-15m}" \
+  "${MOUNT_ARGS[@]}" \
   "$IMAGE"
 
 echo "==> Waiting for health..."

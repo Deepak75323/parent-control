@@ -13,6 +13,8 @@ import com.parentalcontrol.chat.dto.MarkChatReadRequest;
 import com.parentalcontrol.chat.dto.RespondChatInviteRequest;
 import com.parentalcontrol.chat.dto.SendChatMessageRequest;
 import com.parentalcontrol.chat.dto.SetChatMessageReactionRequest;
+import com.parentalcontrol.chat.dto.UnlockChatDecryptRequest;
+import com.parentalcontrol.chat.service.ChatDecryptUnlockService;
 import com.parentalcontrol.chat.service.ChatService;
 import com.parentalcontrol.chat.service.ChatService.AttachmentPayload;
 import com.parentalcontrol.common.api.ApiResponse;
@@ -48,6 +50,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class ChatController {
 
   private final ChatService chatService;
+  private final ChatDecryptUnlockService chatDecryptUnlockService;
 
   @PostMapping("/rooms")
   @Operation(summary = "Create a parent chat room")
@@ -87,6 +90,14 @@ public class ChatController {
   @Operation(summary = "Leave a chat room (members only)")
   public ApiResponse<Void> leaveRoom(@PathVariable UUID roomId) {
     chatService.leaveRoom(roomId);
+    return ApiResponse.ok(null);
+  }
+
+  @PostMapping("/rooms/{roomId}/decrypt-unlock")
+  @Operation(summary = "Unlock decrypt view for this room (owner + server PIN)")
+  public ApiResponse<Void> unlockDecrypt(
+      @PathVariable UUID roomId, @Valid @RequestBody UnlockChatDecryptRequest request) {
+    chatDecryptUnlockService.unlock(roomId, request.getPin());
     return ApiResponse.ok(null);
   }
 
