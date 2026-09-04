@@ -4,11 +4,13 @@ export function clamp(value: number, min: number, max: number) {
 
 export function pipDragBounds(panelWidth: number, panelHeightPx: number) {
   const viewport = typeof window !== 'undefined' ? window.visualViewport : null;
+  const viewportLeft = viewport?.offsetLeft ?? 0;
   const viewportTop = viewport?.offsetTop ?? 0;
+  const viewportWidth = viewport?.width ?? window.innerWidth;
   const viewportHeight = viewport?.height ?? window.innerHeight;
-  const minX = 8;
+  const minX = viewportLeft + 8;
   const minY = viewportTop + 8;
-  const maxX = Math.max(minX, viewportTop + viewportHeight - panelWidth - 8);
+  const maxX = Math.max(minX, viewportLeft + viewportWidth - panelWidth - 8);
   const maxY = Math.max(minY, viewportTop + viewportHeight - panelHeightPx - 8);
   return {minX, minY, maxX, maxY};
 }
