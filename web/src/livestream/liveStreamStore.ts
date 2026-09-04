@@ -238,8 +238,9 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
     }
     try {
       await monitoringApi.switchCamera(sessionId);
-      // Hint for ambiguous CVO; portrait frames use stream metadata via CameraFrameViewer.
-      get().setCameraFacing(prev => (prev === 'user' ? 'environment' : 'user'));
+      // Do not toggle cameraFacing here — front vs back paint differs by ~180° for the
+      // same CVO. CameraFrameViewer updates facing from live frame CVO once the child
+      // lens actually switches (avoids Flip looking like a rotate).
       set({videoFrame: {w: 0, h: 0}});
     } catch {
       set({error: 'Could not switch camera'});

@@ -147,6 +147,14 @@ describe('inferStreamFacingFromCvo', () => {
     expect(inferStreamFacingFromCvo(90, 640, 480)).toBe('environment');
   });
 
+  it('maps CVO 270 on portrait-coded buffers (browser already swapped size)', () => {
+    expect(inferStreamFacingFromCvo(270, 480, 640)).toBe('user');
+  });
+
+  it('maps CVO 90 on portrait-coded buffers', () => {
+    expect(inferStreamFacingFromCvo(90, 480, 640)).toBe('environment');
+  });
+
   it('returns null for ambiguous landscape tilt', () => {
     expect(inferStreamFacingFromCvo(0, 640, 480)).toBeNull();
   });
@@ -163,6 +171,25 @@ describe('resolveFrontCameraForPaint', () => {
 
   it('prefers CVO inference over a stale hint after flip', () => {
     expect(resolveFrontCameraForPaint(frontPortrait, 'environment')).toBe(true);
+  });
+
+  it('keeps front paint when Flip toggles hint before CVO updates on portrait buffers', () => {
+    const portraitCodedFront = {
+      codedWidth: 480,
+      codedHeight: 640,
+      displayWidth: 480,
+      displayHeight: 640,
+      rotation: 270,
+    };
+    expect(resolveFrontCameraForPaint(portraitCodedFront, 'environment')).toBe(true);
+    expect(totalCanvasRotation(portraitCodedFront, 0, true)).toBe(90);
+    expect(
+      totalCanvasRotation(
+        portraitCodedFront,
+        0,
+        resolveFrontCameraForPaint(portraitCodedFront, 'environment'),
+      ),
+    ).toBe(90);
   });
 
   it('falls back to hint when CVO is ambiguous', () => {

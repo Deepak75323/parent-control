@@ -77,6 +77,8 @@ type Props = {
   onToggleRecording?: () => void;
   /** Current child camera lens — toggles on flip (for future metadata). */
   cameraFacing?: import('./remoteControlCoords').CameraFacing;
+  /** Bumped after Flip so upright correction re-reads track facingMode. */
+  cameraFacingEpoch?: number;
 };
 
 const RemoteRtcView = React.memo(
@@ -158,6 +160,7 @@ export function LiveStreamViewport({
   recordingSupported,
   onToggleRecording,
   cameraFacing,
+  cameraFacingEpoch = 0,
 }: Props) {
   const window = useWindowDimensions();
   const layout = useMemo(() => getStreamLayout(window), [window]);
@@ -205,7 +208,8 @@ export function LiveStreamViewport({
       return;
     }
     const manualRotate = ENABLE_VIEWER_ROTATE ? effectiveViewRotate : 0;
-    const facing = cameraFacing ?? cameraFacingFromStream(primaryStream);
+    const facing =
+      cameraFacingFromStream(primaryStream) ?? cameraFacing ?? 'user';
     const frontCamera = facing !== 'environment';
     nativeModules
       .applyCameraUprightCorrection(manualRotate, frontCamera, true)
@@ -215,6 +219,7 @@ export function LiveStreamViewport({
     streamType,
     effectiveViewRotate,
     cameraFacing,
+    cameraFacingEpoch,
     primaryStream,
   ]);
 

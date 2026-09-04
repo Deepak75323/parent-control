@@ -1,4 +1,4 @@
-import {useEffect, useRef} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import type {WebCameraFacing} from '../lib/cameraViewerLayout';
 import {
   inferStreamFacingFromCvo,
@@ -8,7 +8,7 @@ import {
 } from '../lib/cameraFramePaint';
 import {createMediaStreamTrackProcessor} from '../lib/mediaStreamTrackProcessor';
 import type {ViewerRotateDeg} from '../lib/viewerVideoRotate';
-import {viewerZoomLayerStyle} from '../lib/viewerVideoRotate';
+import {viewerVideoRotateStyle, viewerZoomLayerStyle} from '../lib/viewerVideoRotate';
 
 type VideoFrameWithCvo = VideoFrame & {rotation?: number};
 
@@ -53,10 +53,10 @@ export function CameraFrameViewer({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const rotateLayerRef = useRef<HTMLDivElement>(null);
+  const [wrapSize, setWrapSize] = useState({w: 0, h: 0});
   const onDimsRef = useRef(onVideoDimensions);
   onDimsRef.current = onVideoDimensions;
-  const viewerRotateRef = useRef(viewerRotate);
-  viewerRotateRef.current = viewerRotate;
   const objectFitRef = useRef(objectFit);
   objectFitRef.current = objectFit;
   const facingHintRef = useRef(facingHint);
@@ -79,9 +79,9 @@ export function CameraFrameViewer({
     let paintedFrame = false;
 
     const resizeCanvas = () => {
-      const rect = container.getBoundingClientRect();
-      const w = Math.max(1, Math.floor(rect.width));
-      const h = Math.max(1, Math.floor(rect.height));
+      const box = rotateLayerRef.current ?? container;
+      const w = Math.max(1, Math.floor(box.clientWidth || box.getBoundingClientRect().width));
+      const h = Math.max(1, Math.floor(box.clientHeight || box.getBoundingClientRect().height));
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
@@ -104,13 +104,14 @@ export function CameraFrameViewer({
         lastReportedFacingRef.current = inferred;
         onFacingInferredRef.current?.(inferred);
       }
+      // Viewer rotate is CSS on the wrap (so <video> fallback rotates too). Canvas only applies CVO.
       paintVideoFrameToCanvas(
         ctx,
         frame,
         canvas.width,
         canvas.height,
         objectFitRef.current,
-        viewerRotateRef.current,
+        0,
         frontCamera,
       );
       paintedFrame = true;
@@ -154,7 +155,7 @@ export function CameraFrameViewer({
       video.style.height = '100%';
       video.style.objectFit = objectFitRef.current;
       video.srcObject = stream;
-      container.appendChild(video);
+      (rotateLayerRef.current ?? container).appendChild(video);
       const sync = () => {
         if (video.videoWidth > 0 && video.videoHeight > 0) {
           onDimsRef.current?.(video.videoWidth, video.videoHeight);
@@ -234,7 +235,13 @@ export function CameraFrameViewer({
     };
     stream.addEventListener('addtrack', onAddTrack);
 
-    const ro = new ResizeObserver(resizeCanvas);
+    const ro = new ResizeObserver(entries => {
+      const rect = entries[0]?.contentRect;
+      if (rect) {
+        setWrapSize({w: Math.round(rect.width), h: Math.round(rect.height)});
+      }
+      resizeCanvas();
+    });
     ro.observe(container);
 
     return () => {
@@ -249,6 +256,14 @@ export function CameraFrameViewer({
     };
   }, [stream, canvasClassName]);
 
+  const rotateStyle = viewerVideoRotateStyle(
+    viewerRotate,
+    wrapSize.w || 640,
+    wrapSize.h || 400,
+    objectFit,
+    1,
+  );
+
   return (
     <div
       ref={containerRef}
@@ -259,7 +274,9 @@ export function CameraFrameViewer({
         transformOrigin: 'center center',
         ...viewerZoomLayerStyle(viewZoomScale),
       }}>
-      <canvas ref={canvasRef} className={canvasClassName} aria-label="Live camera" />
+      <div ref={rotateLayerRef} style={rotateStyle}>
+        <canvas ref={canvasRef} className={canvasClassName} aria-label="Live camera" />
+      </div>
     </div>
   );
 }

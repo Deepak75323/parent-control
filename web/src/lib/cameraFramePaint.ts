@@ -107,6 +107,10 @@ function normalizeDegrees(degrees: number): number {
 /**
  * Portrait-upright heuristic from child CameraOrientationHelper defaults
  * (front sensor 270° → CVO 270, back sensor 90° → CVO 90).
+ *
+ * Do not require a landscape coded buffer — some browsers already report the
+ * upright portrait size while still carrying CVO. Ignoring that made Flip's
+ * optimistic facing hint apply the wrong paint path (~180° jump).
  */
 export function inferStreamFacingFromCvo(
   rotation: number | undefined,
@@ -114,9 +118,6 @@ export function inferStreamFacingFromCvo(
   codedHeight: number,
 ): WebCameraFacing | null {
   if (rotation == null || codedWidth <= 0 || codedHeight <= 0) {
-    return null;
-  }
-  if (codedWidth <= codedHeight) {
     return null;
   }
   const cvo = normalizeDegrees(rotation);
