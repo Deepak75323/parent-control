@@ -190,6 +190,30 @@ export function connectWebSocket(): void {
             );
           return;
         }
+        if (
+          'eventType' in event &&
+          event.eventType === 'TYPING' &&
+          'userId' in event &&
+          typeof (event as {userId?: string}).userId === 'string'
+        ) {
+          const typingEvent = event as {
+            roomId: string;
+            userId: string;
+            nickname?: string;
+            label?: string;
+            typing?: boolean;
+          };
+          useRealtimeStore.getState().setChatTyping(
+            typingEvent.roomId,
+            {
+              userId: typingEvent.userId,
+              nickname: typingEvent.nickname ?? '',
+              label: typingEvent.label ?? '',
+            },
+            Boolean(typingEvent.typing),
+          );
+          return;
+        }
         useRealtimeStore.getState().upsertLiveChatMessage(event as ChatMessageItem);
       });
 

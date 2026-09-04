@@ -314,6 +314,9 @@ public final class MessageConstants {
 
   public static final String CHAT_DECRYPT_PIN_INVALID = "Invalid decrypt PIN";
 
+  public static final String CHAT_DECRYPT_PIN_ALREADY_SET =
+      "Decrypt PIN is already set on this server";
+
   public static final String CHAT_OWNER_CANNOT_LEAVE =
       "Room owners must delete the room instead of leaving";
 

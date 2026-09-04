@@ -15,6 +15,7 @@ import {
   unreadAfterCursor,
 } from '../lib/chatUnreadMerge';
 import {resolveChatDisplayNickname} from '../lib/chatDisplayNickname';
+import {formatChatTypingLine} from '../lib/chatTypingLabel';
 import {validateChatMediaFile} from '../lib/chatMediaUpload';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {Avatar} from '../components/Avatar';
@@ -23,7 +24,7 @@ import {ChatInviteBar} from '../components/chat/ChatInviteBar';
 import {ChatFileDropZone} from '../components/chat/ChatFileDropZone';
 import {ChatHeader} from '../components/chat/ChatHeader';
 import {ChatRoomsPanel} from '../components/chat/ChatRoomsPanel';
-import {ChatDecryptPinDialog} from '../components/chat/ChatDecryptPinDialog';
+import {ChatDecryptPinDialog, type ChatDecryptDialogMode} from '../components/chat/ChatDecryptPinDialog';
 import {ChatWorkspaceLayout} from '../components/chat/ChatWorkspaceLayout';
 import {useChatWorkspaceLayout} from '../hooks/useChatWorkspaceLayout';
 import {useConfirmDialog} from '../hooks/useConfirmDialog';
@@ -108,12 +109,18 @@ export function ChatPage() {
   const removeLiveChatMessage = useRealtimeStore(s => s.removeLiveChatMessage);
   const receiptPatches = useRealtimeStore(s => s.receiptPatches);
   const reactionPatches = useRealtimeStore(s => s.reactionPatches);
+  const chatTypingByRoom = useRealtimeStore(s => s.chatTypingByRoom);
+  const pruneExpiredChatTyping = useRealtimeStore(s => s.pruneExpiredChatTyping);
+  const clearChatTypingForRoom = useRealtimeStore(s => s.clearChatTypingForRoom);
   const deliveredMarkedRef = useRef<Set<string>>(new Set());
   const lastReadMarkedRef = useRef<string | null>(null);
   const catchUpReadRef = useRef<() => void>(() => undefined);
   const readMarkEpochRef = useRef(0);
   /** Block auto mark-read until the user scrolls (keeps unread divider visible). */
   const suppressMarkReadRef = useRef(false);
+  const typingIdleTimerRef = useRef<number | null>(null);
+  const typingActiveRef = useRef(false);
+  const lastTypingPulseAtRef = useRef(0);
   /** WhatsApp read cursor — source of truth for unread UI. */
   const [lastReadMessageId, setLastReadMessageId] = useState<string | null>(null);
   const lastReadMessageIdRef = useRef<string | null>(null);
@@ -126,6 +133,7 @@ export function ChatPage() {
   const [chatDecrypted, setChatDecrypted] = useState(false);
   const [decryptPinOpen, setDecryptPinOpen] = useState(false);
   const [decryptPinError, setDecryptPinError] = useState<string | null>(null);
+  const [decryptDialogMode, setDecryptDialogMode] = useState<ChatDecryptDialogMode>('unlock');
 
   const setReadCursor = (messageId: string | null) => {
     lastReadMessageIdRef.current = messageId;
@@ -142,6 +150,83 @@ export function ChatPage() {
     setDecryptPinOpen(false);
     setDecryptPinError(null);
   }, [selectedRoomId]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => pruneExpiredChatTyping(), 1000);
+    return () => window.clearInterval(timer);
+  }, [pruneExpiredChatTyping]);
+
+  useEffect(() => {
+    return () => {
+      clearTypingIdleTimer();
+      if (typingActiveRef.current && selectedRoomId) {
+        typingActiveRef.current = false;
+        void chatApi.notifyTyping(selectedRoomId, false).catch(() => undefined);
+      }
+      if (selectedRoomId) {
+        clearChatTypingForRoom(selectedRoomId);
+      }
+    };
+  }, [selectedRoomId, clearChatTypingForRoom]);
+
+  const typingPeers = useMemo(() => {
+    if (!selectedRoomId) {
+      return [];
+    }
+    const now = Date.now();
+    return (chatTypingByRoom[selectedRoomId] ?? []).filter(peer => peer.expiresAt > now);
+  }, [chatTypingByRoom, selectedRoomId]);
+
+  const typingLine = useMemo(() => formatChatTypingLine(typingPeers), [typingPeers]);
+
+  function clearTypingIdleTimer() {
+    if (typingIdleTimerRef.current != null) {
+      window.clearTimeout(typingIdleTimerRef.current);
+      typingIdleTimerRef.current = null;
+    }
+  }
+
+  function publishTyping(typing: boolean) {
+    if (!selectedRoomId) {
+      return;
+    }
+    if (typingActiveRef.current === typing) {
+      return;
+    }
+    typingActiveRef.current = typing;
+    void chatApi.notifyTyping(selectedRoomId, typing).catch(() => undefined);
+  }
+
+  function stopTypingSignal() {
+    clearTypingIdleTimer();
+    lastTypingPulseAtRef.current = 0;
+    publishTyping(false);
+  }
+
+  function pulseTypingFromDraft(nextDraft: string) {
+    if (!selectedRoomId || editingMessageId) {
+      return;
+    }
+    if (!nextDraft.trim()) {
+      stopTypingSignal();
+      return;
+    }
+    const now = Date.now();
+    if (!typingActiveRef.current || now - lastTypingPulseAtRef.current > 2000) {
+      typingActiveRef.current = false;
+      lastTypingPulseAtRef.current = now;
+      publishTyping(true);
+    }
+    clearTypingIdleTimer();
+    typingIdleTimerRef.current = window.setTimeout(() => {
+      publishTyping(false);
+    }, 2500);
+  }
+
+  function handleDraftChange(value: string) {
+    setDraft(value);
+    pulseTypingFromDraft(value);
+  }
 
   const ownSenderUserId = useMemo(
     () =>
@@ -273,6 +358,38 @@ export function ChatPage() {
     };
   }
 
+  function apiErrorMessage(err: unknown, fallback: string): string {
+    if (
+      axios.isAxiosError(err) &&
+      typeof err.response?.data === 'object' &&
+      err.response.data !== null &&
+      'message' in err.response.data &&
+      typeof (err.response.data as {message?: string}).message === 'string'
+    ) {
+      return (err.response.data as {message: string}).message;
+    }
+    return fallback;
+  }
+
+  async function openDecryptDialog() {
+    if (!selectedRoomId || !selectedRoom?.owner) {
+      return;
+    }
+    setDecryptPinError(null);
+    setBusy(true);
+    try {
+      const {data} = await chatApi.decryptStatus();
+      setDecryptDialogMode(data.data?.configured ? 'unlock' : 'create');
+      setDecryptPinOpen(true);
+    } catch (err) {
+      setDecryptPinError(apiErrorMessage(err, 'Could not check decrypt PIN status'));
+      setDecryptDialogMode('unlock');
+      setDecryptPinOpen(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleUnlockDecrypt(pin: string) {
     if (!selectedRoomId || !selectedRoom?.owner) {
       return;
@@ -280,19 +397,35 @@ export function ChatPage() {
     setBusy(true);
     setDecryptPinError(null);
     try {
+      if (decryptDialogMode === 'create') {
+        await chatApi.createDecryptPin(pin);
+      }
       await chatApi.unlockDecrypt(selectedRoomId, pin);
       setChatDecrypted(true);
       setDecryptPinOpen(false);
     } catch (err) {
-      const apiMessage =
-        axios.isAxiosError(err) &&
-        typeof err.response?.data === 'object' &&
-        err.response.data !== null &&
-        'message' in err.response.data &&
-        typeof (err.response.data as {message?: string}).message === 'string'
-          ? (err.response.data as {message: string}).message
-          : null;
-      setDecryptPinError(apiMessage ?? 'Could not unlock decrypt');
+      setDecryptPinError(apiErrorMessage(err, 'Could not unlock decrypt'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleResetDecryptPin(newPin: string) {
+    if (!selectedRoomId || !selectedRoom?.owner) {
+      return;
+    }
+    setBusy(true);
+    setDecryptPinError(null);
+    try {
+      await chatApi.resetDecryptPin(selectedRoomId, newPin);
+      clearLiveChatMessagesForRoom(selectedRoomId);
+      setApiMessages(prev => prev.filter(message => message.roomId !== selectedRoomId));
+      setMessagesLoadedAt(prev => ({...prev, [selectedRoomId]: Date.now()}));
+      setChatDecrypted(true);
+      setDecryptPinOpen(false);
+      setNotice('Decrypt PIN reset. This room\'s chat history was deleted.');
+    } catch (err) {
+      setDecryptPinError(apiErrorMessage(err, 'Could not reset decrypt PIN'));
     } finally {
       setBusy(false);
     }
@@ -1063,6 +1196,7 @@ export function ChatPage() {
     const fileToSend = pendingFile;
     // Clear composer immediately so focus stays usable for the next message.
     setDraft('');
+    stopTypingSignal();
     setReplyingTo(null);
     if (fileToSend) {
       clearPendingFile();
@@ -1494,8 +1628,7 @@ export function ChatPage() {
                     label: 'Decrypt chat',
                     disabled: busy,
                     onSelect: () => {
-                      setDecryptPinError(null);
-                      setDecryptPinOpen(true);
+                      void openDecryptDialog();
                     },
                   },
             ]
@@ -1554,12 +1687,23 @@ export function ChatPage() {
       {confirmDialog}
       <ChatDecryptPinDialog
         open={decryptPinOpen}
+        mode={decryptDialogMode}
         busy={busy}
         error={decryptPinError}
         onSubmit={pin => void handleUnlockDecrypt(pin)}
+        onReset={newPin => void handleResetDecryptPin(newPin)}
+        onForgot={() => {
+          setDecryptPinError(null);
+          setDecryptDialogMode('reset');
+        }}
+        onBackToUnlock={() => {
+          setDecryptPinError(null);
+          setDecryptDialogMode('unlock');
+        }}
         onCancel={() => {
           setDecryptPinOpen(false);
           setDecryptPinError(null);
+          setDecryptDialogMode('unlock');
         }}
       />
       {invites.length > 0 ? (
@@ -1827,6 +1971,12 @@ export function ChatPage() {
                   />
                 ) : null}
 
+                {typingLine && !editingMessage ? (
+                  <p className="chat-typing-indicator" aria-live="polite">
+                    {typingLine}
+                  </p>
+                ) : null}
+
                 {editingMessage ? (
                   <EditMessageComposer
                     draft={editDraft}
@@ -1850,7 +2000,7 @@ export function ChatPage() {
                     members={mentionableMembers}
                     fileInputRef={composerFileInputRef}
                     textareaRef={composerTextareaRef}
-                    onDraftChange={setDraft}
+                    onDraftChange={handleDraftChange}
                     onSubmit={handleSendMessage}
                     onFileSelected={handleFileSelected}
                   />

@@ -2,7 +2,7 @@
 
 Status: **APPROVED**  
 Date: 2026-09-04  
-Updated: 2026-09-04 (creation + forgot flows)
+Updated: 2026-09-04 (portal create + Snapchat-style forgot reset)
 
 ## Objective
 
@@ -10,92 +10,64 @@ Chat message bodies are stored obfuscated (3 random letters before and after eac
 
 ## Product decisions
 
-1. **Who unlocks:** chat room owner only.
-2. **PIN:** exactly 4 digits (`CHAT_DECRYPT_PIN`), created once when the **server** (this backend deployment) is first set up; printed once to the deployer; reusable for unlocks.
-3. **Scope:** view-only decode while that room is open; cleared on leave / switch room / Lock chat.
-4. **Storage:** messages stay obfuscated in the DB.
-5. **Forgot PIN:** cannot be recovered from the chat UI (no email OTP). Only someone with server access regenerates it; the new PIN is printed once.
+1. **Who unlocks:** chat room owner only (PIN alone is not enough for members).
+2. **PIN:** exactly 4 digits, **server-wide** (one PIN for the deployment).
+3. **Create:** preferably in the portal the first time decrypt is used (`Create decrypt PIN`). Optional env fallback `CHAT_DECRYPT_PIN` still works and is migrated into a DB hash on first successful unlock.
+4. **Scope:** view-only decode while that room is open; cleared on leave / switch room / Lock chat.
+5. **Storage:** messages stay obfuscated in the DB; PIN is stored as bcrypt hash in `chat_decrypt_settings`.
+6. **Forgot PIN:** try the current PIN first. If forgotten, owner may **Wipe & reset PIN** — deletes **all messages in that room for everyone**, then sets a new PIN (Snapchat passkey-style). The old PIN cannot be revealed or emailed.
 
 ---
 
-## Flow A — Create PIN at server creation
-
-This runs on the Oracle/self-hosted VM when the backend is first brought up (or any time `.env` has no valid PIN yet).
+## Flow A — Create PIN (portal, preferred)
 
 ```
-Deployer creates / first-deploys server
-        │
-        ▼
-scripts/deploy/ensure-chat-decrypt-pin.sh
-        │
-        ├─ CHAT_DECRYPT_PIN already 4 digits in .env?
-        │     └─ yes → do nothing (do NOT reprint)
-        │
-        └─ missing / invalid
-              ├─ generate random 1000–9999
-              ├─ write CHAT_DECRYPT_PIN=…. into ~/parentalControlApp/.env
-              └─ print ONE-TIME reveal banner to the deploy terminal
-                    (deployer must save it — never shown in the portal)
-        │
-        ▼
-Backend container starts with -e CHAT_DECRYPT_PIN=….
-Room owners can Decrypt chat using that PIN.
+Room owner → Decrypt chat
+        → GET /api/v1/chat/decrypt-status → configured=false
+        → Create decrypt PIN (enter + confirm)
+        → POST /api/v1/chat/decrypt-pin
+        → unlock for this room
 ```
 
-**Commands (on the VM or via deploy):**
-
-```bash
-# Idempotent — generates only if missing
-./scripts/deploy/ensure-chat-decrypt-pin.sh
-
-# Called automatically before blue/green swap
-./scripts/deploy/oracle-deploy-backend.sh
-```
-
-**Who sees the PIN at creation:** only the person running deploy (SSH/terminal). It is not emailed and not returned by any parent API.
+Optional headless: `./scripts/deploy/ensure-chat-decrypt-pin.sh --generate` writes env PIN once.
 
 ---
 
-## Flow B — Unlock in the portal (normal use)
+## Flow B — Unlock
 
 ```
-Room owner → room menu → Decrypt chat
-        → enter 4-digit PIN
+Room owner → Decrypt chat → enter PIN
         → POST /api/v1/chat/rooms/{id}/decrypt-unlock
-        → on success: client decodes bodies locally for this open room
-        → leave room / Lock chat → decrypt cleared
+        → client decodes locally until leave / Lock chat
 ```
 
 ---
 
-## Flow C — Forgot PIN (recovery)
-
-There is **no** in-app reveal of the old PIN (it is not stored for parents to fetch).
+## Flow C — Forgot PIN (in-app wipe + reset)
 
 ```
-Owner taps “Forgot PIN?” in the dialog
-        → sees instructions: contact the person who hosts this server
-        │
-Server operator (SSH) runs:
-        ./scripts/deploy/oracle-reset-chat-decrypt-pin.sh
-        │
-        ├─ writes a NEW random 4-digit PIN into .env
-        ├─ prints the new PIN once
-        └─ restarts/redeploys backend so the container picks it up
-        │
-        ▼
-Operator gives the new PIN to room owners out-of-band
+Owner → Forgot PIN? → confirm wipe acknowledgment
+        → enter + confirm new PIN
+        → POST /api/v1/chat/rooms/{id}/decrypt-reset { newPin }
+        → clears that room’s history for everyone
+        → stores new PIN hash
+        → decrypt unlocked with the new PIN
 ```
 
-Old PIN stops working immediately after reset.
+Other rooms keep their messages; the new PIN is still server-wide for unlocks.
 
 ---
 
 ## API
 
-`POST /api/v1/chat/rooms/{roomId}/decrypt-unlock`  
-Body: `{ "pin": "4829" }`  
-Auth: parent JWT. Owner + PIN match required. PIN never returned.
+| Method | Path | Notes |
+|--------|------|--------|
+| GET | `/api/v1/chat/decrypt-status` | `{ configured }` |
+| POST | `/api/v1/chat/decrypt-pin` | `{ pin }` — only when unset |
+| POST | `/api/v1/chat/rooms/{roomId}/decrypt-unlock` | `{ pin }` — owner |
+| POST | `/api/v1/chat/rooms/{roomId}/decrypt-reset` | `{ newPin }` — owner; wipes room |
+
+PIN never returned from any API.
 
 ## Config
 
@@ -103,17 +75,18 @@ Auth: parent JWT. Owner + PIN match required. PIN never returned.
 app.chat.decrypt.pin=${CHAT_DECRYPT_PIN:}
 ```
 
+Env is fallback until migrated to DB hash.
+
 ## Non-goals
 
 - Parent/child mobile apps in v1  
 - Email/SMS recovery of the decrypt PIN  
-- API that returns the current PIN to any parent  
-- OTP that rotates on every unlock  
+- API that returns the current PIN  
+- Wiping all rooms on reset (only the room where reset was started)
 
 ## Commands
 
 ```
-cd web && npx vitest run src/lib/chatMessageObfuscation.test.ts
 cd backend && mvn -Dtest=ChatDecryptUnlockServiceTest test
-./scripts/deploy/ensure-chat-decrypt-pin.sh --dry-run
+cd web && npx vitest run src/lib/chatMessageObfuscation.test.ts
 ```

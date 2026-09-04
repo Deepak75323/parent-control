@@ -13,6 +13,10 @@ import com.parentalcontrol.chat.dto.MarkChatReadRequest;
 import com.parentalcontrol.chat.dto.RespondChatInviteRequest;
 import com.parentalcontrol.chat.dto.SendChatMessageRequest;
 import com.parentalcontrol.chat.dto.SetChatMessageReactionRequest;
+import com.parentalcontrol.chat.dto.ChatTypingRequest;
+import com.parentalcontrol.chat.dto.ChatDecryptStatusResponse;
+import com.parentalcontrol.chat.dto.ResetChatDecryptPinRequest;
+import com.parentalcontrol.chat.dto.SetChatDecryptPinRequest;
 import com.parentalcontrol.chat.dto.UnlockChatDecryptRequest;
 import com.parentalcontrol.chat.service.ChatDecryptUnlockService;
 import com.parentalcontrol.chat.service.ChatService;
@@ -93,11 +97,34 @@ public class ChatController {
     return ApiResponse.ok(null);
   }
 
+  @GetMapping("/decrypt-status")
+  @Operation(summary = "Whether a server decrypt PIN is already configured")
+  public ApiResponse<ChatDecryptStatusResponse> decryptStatus() {
+    return ApiResponse.ok(chatDecryptUnlockService.status());
+  }
+
+  @PostMapping("/decrypt-pin")
+  @Operation(summary = "Create the server decrypt PIN (only when not yet configured)")
+  public ApiResponse<Void> createDecryptPin(@Valid @RequestBody SetChatDecryptPinRequest request) {
+    chatDecryptUnlockService.createPin(request.getPin());
+    return ApiResponse.ok(null);
+  }
+
   @PostMapping("/rooms/{roomId}/decrypt-unlock")
   @Operation(summary = "Unlock decrypt view for this room (owner + server PIN)")
   public ApiResponse<Void> unlockDecrypt(
       @PathVariable UUID roomId, @Valid @RequestBody UnlockChatDecryptRequest request) {
     chatDecryptUnlockService.unlock(roomId, request.getPin());
+    return ApiResponse.ok(null);
+  }
+
+  @PostMapping("/rooms/{roomId}/decrypt-reset")
+  @Operation(
+      summary =
+          "Forgot PIN: wipe this room's messages for everyone and set a new server decrypt PIN (owner only)")
+  public ApiResponse<Void> resetDecryptPin(
+      @PathVariable UUID roomId, @Valid @RequestBody ResetChatDecryptPinRequest request) {
+    chatDecryptUnlockService.resetPinAndClearRoom(roomId, request.getNewPin());
     return ApiResponse.ok(null);
   }
 
@@ -224,6 +251,14 @@ public class ChatController {
   public ApiResponse<Void> markRead(
       @PathVariable UUID roomId, @Valid @RequestBody MarkChatReadRequest request) {
     chatService.markRoomRead(roomId, request);
+    return ApiResponse.ok(null);
+  }
+
+  @PostMapping("/rooms/{roomId}/typing")
+  @Operation(summary = "Notify other members that you started or stopped typing")
+  public ApiResponse<Void> notifyTyping(
+      @PathVariable UUID roomId, @Valid @RequestBody ChatTypingRequest request) {
+    chatService.notifyTyping(roomId, Boolean.TRUE.equals(request.getTyping()));
     return ApiResponse.ok(null);
   }
 

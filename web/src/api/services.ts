@@ -245,6 +245,14 @@ export const chatApi = {
     api.post<ApiResponse<void>>(ApiPaths.chatRoomRead(roomId), {lastMessageId}),
   unlockDecrypt: (roomId: string, pin: string) =>
     api.post<ApiResponse<void>>(ApiPaths.chatRoomDecryptUnlock(roomId), {pin}),
+  decryptStatus: () =>
+    api.get<ApiResponse<{configured: boolean}>>(ApiPaths.CHAT_DECRYPT_STATUS),
+  createDecryptPin: (pin: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.CHAT_DECRYPT_PIN, {pin}),
+  resetDecryptPin: (roomId: string, newPin: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomDecryptReset(roomId), {newPin}),
+  notifyTyping: (roomId: string, typing: boolean) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomTyping(roomId), {typing}),
   markUnread: (roomId: string, messageId: string) =>
     api.post<ApiResponse<void>>(ApiPaths.chatMessageMarkUnread(roomId, messageId)),
   setMessageReaction: (roomId: string, messageId: string, emoji: string) =>

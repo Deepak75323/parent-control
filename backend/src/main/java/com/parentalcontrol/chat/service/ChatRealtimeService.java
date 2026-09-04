@@ -96,4 +96,23 @@ public class ChatRealtimeService {
             "messageId", messageId.toString(),
             "reactions", reactions));
   }
+
+  public void publishTyping(
+      UUID memberUserId,
+      UUID roomId,
+      UUID typingUserId,
+      String nickname,
+      String label,
+      boolean typing) {
+    messagingTemplate.convertAndSendToUser(
+        memberUserId.toString(),
+        "/queue/chat-messages",
+        Map.of(
+            "eventType", "TYPING",
+            "roomId", roomId.toString(),
+            "userId", typingUserId.toString(),
+            "nickname", nickname == null ? "" : nickname,
+            "label", label == null ? "" : label,
+            "typing", typing));
+  }
 }

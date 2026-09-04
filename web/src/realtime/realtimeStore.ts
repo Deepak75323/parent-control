@@ -15,6 +15,13 @@ export type StreamingStateLive = {
   failureReason?: string;
 };
 
+export type ChatTypingPeer = {
+  userId: string;
+  nickname: string;
+  label: string;
+  expiresAt: number;
+};
+
 interface RealtimeState {
   wsConnected: boolean;
   /** Bumped when a device is paired/removed so list pages can reload. */
@@ -33,6 +40,8 @@ interface RealtimeState {
   receiptPatches: Record<string, ChatMessageItem['receiptStatus']>;
   /** Latest reactions per message (WebSocket updates). */
   reactionPatches: Record<string, ChatMessageItem['reactions']>;
+  /** Ephemeral typing peers keyed by room (auto-expire client-side). */
+  chatTypingByRoom: Record<string, ChatTypingPeer[]>;
   chatClearedEpoch: Record<string, number>;
   /** Wall-clock ms when history was cleared for everyone (owner) — stale WS cache is ignored before this. */
   chatClearedAt: Record<string, number>;
@@ -53,6 +62,13 @@ interface RealtimeState {
     messageId: string,
     reactions: ChatMessageItem['reactions'],
   ) => void;
+  setChatTyping: (
+    roomId: string,
+    peer: Omit<ChatTypingPeer, 'expiresAt'>,
+    typing: boolean,
+  ) => void;
+  clearChatTypingForRoom: (roomId: string) => void;
+  pruneExpiredChatTyping: () => void;
   markRoomIncomingRead: (roomId: string) => void;
   markRoomIncomingUnreadFrom: (roomId: string, fromCreatedAt: string) => void;
   removeLiveChatMessage: (messageId: string) => void;
@@ -73,6 +89,8 @@ interface RealtimeState {
   reset: () => void;
 }
 
+const TYPING_TTL_MS = 3500;
+
 export const useRealtimeStore = create<RealtimeState>(set => ({
   wsConnected: false,
   deviceListEpoch: 0,
@@ -88,6 +106,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   deletedChatMessageIds: {},
   receiptPatches: {},
   reactionPatches: {},
+  chatTypingByRoom: {},
   chatClearedEpoch: {},
   chatClearedAt: {},
   personalChatClearedAt: {},
@@ -124,6 +143,55 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
         message.id === messageId ? {...message, reactions} : message,
       ),
     })),
+  setChatTyping: (roomId, peer, typing) =>
+    set(state => {
+      const current = state.chatTypingByRoom[roomId] ?? [];
+      if (!typing) {
+        const next = current.filter(entry => entry.userId !== peer.userId);
+        const chatTypingByRoom = {...state.chatTypingByRoom};
+        if (next.length === 0) {
+          delete chatTypingByRoom[roomId];
+        } else {
+          chatTypingByRoom[roomId] = next;
+        }
+        return {chatTypingByRoom};
+      }
+      const expiresAt = Date.now() + TYPING_TTL_MS;
+      const without = current.filter(entry => entry.userId !== peer.userId);
+      return {
+        chatTypingByRoom: {
+          ...state.chatTypingByRoom,
+          [roomId]: [...without, {...peer, expiresAt}],
+        },
+      };
+    }),
+  clearChatTypingForRoom: roomId =>
+    set(state => {
+      if (!state.chatTypingByRoom[roomId]) {
+        return state;
+      }
+      const chatTypingByRoom = {...state.chatTypingByRoom};
+      delete chatTypingByRoom[roomId];
+      return {chatTypingByRoom};
+    }),
+  pruneExpiredChatTyping: () =>
+    set(state => {
+      const now = Date.now();
+      let changed = false;
+      const chatTypingByRoom: Record<string, ChatTypingPeer[]> = {};
+      for (const [roomId, peers] of Object.entries(state.chatTypingByRoom)) {
+        const next = peers.filter(peer => peer.expiresAt > now);
+        if (next.length !== peers.length) {
+          changed = true;
+        }
+        if (next.length > 0) {
+          chatTypingByRoom[roomId] = next;
+        } else if (peers.length > 0) {
+          changed = true;
+        }
+      }
+      return changed ? {chatTypingByRoom} : state;
+    }),
   markRoomIncomingRead: roomId =>
     set(state => ({
       liveChatMessages: state.liveChatMessages.map(message =>
@@ -243,6 +311,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       deletedChatMessageIds: {},
       receiptPatches: {},
       reactionPatches: {},
+      chatTypingByRoom: {},
       chatClearedEpoch: {},
       chatClearedAt: {},
       personalChatClearedAt: {},

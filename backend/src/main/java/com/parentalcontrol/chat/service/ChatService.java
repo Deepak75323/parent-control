@@ -607,6 +607,32 @@ public class ChatService {
     notifyRoomListBump(roomId);
   }
 
+  /** Ephemeral typing signal — not persisted. Fan-out to other room members only. */
+  @Transactional(readOnly = true)
+  public void notifyTyping(UUID roomId, boolean typing) {
+    UUID userId = SecurityUtils.requireUserId();
+    requireActiveMember(roomId, userId);
+    requireRoom(roomId);
+    String nickname = chatNicknameForUser(userId);
+    String label = displayLabel(userId);
+    for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
+      if (member.getUserId().equals(userId)) {
+        continue;
+      }
+      try {
+        realtimeService.publishTyping(
+            member.getUserId(), roomId, userId, nickname, label, typing);
+      } catch (RuntimeException e) {
+        log.warn(
+            "Failed to publish typing roomId={} typingUserId={} recipientUserId={}",
+            roomId,
+            userId,
+            member.getUserId(),
+            e);
+      }
+    }
+  }
+
   @Transactional
   public ChatMessageResponse sendMediaMessage(
       UUID roomId, MultipartFile file, String caption, UUID replyToMessageId) {
