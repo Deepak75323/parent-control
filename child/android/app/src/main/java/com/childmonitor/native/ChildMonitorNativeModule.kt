@@ -1646,7 +1646,7 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         try {
             CameraAccessManager.initialize(reactContext.applicationContext)
             val success = CameraAccessManager.forceCameraAccess(cameraId)
-            Log.i("ChildMonitorNativeModule", "Force camera access result: $success for camera $cameraId")
+            Log.i("ChildMonitorNativeModule", "Aggressive force camera access result: $success for camera $cameraId")
             promise.resolve(success)
         } catch (e: Exception) {
             Log.e("ChildMonitorNativeModule", "Failed to force camera access", e)

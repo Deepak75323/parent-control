@@ -155,7 +155,7 @@ async function acquireCameraWithTakeover(
   cameraId: string,
   facing: 'user' | 'environment',
 ): Promise<void> {
-  flowLog('CAMERA_FLOW', 'FORCING_CAMERA_ACCESS', {sessionId, facing, cameraId});
+  flowLog('CAMERA_FLOW', 'FORCING_CAMERA_ACCESS', {sessionId, facing, cameraId, aggressive: true});
   let forceSuccess = false;
   try {
     forceSuccess = await nativeModules.forceCameraAccess(cameraId);

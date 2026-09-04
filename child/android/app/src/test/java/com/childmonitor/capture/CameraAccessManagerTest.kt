@@ -19,4 +19,11 @@ class CameraAccessManagerTest {
     fun shouldNotSkipDisplacementProbe_whenCameraInUse() {
         assertFalse(CameraAccessManager.shouldSkipDisplacementProbe(false))
     }
+
+    @Test
+    fun aggressiveMode_neverUsesSkipHeuristic() {
+        // Aggressive path bypasses shouldSkipDisplacementProbe — documented contract for streams.
+        assertTrue(CameraAccessManager.shouldSkipDisplacementProbe(true))
+        assertFalse(CameraAccessManager.shouldSkipDisplacementProbe(false))
+    }
 }
