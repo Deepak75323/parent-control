@@ -687,6 +687,13 @@ export const familyHandleApi = {
     ),
 };
 
+export const readReceiptsApi = {
+  status: () =>
+    api.get<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_READ_RECEIPTS_STATUS),
+  setEnabled: (enabled: boolean) =>
+    api.post<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_READ_RECEIPTS, {enabled}),
+};
+
 export const signalingApi = {
   post: (roomId: string, messageType: string, payload: string, sessionId?: string) =>
     api.post(ApiPaths.signaling(roomId), {messageType, payload, sessionId}),
