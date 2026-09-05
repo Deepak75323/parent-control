@@ -34,7 +34,7 @@ function ChatRoomRow({room, selected, busy, swipeEnabled, onSelect, onRemove}: R
         onTouchEnd={swipe.onTouchEnd}
         onTouchCancel={swipe.onTouchCancel}>
         <button type="button" className="chat-room-select" onClick={onSelect}>
-          <Avatar name={room.name} seed={room.id} size="md" />
+          <Avatar name={room.name} seed={room.id} size="sm" />
           <span className="chat-room-meta">
             <span className="chat-room-name-row">
               <span className="chat-room-name">{room.name}</span>

@@ -11,7 +11,7 @@ export type MessageAction = {
 };
 
 const MENU_WIDTH = 180;
-const MENU_ITEM_HEIGHT = 40;
+const MENU_ITEM_HEIGHT = 34;
 const MENU_PADDING = 8;
 const VIEWPORT_PAD = 8;
 

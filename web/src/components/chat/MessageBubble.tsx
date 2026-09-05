@@ -30,6 +30,11 @@ type Props = {
   onQuoteClick?: (messageId: string) => void;
   onToggleReaction?: (emoji: string) => void;
   onMarkUnread?: () => void;
+  /** Room owner: unlock/lock obfuscated chat from the message menu. */
+  canDecryptRoom?: boolean;
+  chatDecrypted?: boolean;
+  onDecryptChat?: () => void;
+  onLockDecrypt?: () => void;
   children: ReactNode;
 };
 
@@ -53,6 +58,10 @@ export function MessageBubble({
   onQuoteClick,
   onToggleReaction,
   onMarkUnread,
+  canDecryptRoom = false,
+  chatDecrypted = false,
+  onDecryptChat,
+  onLockDecrypt,
   children,
 }: Props) {
   const isOwn = Boolean(message.ownMessage);
@@ -89,6 +98,23 @@ export function MessageBubble({
   }
   if (onReply && !isEditing) {
     actions.push({id: 'reply', label: 'Reply', icon: '↩', onSelect: onReply});
+  }
+  if (canDecryptRoom && !isEditing) {
+    if (chatDecrypted && onLockDecrypt) {
+      actions.push({
+        id: 'lock-decrypt',
+        label: 'Lock chat',
+        icon: '🔒',
+        onSelect: onLockDecrypt,
+      });
+    } else if (!chatDecrypted && onDecryptChat) {
+      actions.push({
+        id: 'decrypt-chat',
+        label: 'Decrypt chat',
+        icon: '🔓',
+        onSelect: onDecryptChat,
+      });
+    }
   }
   if (onMarkUnread && !isEditing) {
     actions.push({

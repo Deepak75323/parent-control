@@ -1596,7 +1596,13 @@ export function ChatPage() {
         onReply={() => startReplyMessage(message)}
         onQuoteClick={scrollToMessage}
         onToggleReaction={emoji => handleToggleReaction(message, emoji)}
-        onMarkUnread={() => void handleMarkUnread(message)}>
+        onMarkUnread={() => void handleMarkUnread(message)}
+        canDecryptRoom={Boolean(selectedRoom?.owner)}
+        chatDecrypted={chatDecrypted}
+        onDecryptChat={() => {
+          void openDecryptDialog();
+        }}
+        onLockDecrypt={() => setChatDecrypted(false)}>
         {renderMessageBody(message)}
       </MessageBubble>
     );
