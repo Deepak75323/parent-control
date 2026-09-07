@@ -57,6 +57,21 @@ export const ApiPaths = {
   chatRoomClearChat: (roomId: string) => `${V1}/chat/rooms/${roomId}/clear-chat`,
   chatRoomLeave: (roomId: string) => `${V1}/chat/rooms/${roomId}/leave`,
   chatRoomMembers: (roomId: string) => `${V1}/chat/rooms/${roomId}/members`,
+  chatRoomMember: (roomId: string, userId: string) =>
+    `${V1}/chat/rooms/${roomId}/members/${userId}`,
+  chatRoomTransferOwnership: (roomId: string) =>
+    `${V1}/chat/rooms/${roomId}/transfer-ownership`,
+  chatRoomChannels: (roomId: string) => `${V1}/chat/rooms/${roomId}/channels`,
+  chatRoomCalls: (roomId: string) => `${V1}/chat/rooms/${roomId}/calls`,
+  chatRoomActiveCall: (roomId: string) => `${V1}/chat/rooms/${roomId}/calls/active`,
+  chatRoomCallJoin: (roomId: string, callId: string) =>
+    `${V1}/chat/rooms/${roomId}/calls/${callId}/join`,
+  chatRoomCallLeave: (roomId: string, callId: string) =>
+    `${V1}/chat/rooms/${roomId}/calls/${callId}/leave`,
+  chatRoomCallEnd: (roomId: string, callId: string) =>
+    `${V1}/chat/rooms/${roomId}/calls/${callId}/end`,
+  chatRoomCallSignal: (roomId: string, callId: string) =>
+    `${V1}/chat/rooms/${roomId}/calls/${callId}/signal`,
   chatRoomInvites: (roomId: string) => `${V1}/chat/rooms/${roomId}/invites`,
   chatRoomMessages: (roomId: string) => `${V1}/chat/rooms/${roomId}/messages`,
   chatRoomDelivered: (roomId: string) => `${V1}/chat/rooms/${roomId}/delivered`,

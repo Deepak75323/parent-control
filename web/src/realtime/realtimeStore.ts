@@ -22,6 +22,18 @@ export type ChatTypingPeer = {
   expiresAt: number;
 };
 
+export type ChatCallLiveEvent = {
+  eventType: string;
+  roomId: string;
+  callId: string;
+  userId?: string;
+  toUserId?: string;
+  messageType?: string;
+  payload?: string;
+  status?: string;
+  seq: number;
+};
+
 interface RealtimeState {
   wsConnected: boolean;
   /** Bumped when a device is paired/removed so list pages can reload. */
@@ -48,10 +60,14 @@ interface RealtimeState {
   /** Wall-clock ms when this user cleared chat locally (per-member). */
   personalChatClearedAt: Record<string, number>;
   removedChatRoomIds: Record<string, true>;
+  /** Latest multi-parent call signaling / lifecycle event. */
+  chatCallEvent: ChatCallLiveEvent | null;
+  chatCallEpoch: number;
   setWsConnected: (connected: boolean) => void;
   bumpDeviceList: () => void;
   bumpChatRooms: () => void;
   bumpChatInvites: () => void;
+  pushChatCallEvent: (event: Omit<ChatCallLiveEvent, 'seq'>) => void;
   pushLiveChatMessage: (message: ChatMessageItem) => void;
   upsertLiveChatMessage: (message: ChatMessageItem) => void;
   updateLiveChatMessageReceipt: (
@@ -111,10 +127,17 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   chatClearedAt: {},
   personalChatClearedAt: {},
   removedChatRoomIds: {},
+  chatCallEvent: null,
+  chatCallEpoch: 0,
   setWsConnected: wsConnected => set({wsConnected}),
   bumpDeviceList: () => set(state => ({deviceListEpoch: state.deviceListEpoch + 1})),
   bumpChatRooms: () => set(state => ({chatRoomsEpoch: state.chatRoomsEpoch + 1})),
   bumpChatInvites: () => set(state => ({chatInvitesEpoch: state.chatInvitesEpoch + 1})),
+  pushChatCallEvent: event =>
+    set(state => ({
+      chatCallEpoch: state.chatCallEpoch + 1,
+      chatCallEvent: {...event, seq: state.chatCallEpoch + 1},
+    })),
   pushLiveChatMessage: message =>
     set(state => ({
       liveChatMessages: [...state.liveChatMessages, message].slice(-200),
@@ -316,5 +339,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       chatClearedAt: {},
       personalChatClearedAt: {},
       removedChatRoomIds: {},
+      chatCallEvent: null,
+      chatCallEpoch: 0,
     }),
 }));

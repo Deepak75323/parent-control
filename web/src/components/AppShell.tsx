@@ -9,7 +9,11 @@ import {useRealtimeStore} from '../realtime/realtimeStore';
 import {disconnectWebSocket} from '../realtime/websocket';
 import {LiveStreamHost} from '../livestream/LiveStreamHost';
 import {useLiveStreamStore} from '../livestream/liveStreamStore';
-import type {DeviceSummary} from '../types/api';
+import {GlobalChatCallHost} from '../realtime/GlobalChatCallHost';
+import {useChatCallSessionStore} from '../realtime/chatCallSessionStore';
+import type {ChatCallParticipant, DeviceSummary} from '../types/api';
+
+const EMPTY_CALL_PARTICIPANTS: ChatCallParticipant[] = [];
 
 const NAV_GROUPS = [
   {
@@ -71,7 +75,7 @@ const TITLES: Record<string, {title: string; subtitle: string}> = {
   },
   '/chat': {
     title: 'chat',
-    subtitle: 'Private rooms to chat with other parents',
+    subtitle: 'Rooms, parent connections, voice & video',
   },
 };
 
@@ -180,6 +184,13 @@ export function AppShell() {
   const [navDrawerOpen, setNavDrawerOpen] = useState(false);
   const meta = channelMeta(location.pathname);
   const isChatRoute = location.pathname === '/chat';
+  const callJoined = useChatCallSessionStore(s => s.joined);
+  const callRoomName = useChatCallSessionStore(s => s.roomName);
+  const callChannelName = useChatCallSessionStore(s => s.channelName);
+  const callParticipants = useChatCallSessionStore(
+    s => s.call?.participants ?? EMPTY_CALL_PARTICIPANTS,
+  );
+  const setCallMinimized = useChatCallSessionStore(s => s.setMinimized);
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -314,11 +325,50 @@ export function AppShell() {
         </header>
         <main className={`dc-content${isChatRoute ? ' dc-content--chat' : ''}`}>
           <Outlet />
+          <GlobalChatCallHost />
         </main>
       </div>
 
       {!isChatRoute && !isMobile ? (
-      <aside className="dc-members" aria-label="Devices">
+      <aside className="dc-members" aria-label={callJoined ? 'In call' : 'Devices'}>
+        {callJoined ? (
+          <>
+            <div className="dc-members-cat">In call</div>
+            <p className="dc-members-empty" style={{marginBottom: 8}}>
+              {callChannelName || callRoomName || 'Voice'}
+            </p>
+            {callParticipants.map(p => (
+              <div key={p.userId} className="dc-member">
+                <div className="dc-member-avatar online">
+                  <span>
+                    {(p.nickname || p.label || '?')
+                      .split(/\s+/)
+                      .map(w => w[0])
+                      .join('')
+                      .slice(0, 2)
+                      .toUpperCase()}
+                  </span>
+                  <span className="dc-status-dot online" />
+                </div>
+                <div className="dc-member-meta">
+                  <div className="dc-member-name">{p.nickname || p.label || 'Parent'}</div>
+                  <div className="dc-member-activity">In call</div>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="btn primary"
+              style={{margin: '12px'}}
+              onClick={() => {
+                setCallMinimized(false);
+                navigate('/chat');
+              }}>
+              Return to call
+            </button>
+          </>
+        ) : (
+          <>
         <div className="dc-members-cat">Online — {online.length}</div>
         {online.length === 0 ? (
           <p className="dc-members-empty">No devices online</p>
@@ -357,6 +407,8 @@ export function AppShell() {
             ))}
           </>
         ) : null}
+          </>
+        )}
       </aside>
       ) : null}
     </div>

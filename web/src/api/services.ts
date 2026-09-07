@@ -21,6 +21,8 @@ import type {
   ChatRoomSummary,
   ChatInviteItem,
   ChatMemberItem,
+  ChatCallItem,
+  ChatChannelItem,
   ChatMessageItem,
   ChatMessageReactionSummary,
 } from '../types/api';
@@ -201,26 +203,68 @@ export const chatApi = {
   leaveRoom: (roomId: string) => api.post<ApiResponse<void>>(ApiPaths.chatRoomLeave(roomId), {}),
   listMembers: (roomId: string) =>
     api.get<ApiResponse<ChatMemberItem[]>>(ApiPaths.chatRoomMembers(roomId)),
+  removeMember: (roomId: string, userId: string) =>
+    api.delete<ApiResponse<void>>(ApiPaths.chatRoomMember(roomId, userId)),
+  updateMember: (
+    roomId: string,
+    userId: string,
+    body: {role?: 'ADMIN' | 'MEMBER'; muted?: boolean; canDecrypt?: boolean},
+  ) => api.patch<ApiResponse<ChatMemberItem>>(ApiPaths.chatRoomMember(roomId, userId), body),
+  transferOwnership: (roomId: string, userId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomTransferOwnership(roomId), {userId}),
+  listChannels: (roomId: string) =>
+    api.get<ApiResponse<ChatChannelItem[]>>(ApiPaths.chatRoomChannels(roomId)),
+  createChannel: (roomId: string, name: string, channelType: 'TEXT' | 'VOICE') =>
+    api.post<ApiResponse<ChatChannelItem>>(ApiPaths.chatRoomChannels(roomId), {
+      name,
+      channelType,
+    }),
+  startCall: (roomId: string, channelId?: string) =>
+    api.post<ApiResponse<ChatCallItem>>(ApiPaths.chatRoomCalls(roomId), {
+      ...(channelId ? {channelId} : {}),
+    }),
+  getActiveCall: (roomId: string, channelId?: string) =>
+    api.get<ApiResponse<ChatCallItem | null>>(ApiPaths.chatRoomActiveCall(roomId), {
+      params: channelId ? {channelId} : undefined,
+    }),
+  joinCall: (roomId: string, callId: string) =>
+    api.post<ApiResponse<ChatCallItem>>(ApiPaths.chatRoomCallJoin(roomId, callId), {}),
+  leaveCall: (roomId: string, callId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomCallLeave(roomId, callId), {}),
+  endCall: (roomId: string, callId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomCallEnd(roomId, callId), {}),
+  signalCall: (
+    roomId: string,
+    callId: string,
+    body: {toUserId: string; messageType: 'OFFER' | 'ANSWER' | 'ICE'; payload: string},
+  ) => api.post<ApiResponse<void>>(ApiPaths.chatRoomCallSignal(roomId, callId), body),
   listPendingInvites: () =>
     api.get<ApiResponse<ChatInviteItem[]>>(ApiPaths.CHAT_INVITES_PENDING),
   invite: (roomId: string, identifier: string) =>
     api.post<ApiResponse<ChatInviteItem>>(ApiPaths.chatRoomInvites(roomId), {identifier}),
   respondInvite: (inviteId: string, accept: boolean) =>
     api.post<ApiResponse<ChatInviteItem>>(ApiPaths.chatInviteRespond(inviteId), {accept}),
-  listMessages: (roomId: string, page = 0, size = 50) =>
+  listMessages: (roomId: string, page = 0, size = 50, channelId?: string) =>
     api.get<ApiResponse<ChatMessageItem[]>>(ApiPaths.chatRoomMessages(roomId), {
-      params: {page, size},
+      params: {page, size, ...(channelId ? {channelId} : {})},
     }),
-  sendMessage: (roomId: string, body: string, replyToMessageId?: string) =>
+  sendMessage: (roomId: string, body: string, replyToMessageId?: string, channelId?: string) =>
     api.post<ApiResponse<ChatMessageItem>>(ApiPaths.chatRoomMessages(roomId), {
       body,
       ...(replyToMessageId ? {replyToMessageId} : {}),
+      ...(channelId ? {channelId} : {}),
     }),
   deleteMessage: (roomId: string, messageId: string, scope: ChatMessageDeleteScope = 'FOR_ME') =>
     api.delete<ApiResponse<void>>(ApiPaths.chatMessage(roomId, messageId), {params: {scope}}),
   editMessage: (roomId: string, messageId: string, body: string) =>
     api.patch<ApiResponse<ChatMessageItem>>(ApiPaths.chatMessage(roomId, messageId), {body}),
-  sendMediaMessage: (roomId: string, file: File, caption?: string, replyToMessageId?: string) =>
+  sendMediaMessage: (
+    roomId: string,
+    file: File,
+    caption?: string,
+    replyToMessageId?: string,
+    channelId?: string,
+  ) =>
     postMultipart<ApiResponse<ChatMessageItem>>(
       ApiPaths.chatRoomMediaMessages(roomId),
       () => {
@@ -231,6 +275,9 @@ export const chatApi = {
         }
         if (replyToMessageId) {
           form.append('replyToMessageId', replyToMessageId);
+        }
+        if (channelId) {
+          form.append('channelId', channelId);
         }
         return form;
       },

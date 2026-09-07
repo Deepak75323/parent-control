@@ -1,15 +1,30 @@
-import {useEffect, useRef} from 'react';
+import {useEffect, useRef, type ReactNode, type CSSProperties} from 'react';
 import type {useChatWorkspaceLayout} from '../../hooks/useChatWorkspaceLayout';
+import type {ChatCallParticipant, ChatMemberItem, ChatRoomSummary} from '../../types/api';
 import {ChatRoomsDrawer} from './ChatRoomsDrawer';
 import {ParentChatInfoPanel} from './ParentChatInfoPanel';
 import {ResizeHandle} from './ResizeHandle';
 
 export type ChatWorkspaceLayoutState = ReturnType<typeof useChatWorkspaceLayout>;
 
+export type ChatInfoPanelContext = {
+  room: ChatRoomSummary | null;
+  members: ChatMemberItem[];
+  myUserId?: string;
+  canManageMembers?: boolean;
+  busy?: boolean;
+  onInvite?: () => void;
+  onManageMembers?: () => void;
+  callParticipants?: ChatCallParticipant[] | null;
+  callChannelName?: string | null;
+  sideChat?: ReactNode;
+};
+
 type Props = {
   layout: ChatWorkspaceLayoutState;
-  renderRooms: () => React.ReactNode;
-  thread: React.ReactNode;
+  renderRooms: () => ReactNode;
+  thread: ReactNode;
+  infoContext?: ChatInfoPanelContext;
   /** On mobile, hide the thread until a room is selected. */
   mobileThreadVisible?: boolean;
   onMobileBackToApp?: () => void;
@@ -20,6 +35,7 @@ export function ChatWorkspaceLayout({
   layout,
   renderRooms,
   thread,
+  infoContext,
   mobileThreadVisible = true,
   onMobileBackToApp,
   onCloseRoomsDrawer,
@@ -44,7 +60,7 @@ export function ChatWorkspaceLayout({
         <button
           type="button"
           className="chat-info-backdrop"
-          aria-label="Close parent chat panel"
+          aria-label="Close details panel"
           onClick={layout.closeInfoPanel}
         />
       ) : null}
@@ -66,7 +82,7 @@ export function ChatWorkspaceLayout({
                 '--chat-rooms-width': `${layout.roomsWidth}px`,
                 '--chat-info-width': layout.infoOpen ? `${layout.infoWidth}px` : '0px',
                 '--chat-info-divider': layout.infoOpen ? '7px' : '0px',
-              } as React.CSSProperties)
+              } as CSSProperties)
             : undefined
         }>
         {!layout.isMobile && layout.roomsOpen ? (
@@ -86,7 +102,7 @@ export function ChatWorkspaceLayout({
 
         {layout.isResizable && layout.infoOpen ? (
           <ResizeHandle
-            label="Resize parent chat panel"
+            label="Resize details panel"
             onDrag={layout.dragInfo}
             onDragEnd={layout.onInfoDragEnd}
             onDoubleClick={layout.resetInfoWidth}
@@ -99,6 +115,16 @@ export function ChatWorkspaceLayout({
           isMobile={layout.isMobile}
           isResizable={layout.isResizable}
           onClose={layout.closeInfoPanel}
+          room={infoContext?.room ?? null}
+          members={infoContext?.members ?? []}
+          myUserId={infoContext?.myUserId}
+          canManageMembers={infoContext?.canManageMembers}
+          busy={infoContext?.busy}
+          onInvite={infoContext?.onInvite}
+          onManageMembers={infoContext?.onManageMembers}
+          callParticipants={infoContext?.callParticipants}
+          callChannelName={infoContext?.callChannelName}
+          sideChat={infoContext?.sideChat}
         />
       </div>
     </>

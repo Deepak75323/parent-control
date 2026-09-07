@@ -28,10 +28,15 @@ type Props = {
   showRoomsMenu?: boolean;
   onOpenRooms?: () => void;
   compact?: boolean;
+  channelLabel?: string | null;
+  onVoiceCall?: () => void;
+  onVideoCall?: () => void;
+  callDisabled?: boolean;
 };
 
 export function ChatHeader({
   room,
+  channelLabel = null,
   showInvite = false,
   onToggleInvite,
   onToggleSearch,
@@ -48,6 +53,9 @@ export function ChatHeader({
   showRoomsMenu = false,
   onOpenRooms,
   compact = false,
+  onVoiceCall,
+  onVideoCall,
+  callDisabled = false,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuId = useId();
@@ -90,7 +98,8 @@ export function ChatHeader({
               <path d="M15 18l-6-6 6-6" />
             </svg>
           </button>
-        ) : showRoomsMenu && onOpenRooms ? (
+        ) : null}
+        {showRoomsMenu && onOpenRooms ? (
           <button
             type="button"
             className="chat-icon-btn chat-thread-rooms"
@@ -105,12 +114,16 @@ export function ChatHeader({
         ) : null}
         <Avatar name={room.name} seed={room.id} size={compact ? 'md' : 'lg'} />
         <div className="chat-thread-title-text">
-          <h2>{room.name}</h2>
+          <h2>
+            {channelLabel ? `# ${channelLabel}` : room.name}
+          </h2>
           <div className="chat-thread-subtitle">
             <span className="chat-role-badge">Parent</span>
             <span className="chat-thread-members muted tiny">
+              {room.name}
+              {' · '}
               {room.memberCount} member{room.memberCount === 1 ? '' : 's'}
-              {room.owner ? ' · you own this room' : ''}
+              {room.owner ? ' · you own this server' : ''}
             </span>
           </div>
         </div>
@@ -149,11 +162,38 @@ export function ChatHeader({
             className={`chat-icon-btn${searchOpen ? ' active' : ''}`}
             aria-label="Search messages"
             aria-pressed={searchOpen}
+            title="Search"
             disabled={busy}
             onClick={onToggleSearch}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
               <circle cx="11" cy="11" r="7" />
               <path d="M20 20l-3.5-3.5" />
+            </svg>
+          </button>
+        ) : null}
+        {onVoiceCall ? (
+          <button
+            type="button"
+            className="chat-icon-btn"
+            aria-label="Start voice call"
+            title="Voice call"
+            disabled={busy || callDisabled}
+            onClick={onVoiceCall}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.01-.24c1.12.37 2.33.57 3.58.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.46.57 3.58a1 1 0 0 1-.25 1.02l-2.2 2.19Z" />
+            </svg>
+          </button>
+        ) : null}
+        {onVideoCall ? (
+          <button
+            type="button"
+            className="chat-icon-btn"
+            aria-label="Start video call"
+            title="Video call"
+            disabled={busy || callDisabled}
+            onClick={onVideoCall}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M17 10.5V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3.5l4 4v-11l-4 4Z" />
             </svg>
           </button>
         ) : null}

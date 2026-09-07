@@ -1,6 +1,7 @@
 import {Client, type IMessage} from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import {useAuthStore} from '../auth/authStore';
+import {dispatchChatCallSignal} from '../lib/chatCallSignals';
 import {useRealtimeStore} from './realtimeStore';
 import {
   clearSignalingSubscriptions,
@@ -192,6 +193,29 @@ export function connectWebSocket(): void {
         }
         if (
           'eventType' in event &&
+          typeof event.eventType === 'string' &&
+          event.eventType.startsWith('CALL_')
+        ) {
+          const callEvent = event as {
+            eventType: string;
+            roomId: string;
+            callId: string;
+            userId?: string;
+            toUserId?: string;
+            messageType?: string;
+            payload?: string;
+            status?: string;
+          };
+          // CALL_SIGNAL must not go through a single React state slot — ICE floods drop OFFER/ANSWER.
+          if (callEvent.eventType === 'CALL_SIGNAL') {
+            dispatchChatCallSignal({...callEvent, seq: 0});
+            return;
+          }
+          useRealtimeStore.getState().pushChatCallEvent(callEvent);
+          return;
+        }
+        if (
+          'eventType' in event &&
           event.eventType === 'TYPING' &&
           'userId' in event &&
           typeof (event as {userId?: string}).userId === 'string'
@@ -226,7 +250,10 @@ export function connectWebSocket(): void {
         const event = parseJson<{eventType: string; roomId?: string}>(msg);
         if (event.eventType === 'ROOM_DELETED' && event.roomId) {
           useRealtimeStore.getState().notifyChatRoomDeleted();
-        } else if (event.eventType === 'MEMBER_LEFT' && event.roomId) {
+        } else if (
+          (event.eventType === 'MEMBER_LEFT' || event.eventType === 'MEMBER_REMOVED') &&
+          event.roomId
+        ) {
           useRealtimeStore.getState().markChatRoomRemoved(event.roomId);
           useRealtimeStore.getState().notifyChatRoomDeleted();
         } else {

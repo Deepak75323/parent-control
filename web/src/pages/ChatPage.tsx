@@ -7,6 +7,7 @@ import {encodeChatMessagePlaintext, decodeChatMessagePlaintext} from '../lib/cha
 import {groupMessagesByDate} from '../lib/chatMessageGrouping';
 import {resolveOwnSenderUserId, withResolvedOwnership} from '../lib/chatMessageOwnership';
 import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
+import {receiptStatusForViewer} from '../lib/chatReceiptPrivacy';
 import {
   advanceReadCursor,
   isAfterReadCursor,
@@ -23,9 +24,21 @@ import {ChatMessageMedia} from '../components/ChatMessageMedia';
 import {ChatInviteBar} from '../components/chat/ChatInviteBar';
 import {ChatFileDropZone} from '../components/chat/ChatFileDropZone';
 import {ChatHeader} from '../components/chat/ChatHeader';
-import {ChatRoomsPanel} from '../components/chat/ChatRoomsPanel';
+import {ChatRoomsPanel, isDirectStyleRoom} from '../components/chat/ChatRoomsPanel';
+import {
+  defaultTextChannel,
+  defaultVoiceChannel,
+} from '../lib/chatChannelNav';
+import {ConnectParentModal} from '../components/chat/ConnectParentModal';
 import {ChatDecryptPinDialog, type ChatDecryptDialogMode} from '../components/chat/ChatDecryptPinDialog';
+import {ChatMembersManageDialog} from '../components/chat/ChatMembersManageDialog';
 import {ChatWorkspaceLayout} from '../components/chat/ChatWorkspaceLayout';
+import {useChatCallSessionStore} from '../realtime/chatCallSessionStore';
+import {
+  canClearHistoryForEveryone,
+  canManageMembers,
+  type ChatMemberRole,
+} from '../lib/chatMemberPermissions';
 import {useChatWorkspaceLayout} from '../hooks/useChatWorkspaceLayout';
 import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {DateSeparator} from '../components/chat/DateSeparator';
@@ -41,7 +54,8 @@ import {
   scrollChatMessageIntoView,
 } from '../lib/chatScrollToMessage';
 import {ChatMessageText} from '../components/chat/ChatMessageText';
-import type {ChatInviteItem, ChatMemberItem, ChatMessageItem, ChatRoomSummary} from '../types/api';
+import {userIdFromAccessToken} from '../lib/jwtSubject';
+import type {ChatCallItem, ChatInviteItem, ChatMemberItem, ChatMessageItem, ChatRoomSummary} from '../types/api';
 
 export function ChatPage() {
   const location = useLocation();
@@ -49,9 +63,13 @@ export function ChatPage() {
   const workspace = useChatWorkspaceLayout();
   const profile = useAuthStore(s => s.profile);
   const email = useAuthStore(s => s.email);
+  const accessToken = useAuthStore(s => s.accessToken);
+  // Prefer JWT sub — matches call participant userIds; profile.userId can be stale in old sessions.
+  const myUserId = userIdFromAccessToken(accessToken) ?? profile?.userId ?? undefined;
   const [rooms, setRooms] = useState<ChatRoomSummary[]>([]);
   const [invites, setInvites] = useState<ChatInviteItem[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [apiMessages, setApiMessages] = useState<ChatMessageItem[]>([]);
   const [messagesLoadedAt, setMessagesLoadedAt] = useState<Record<string, number>>({});
   const [draft, setDraft] = useState('');
@@ -66,6 +84,26 @@ export function ChatPage() {
   const [editDraft, setEditDraft] = useState('');
   const [replyingTo, setReplyingTo] = useState<ChatMessageItem | null>(null);
   const [roomMembers, setRoomMembers] = useState<ChatMemberItem[]>([]);
+  const [membersDialogOpen, setMembersDialogOpen] = useState(false);
+  const [activeCall, setActiveCall] = useState<ChatCallItem | null>(null);
+  const callSessionCall = useChatCallSessionStore(s => s.call);
+  const callSessionJoined = useChatCallSessionStore(s => s.joined);
+  const callSessionRoomId = useChatCallSessionStore(s => s.roomId);
+  const callSessionCallId = useChatCallSessionStore(s => s.call?.id);
+  const callSessionMinimized = useChatCallSessionStore(s => s.minimized);
+  const callSessionChannelId = useChatCallSessionStore(s => s.call?.channelId);
+  const joinCallSession = useChatCallSessionStore(s => s.join);
+  const leaveCallSession = useChatCallSessionStore(s => s.leaveLocal);
+  const setCallSessionMinimized = useChatCallSessionStore(s => s.setMinimized);
+  const patchCallSession = useChatCallSessionStore(s => s.patchCall);
+  const setCallSessionMembers = useChatCallSessionStore(s => s.setMembers);
+  const setCallSessionChannelName = useChatCallSessionStore(s => s.setChannelName);
+  const setCallSessionCanEnd = useChatCallSessionStore(s => s.setCanEnd);
+  /** Joined to a call in the currently selected room (media owned by GlobalChatCallHost). */
+  const inCall = callSessionJoined && callSessionRoomId === selectedRoomId;
+  const callMinimized = !inCall || callSessionMinimized;
+  const [connectParentOpen, setConnectParentOpen] = useState(false);
+  const [connectParentError, setConnectParentError] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -92,6 +130,8 @@ export function ChatPage() {
   );
   const ownSeed = profile?.id ?? email ?? 'self';
 
+  const chatCallEvent = useRealtimeStore(s => s.chatCallEvent);
+  const chatCallEpoch = useRealtimeStore(s => s.chatCallEpoch);
   const chatRoomsEpoch = useRealtimeStore(s => s.chatRoomsEpoch);
   const markChatRoomRemoved = useRealtimeStore(s => s.markChatRoomRemoved);
   const unmarkChatRoomRemoved = useRealtimeStore(s => s.unmarkChatRoomRemoved);
@@ -144,12 +184,161 @@ export function ChatPage() {
     () => rooms.find(room => room.id === selectedRoomId) ?? null,
     [rooms, selectedRoomId],
   );
+  const selectedChannel = useMemo(
+    () => selectedRoom?.channels?.find(channel => channel.id === selectedChannelId) ?? null,
+    [selectedRoom, selectedChannelId],
+  );
+
+  useEffect(() => {
+    if (!selectedRoomId || !selectedRoom) {
+      return;
+    }
+    if (selectedChannelId && selectedRoom.channels?.some(c => c.id === selectedChannelId)) {
+      return;
+    }
+    const fallback = defaultTextChannel(selectedRoom)?.id ?? null;
+    if (fallback && fallback !== selectedChannelId) {
+      setSelectedChannelId(fallback);
+    }
+  }, [selectedRoomId, selectedRoom, selectedChannelId]);
+  const myRole: ChatMemberRole =
+    selectedRoom?.myRole ?? (selectedRoom?.owner ? 'OWNER' : 'MEMBER');
+  const canDecryptSelected = Boolean(selectedRoom?.canDecrypt || selectedRoom?.owner);
+  const isMutedInRoom = Boolean(selectedRoom?.muted);
 
   useEffect(() => {
     setChatDecrypted(false);
     setDecryptPinOpen(false);
     setDecryptPinError(null);
+    // Do not leave the call when switching rooms — Discord-style: stay connected.
+    setActiveCall(null);
+    if (!selectedRoomId) {
+      return;
+    }
+    void (async () => {
+      try {
+        const {data} = await chatApi.getActiveCall(selectedRoomId);
+        setActiveCall(data.data ?? null);
+      } catch {
+        setActiveCall(null);
+      }
+    })();
   }, [selectedRoomId]);
+
+  useEffect(() => {
+    if (!chatCallEvent || !selectedRoomId || chatCallEvent.roomId !== selectedRoomId) {
+      return;
+    }
+    if (
+      chatCallEvent.eventType === 'CALL_STARTED' ||
+      chatCallEvent.eventType === 'CALL_JOINED' ||
+      chatCallEvent.eventType === 'CALL_LEFT'
+    ) {
+      void chatApi.getActiveCall(selectedRoomId).then(({data}) => {
+        setActiveCall(data.data ?? null);
+        if (
+          data.data &&
+          callSessionJoined &&
+          callSessionCallId &&
+          data.data.id === callSessionCallId
+        ) {
+          patchCallSession(data.data);
+        }
+      });
+    }
+    if (chatCallEvent.eventType === 'CALL_ENDED') {
+      setActiveCall(null);
+      if (chatCallEvent.callId === callSessionCallId) {
+        leaveCallSession();
+      }
+    }
+  }, [
+    chatCallEpoch,
+    chatCallEvent,
+    selectedRoomId,
+    callSessionJoined,
+    callSessionCallId,
+    patchCallSession,
+    leaveCallSession,
+  ]);
+
+  async function handleStartOrJoinCall(
+    mode: 'voice' | 'video' = 'video',
+    voiceChannelId?: string,
+    roomIdOverride?: string,
+  ) {
+    const roomId = roomIdOverride ?? selectedRoomId;
+    if (!roomId) {
+      return;
+    }
+    const room = rooms.find(entry => entry.id === roomId) ?? selectedRoom;
+    const channelId =
+      voiceChannelId ??
+      (activeCall?.roomId === roomId ? activeCall.channelId : null) ??
+      defaultVoiceChannel(room)?.id ??
+      undefined;
+    setBusy(true);
+    setError(null);
+    try {
+      const canJoinExisting =
+        activeCall &&
+        activeCall.roomId === roomId &&
+        (!channelId || !activeCall.channelId || activeCall.channelId === channelId);
+      const {data} = canJoinExisting
+        ? await chatApi.joinCall(roomId, activeCall.id)
+        : await chatApi.startCall(roomId, channelId);
+      if (data.data) {
+        if (!myUserId) {
+          setError('Could not start call — missing user id. Try signing in again.');
+          return;
+        }
+        const canEnd =
+          data.data.startedByUserId === myUserId ||
+          myRole === 'OWNER' ||
+          myRole === 'ADMIN';
+        setActiveCall(data.data);
+        joinCallSession({
+          call: data.data,
+          roomId,
+          roomName: room?.name ?? 'Voice',
+          channelName:
+            room && isDirectStyleRoom(room)
+              ? room.name
+              : room?.channels?.find(c => c.id === data.data?.channelId)?.name ?? null,
+          myUserId,
+          members: roomId === selectedRoomId ? roomMembers : [],
+          audioOnly: mode === 'voice',
+          canEnd,
+        });
+      }
+    } catch (err) {
+      setError(apiErrorMessage(err, mode === 'voice' ? 'Could not start voice call' : 'Could not start video call'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleConnectParent(identifier: string, roomName: string) {
+    setBusy(true);
+    setConnectParentError(null);
+    setError(null);
+    try {
+      const {data} = await chatApi.createRoom(roomName);
+      const room = data.data;
+      if (!room) {
+        throw new Error('No room returned');
+      }
+      await chatApi.invite(room.id, identifier);
+      setRooms(prev => [room, ...prev.filter(existing => existing.id !== room.id)]);
+      selectTextChannel(room.id, defaultTextChannel(room)?.id ?? null);
+      setConnectParentOpen(false);
+      setNotice(`Invite sent to ${identifier}`);
+    } catch {
+      setConnectParentError('Could not connect — check @handle or email');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     const timer = window.setInterval(() => pruneExpiredChatTyping(), 1000);
@@ -249,6 +438,13 @@ export function ChatPage() {
       if (message.roomId !== selectedRoomId) {
         continue;
       }
+      if (
+        selectedChannelId &&
+        message.channelId &&
+        message.channelId !== selectedChannelId
+      ) {
+        continue;
+      }
       if (deletedChatMessageIds[message.id]) {
         continue;
       }
@@ -265,6 +461,13 @@ export function ChatPage() {
     if (loadedAt > 0) {
       for (const message of liveChatMessages) {
         if (message.roomId !== selectedRoomId) {
+          continue;
+        }
+        if (
+          selectedChannelId &&
+          message.channelId &&
+          message.channelId !== selectedChannelId
+        ) {
           continue;
         }
         if (deletedChatMessageIds[message.id]) {
@@ -300,7 +503,11 @@ export function ChatPage() {
         .map(message => {
           const patch = receiptPatches[message.id];
           const reactions = reactionPatches[message.id] ?? message.reactions;
-          const withReceipt = patch ? {...message, receiptStatus: patch} : message;
+          const rawStatus = patch ?? message.receiptStatus;
+          const withReceipt = {
+            ...message,
+            receiptStatus: receiptStatusForViewer(rawStatus, profile?.readReceiptsEnabled),
+          };
           return reactions !== message.reactions ? {...withReceipt, reactions} : withReceipt;
         })
         .sort(
@@ -311,6 +518,7 @@ export function ChatPage() {
     apiMessages,
     liveChatMessages,
     selectedRoomId,
+    selectedChannelId,
     deletedChatMessageIds,
     chatClearedAt,
     personalChatClearedAt,
@@ -318,6 +526,7 @@ export function ChatPage() {
     receiptPatches,
     reactionPatches,
     ownSenderUserId,
+    profile?.readReceiptsEnabled,
   ]);
 
   const visibleMessages = useMemo(() => {
@@ -372,7 +581,7 @@ export function ChatPage() {
   }
 
   async function openDecryptDialog() {
-    if (!selectedRoomId || !selectedRoom?.owner) {
+    if (!selectedRoomId || !(selectedRoom?.canDecrypt || selectedRoom?.owner)) {
       return;
     }
     setDecryptPinError(null);
@@ -391,7 +600,7 @@ export function ChatPage() {
   }
 
   async function handleUnlockDecrypt(pin: string) {
-    if (!selectedRoomId || !selectedRoom?.owner) {
+    if (!selectedRoomId || !(selectedRoom?.canDecrypt || selectedRoom?.owner)) {
       return;
     }
     setBusy(true);
@@ -449,22 +658,66 @@ export function ChatPage() {
     [messages, editingMessageId],
   );
 
-  const selectRoom = useCallback(
-    (roomId: string) => {
+  const selectTextChannel = useCallback(
+    (roomId: string, channelId: string | null) => {
       setSelectedRoomId(roomId);
+      setSelectedChannelId(channelId);
       setChatDecrypted(false);
       setDecryptPinOpen(false);
       setDecryptPinError(null);
       setReplyingTo(null);
+      // Discord-like: keep the call, float it, show the text channel.
+      if (inCall) {
+        setCallSessionMinimized(true);
+      }
       if (workspace.isMobile) {
         workspace.closeRoomsDrawer();
       }
     },
-    [workspace.isMobile, workspace.closeRoomsDrawer],
+    [inCall, workspace.isMobile, workspace.closeRoomsDrawer],
+  );
+
+  const selectRoom = useCallback(
+    (roomId: string) => {
+      const room = rooms.find(entry => entry.id === roomId);
+      selectTextChannel(roomId, defaultTextChannel(room)?.id ?? null);
+    },
+    [rooms, selectTextChannel],
+  );
+
+  const selectVoiceChannel = useCallback(
+    (roomId: string, channelId: string) => {
+      setSelectedRoomId(roomId);
+      const room = rooms.find(entry => entry.id === roomId);
+      if (!selectedChannelId || selectedRoomId !== roomId) {
+        setSelectedChannelId(defaultTextChannel(room)?.id ?? null);
+      }
+      // Already in this voice channel → return to full stage (leave floating PiP).
+      if (
+        callSessionJoined &&
+        callSessionRoomId === roomId &&
+        (!callSessionChannelId || callSessionChannelId === channelId)
+      ) {
+        setCallSessionMinimized(false);
+        return;
+      }
+      setCallSessionMinimized(false);
+      void handleStartOrJoinCall('voice', channelId, roomId);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      rooms,
+      selectedChannelId,
+      selectedRoomId,
+      callSessionJoined,
+      callSessionRoomId,
+      callSessionChannelId,
+    ],
   );
 
   const handleMobileBackFromChat = useCallback(() => {
     setSelectedRoomId(null);
+    setSelectedChannelId(null);
     setChatDecrypted(false);
     setDecryptPinOpen(false);
     setDecryptPinError(null);
@@ -572,11 +825,11 @@ export function ChatPage() {
   const mentionTokens = useMemo(() => collectMentionTokens(roomMembers), [roomMembers]);
 
   const mentionableMembers = useMemo(() => {
-    if (!profile?.id) {
+    if (!myUserId) {
       return roomMembers;
     }
-    return roomMembers.filter(member => member.userId !== profile.id);
-  }, [roomMembers, profile?.id]);
+    return roomMembers.filter(member => member.userId !== myUserId);
+  }, [roomMembers, myUserId]);
 
   const loadRoomMembers = useCallback(async (roomId: string) => {
     try {
@@ -586,6 +839,36 @@ export function ChatPage() {
       setRoomMembers([]);
     }
   }, []);
+
+  async function handleRemoveMember(userId: string) {
+    if (!selectedRoomId) {
+      return;
+    }
+    await chatApi.removeMember(selectedRoomId, userId);
+    await loadRoomMembers(selectedRoomId);
+    await loadRooms();
+  }
+
+  async function handleUpdateMember(
+    userId: string,
+    patch: {role?: 'ADMIN' | 'MEMBER'; muted?: boolean; canDecrypt?: boolean},
+  ) {
+    if (!selectedRoomId) {
+      return;
+    }
+    await chatApi.updateMember(selectedRoomId, userId, patch);
+    await loadRoomMembers(selectedRoomId);
+    await loadRooms();
+  }
+
+  async function handleTransferOwnership(userId: string) {
+    if (!selectedRoomId) {
+      return;
+    }
+    await chatApi.transferOwnership(selectedRoomId, userId);
+    await loadRoomMembers(selectedRoomId);
+    await loadRooms();
+  }
 
   const loadInvites = useCallback(async () => {
     try {
@@ -597,16 +880,25 @@ export function ChatPage() {
   }, []);
 
   const loadMessages = useCallback(
-    async (roomId: string) => {
+    async (roomId: string, channelId?: string | null) => {
       const loadGen = ++messagesLoadGenRef.current;
       try {
-        const {data} = await chatApi.listMessages(roomId);
+        const {data} = await chatApi.listMessages(roomId, 0, 50, channelId ?? undefined);
         if (loadGen !== messagesLoadGenRef.current) {
           return;
         }
         const roomMessages = data.data ?? [];
         syncLiveChatMessagesFromApi(roomId, roomMessages);
-        setApiMessages(prev => [...prev.filter(message => message.roomId !== roomId), ...roomMessages]);
+        setApiMessages(prev => [
+          ...prev.filter(
+            message =>
+              message.roomId !== roomId ||
+              (channelId != null &&
+                message.channelId != null &&
+                message.channelId !== channelId),
+          ),
+          ...roomMessages,
+        ]);
         setMessagesLoadedAt(prev => ({...prev, [roomId]: Date.now()}));
       } catch {
         if (loadGen !== messagesLoadGenRef.current) {
@@ -643,9 +935,9 @@ export function ChatPage() {
       return next;
     });
     setApiMessages(prev => prev.filter(message => message.roomId !== selectedRoomId));
-    void loadMessages(selectedRoomId);
+    void loadMessages(selectedRoomId, selectedChannelId);
     void loadRoomMembers(selectedRoomId);
-  }, [selectedRoomId, loadMessages, loadRoomMembers]);
+  }, [selectedRoomId, selectedChannelId, loadMessages, loadRoomMembers]);
 
   useEffect(() => {
     if (!selectedRoomId) {
@@ -918,11 +1210,43 @@ export function ChatPage() {
       const room = data.data;
       if (room) {
         setRooms(prev => [room, ...prev]);
-        selectRoom(room.id);
+        selectTextChannel(room.id, defaultTextChannel(room)?.id ?? null);
         setNewRoomName('');
       }
     } catch {
-      setError('Could not create room');
+      setError('Could not create server');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCreateChannel(
+    roomId: string,
+    name: string,
+    channelType: 'TEXT' | 'VOICE',
+  ) {
+    setBusy(true);
+    setError(null);
+    try {
+      const {data} = await chatApi.createChannel(roomId, name, channelType);
+      const channel = data.data;
+      if (!channel) {
+        return;
+      }
+      setRooms(prev =>
+        prev.map(room =>
+          room.id === roomId
+            ? {...room, channels: [...(room.channels ?? []), channel]}
+            : room,
+        ),
+      );
+      if (channelType === 'TEXT') {
+        selectTextChannel(roomId, channel.id);
+      } else {
+        selectVoiceChannel(roomId, channel.id);
+      }
+    } catch {
+      setError('Could not create channel');
     } finally {
       setBusy(false);
     }
@@ -1015,13 +1339,14 @@ export function ChatPage() {
 
   async function handleClearHistory(roomId: string) {
     const room = rooms.find(entry => entry.id === roomId);
-    if (!room?.owner) {
+    const role = (room?.myRole ?? (room?.owner ? 'OWNER' : 'MEMBER')) as ChatMemberRole;
+    if (!room || !canClearHistoryForEveryone(role)) {
       return;
     }
     if (
       !(await confirm({
         title: 'Clear history for everyone',
-        message: `Remove all messages in "${room.name}" for every member? The room stays — only the owner can do this.`,
+        message: `Remove all messages in "${room.name}" for every member? The room stays — owners and admins can do this.`,
         confirmLabel: 'Clear history',
         danger: true,
       }))
@@ -1214,6 +1539,7 @@ export function ChatPage() {
           fileToSend,
           caption,
           replyId,
+          selectedChannelId ?? undefined,
         );
         if (data.data) {
           setApiMessages(prev =>
@@ -1227,7 +1553,12 @@ export function ChatPage() {
           setDraft(body);
           return;
         }
-        const {data} = await chatApi.sendMessage(selectedRoomId, obfuscatedBody, replyId);
+        const {data} = await chatApi.sendMessage(
+          selectedRoomId,
+          obfuscatedBody,
+          replyId,
+          selectedChannelId ?? undefined,
+        );
         if (data.data) {
           setApiMessages(prev =>
             prev.some(message => message.id === data.data!.id) ? prev : [...prev, data.data!],
@@ -1382,7 +1713,7 @@ export function ChatPage() {
     async (roomId: string, messageId: string) => {
       const pageSize = 50;
       for (let page = 1; page < 20; page += 1) {
-        const {data} = await chatApi.listMessages(roomId, page, pageSize);
+        const {data} = await chatApi.listMessages(roomId, page, pageSize, selectedChannelId ?? undefined);
         const batch = data.data ?? [];
         if (batch.length === 0) {
           break;
@@ -1397,7 +1728,7 @@ export function ChatPage() {
       }
       return false;
     },
-    [mergeRoomMessages],
+    [mergeRoomMessages, selectedChannelId],
   );
 
   const revealQuotedMessage = useCallback((messageId: string) => {
@@ -1597,7 +1928,7 @@ export function ChatPage() {
         onQuoteClick={scrollToMessage}
         onToggleReaction={emoji => handleToggleReaction(message, emoji)}
         onMarkUnread={() => void handleMarkUnread(message)}
-        canDecryptRoom={Boolean(selectedRoom?.owner)}
+        canDecryptRoom={canDecryptSelected}
         chatDecrypted={chatDecrypted}
         onDecryptChat={() => {
           void openDecryptDialog();
@@ -1620,7 +1951,29 @@ export function ChatPage() {
               },
             ]
           : []),
-        ...(selectedRoom.owner
+        ...(canManageMembers(myRole)
+          ? [
+              {
+                id: 'manage-members',
+                label: 'Manage members',
+                disabled: busy,
+                onSelect: () => setMembersDialogOpen(true),
+              },
+            ]
+          : []),
+        {
+          id: 'voice-call',
+          label: inCall ? 'In call' : 'Start voice call',
+          disabled: busy || inCall,
+          onSelect: () => void handleStartOrJoinCall('voice'),
+        },
+        {
+          id: 'video-call',
+          label: activeCall && !inCall ? 'Join video call' : inCall ? 'In video call' : 'Start video call',
+          disabled: busy || inCall,
+          onSelect: () => void handleStartOrJoinCall('video'),
+        },
+        ...(canDecryptSelected
           ? [
               chatDecrypted
                 ? {
@@ -1645,7 +1998,7 @@ export function ChatPage() {
           disabled: busy,
           onSelect: () => void handleClearChat(selectedRoom.id),
         },
-        ...(selectedRoom.owner
+        ...(canClearHistoryForEveryone(myRole)
           ? [
               {
                 id: 'clear-history',
@@ -1653,6 +2006,10 @@ export function ChatPage() {
                 disabled: busy,
                 onSelect: () => void handleClearHistory(selectedRoom.id),
               },
+            ]
+          : []),
+        ...(selectedRoom.owner
+          ? [
               {
                 id: 'delete',
                 label: 'Delete room',
@@ -1672,24 +2029,100 @@ export function ChatPage() {
       ]
     : [];
 
+  const voiceChannelName = useMemo(() => {
+    if (!activeCall?.channelId || !selectedRoom) {
+      return null;
+    }
+    return (
+      selectedRoom.channels?.find(channel => channel.id === activeCall.channelId)?.name ?? null
+    );
+  }, [activeCall?.channelId, selectedRoom]);
+
+  const voiceOccupancy = useMemo(() => {
+    const callForOccupancy =
+      callSessionJoined && callSessionCall ? callSessionCall : activeCall;
+    if (!callForOccupancy?.channelId) {
+      return {};
+    }
+    return {
+      [callForOccupancy.channelId]: callForOccupancy.participants?.length ?? 0,
+    };
+  }, [activeCall, callSessionJoined, callSessionCall]);
+
+  useEffect(() => {
+    if (callSessionJoined && callSessionRoomId === selectedRoomId && selectedRoom) {
+      setCallSessionMembers(roomMembers);
+      setCallSessionCanEnd(
+        Boolean(
+          myUserId &&
+            (callSessionCall?.startedByUserId === myUserId ||
+              myRole === 'OWNER' ||
+              myRole === 'ADMIN'),
+        ),
+      );
+      setCallSessionChannelName(
+        isDirectStyleRoom(selectedRoom) ? selectedRoom.name : voiceChannelName,
+      );
+    }
+  }, [
+    roomMembers,
+    callSessionJoined,
+    callSessionRoomId,
+    callSessionCall,
+    selectedRoomId,
+    selectedRoom,
+    voiceChannelName,
+    myUserId,
+    myRole,
+    setCallSessionMembers,
+    setCallSessionCanEnd,
+    setCallSessionChannelName,
+  ]);
+
+  useEffect(() => {
+    if (inCall && !workspace.isMobile) {
+      workspace.openInfoPanel();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inCall]);
+
   const renderRoomsPanel = () => (
     <ChatRoomsPanel
       rooms={rooms}
       selectedRoomId={selectedRoomId}
+      selectedChannelId={selectedChannelId}
+      activeVoiceChannelId={
+        callSessionJoined ? callSessionChannelId ?? null : null
+      }
+      voiceOccupancy={voiceOccupancy}
       newRoomName={newRoomName}
       busy={busy}
       swipeEnabled={workspace.isMobile}
       showClose={!workspace.isMobile}
-      onSelectRoom={selectRoom}
+      onSelectTextChannel={(roomId, channelId) => selectTextChannel(roomId, channelId)}
+      onSelectVoiceChannel={(roomId, channelId) => selectVoiceChannel(roomId, channelId)}
+      onSelectServer={selectRoom}
       onRemoveRoom={roomId => void handleRemoveRoom(roomId)}
+      onCreateChannel={(roomId, name, channelType) => void handleCreateChannel(roomId, name, channelType)}
       onClose={workspace.closeRoomsPanel}
       onNewRoomNameChange={setNewRoomName}
       onCreateRoom={handleCreateRoom}
+      onInviteParents={() => setShowInvite(true)}
+      onManageMembers={
+        canManageMembers(myRole) ? () => setMembersDialogOpen(true) : undefined
+      }
+      onConnectParent={() => {
+        setConnectParentError(null);
+        setConnectParentOpen(true);
+      }}
+      selfDisplayName={ownDisplayName}
+      selfSeed={ownSeed}
+      onOpenSelfSettings={() => navigate('/settings')}
     />
   );
 
   return (
-    <div className="chat-page">
+    <div className={`chat-page${inCall ? ' chat-page--in-call' : ''}`}>
       {confirmDialog}
       <ChatDecryptPinDialog
         open={decryptPinOpen}
@@ -1711,6 +2144,30 @@ export function ChatPage() {
           setDecryptPinError(null);
           setDecryptDialogMode('unlock');
         }}
+      />
+      <ChatMembersManageDialog
+        open={membersDialogOpen}
+        roomName={selectedRoom?.name ?? 'Room'}
+        members={roomMembers}
+        myUserId={myUserId}
+        myRole={myRole}
+        busy={busy}
+        onClose={() => setMembersDialogOpen(false)}
+        onRemove={handleRemoveMember}
+        onUpdate={handleUpdateMember}
+        onTransferOwnership={handleTransferOwnership}
+      />
+      <ConnectParentModal
+        open={connectParentOpen}
+        busy={busy}
+        error={connectParentError}
+        onClose={() => {
+          if (!busy) {
+            setConnectParentOpen(false);
+            setConnectParentError(null);
+          }
+        }}
+        onConnect={handleConnectParent}
       />
       {invites.length > 0 ? (
         <div className="chat-invites-banner">
@@ -1761,8 +2218,25 @@ export function ChatPage() {
         onMobileBackToApp={() => navigate('/devices', {replace: true})}
         onCloseRoomsDrawer={handleCloseRoomsDrawer}
         renderRooms={renderRoomsPanel}
+        infoContext={{
+          room: selectedRoom,
+          members: roomMembers,
+          myUserId,
+          canManageMembers: canManageMembers(myRole),
+          busy,
+          onInvite: () => setShowInvite(true),
+          onManageMembers: () => setMembersDialogOpen(true),
+          callParticipants:
+            callSessionJoined && callSessionRoomId === selectedRoomId
+              ? callSessionCall?.participants ?? null
+              : null,
+          callChannelName:
+            callSessionJoined && callSessionRoomId === selectedRoomId
+              ? voiceChannelName || selectedRoom?.name || null
+              : null,
+        }}
         thread={
-          <section className="chat-thread-panel">
+          <section className={`chat-thread-panel${inCall ? ' chat-thread-panel--in-call' : ''}`}>
             {!selectedRoom ? (
               <div className="chat-empty">
                 {!workspace.roomsOpen && !workspace.isMobile ? (
@@ -1806,9 +2280,9 @@ export function ChatPage() {
                   </button>
                 ) : null}
                 <Avatar name="Chat" seed="chat-empty" size="lg" />
-                <h2>Select a room</h2>
+                <h2>Select a server</h2>
                 <p className="muted">
-                  Pick a room from the list, or create one with the + button.
+                  Pick a server from the list, or create one with the + button. Each server has text and voice channels.
                 </p>
               </div>
             ) : (
@@ -1825,6 +2299,13 @@ export function ChatPage() {
 
                 <ChatHeader
                   room={selectedRoom}
+                  channelLabel={
+                    isDirectStyleRoom(selectedRoom)
+                      ? null
+                      : inCall
+                        ? voiceChannelName ?? selectedChannel?.name ?? null
+                        : selectedChannel?.name ?? null
+                  }
                   showInvite={showInvite}
                   busy={busy}
                   searchOpen={searchOpen}
@@ -1841,8 +2322,81 @@ export function ChatPage() {
                   onOpenInfoPanel={workspace.openInfoPanel}
                   onToggleInvite={() => setShowInvite(prev => !prev)}
                   onToggleSearch={() => setSearchOpen(prev => !prev)}
+                  onVoiceCall={() => void handleStartOrJoinCall('voice')}
+                  onVideoCall={() => void handleStartOrJoinCall('video')}
+                  callDisabled={inCall}
                 />
 
+                {inCall && callMinimized ? (
+                  <div className="chat-call-connected-bar" role="status" aria-label="In call">
+                    {workspace.isMobile ? (
+                      <div className="chat-call-connected-nav">
+                        <button
+                          type="button"
+                          className="chat-call-connected-nav-btn"
+                          aria-label="Back to rooms"
+                          title="Rooms"
+                          onClick={handleMobileBackFromChat}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                            <path d="M15 18l-6-6 6-6" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-call-connected-nav-btn"
+                          aria-label="Open rooms drawer"
+                          title="Open rooms"
+                          onClick={workspace.openRoomsDrawer}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                            <path d="M4 6h16M4 12h16M4 18h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="chat-call-connected-main chat-call-connected-main--button"
+                      onClick={() => setCallSessionMinimized(false)}
+                      title="Return to call">
+                      <span className="chat-call-header-dot" aria-hidden />
+                      <div className="chat-call-connected-text">
+                        <strong>Connected</strong>
+                        <span className="muted tiny">
+                          {(isDirectStyleRoom(selectedRoom)
+                            ? selectedRoom.name
+                            : voiceChannelName || selectedRoom.name) ?? 'Call'}
+                          {' · '}
+                          click to expand
+                        </span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className="chat-call-pip-expand"
+                      onClick={() => setCallSessionMinimized(false)}>
+                      Expand
+                    </button>
+                  </div>
+                ) : null}
+
+                {activeCall &&
+                !(callSessionJoined && callSessionCallId === activeCall.id) ? (
+                  <div className="chat-call-banner">
+                    <span>
+                      Call in progress ({activeCall.participants?.length ?? 0} joined)
+                    </span>
+                    <button
+                      type="button"
+                      className="btn primary"
+                      disabled={busy}
+                      onClick={() => void handleStartOrJoinCall('video')}>
+                      Join call
+                    </button>
+                  </div>
+                ) : null}
+
+                {!inCall || callMinimized ? (
+                <>
                 {searchOpen ? (
                   <div className="chat-search-bar">
                     <input
@@ -1891,11 +2445,15 @@ export function ChatPage() {
                   ) : null}
                   {messages.length === 0 ? (
                     <EmptyChatState
-                      title={`Start a conversation with ${selectedRoom.name}`}
-                      subtitle="Send a message to get started, or invite another parent to join."
+                      title={
+                        isDirectStyleRoom(selectedRoom)
+                          ? `Start a conversation with ${selectedRoom.name}`
+                          : `Start a conversation in #${selectedChannel?.name ?? 'general'}`
+                      }
+                      subtitle="Send a message in this text channel, or invite another parent to the server."
                       avatarName={selectedRoom.name}
                       avatarSeed={selectedRoom.id}
-                      showInvite={selectedRoom.owner}
+                      showInvite={canManageMembers(myRole) || selectedRoom.owner}
                       inviteIdentifier={inviteIdentifier}
                       busy={busy}
                       onInviteIdentifierChange={setInviteIdentifier}
@@ -1983,6 +2541,12 @@ export function ChatPage() {
                   </p>
                 ) : null}
 
+                {isMutedInRoom ? (
+                  <p className="chat-muted-banner" role="status">
+                    You are muted in this room. You can still read messages.
+                  </p>
+                ) : null}
+
                 {editingMessage ? (
                   <EditMessageComposer
                     draft={editDraft}
@@ -1996,12 +2560,14 @@ export function ChatPage() {
                   <MessageComposer
                     draft={draft}
                     placeholder={
-                      pendingFile
-                        ? `Caption for ${pendingFile.name} (optional)`
-                        : 'Write a message… (@ to mention)'
+                      isMutedInRoom
+                        ? 'You are muted'
+                        : pendingFile
+                          ? `Caption for ${pendingFile.name} (optional)`
+                          : 'Write a message… (@ to mention)'
                     }
-                    busy={busy}
-                    canSend={Boolean(draft.trim() || pendingFile)}
+                    busy={busy || isMutedInRoom}
+                    canSend={!isMutedInRoom && Boolean(draft.trim() || pendingFile)}
                     emphasizeSend={Boolean(pendingFile)}
                     members={mentionableMembers}
                     fileInputRef={composerFileInputRef}
@@ -2012,6 +2578,8 @@ export function ChatPage() {
                   />
                 )}
                 </div>
+                </>
+                ) : null}
               </ChatFileDropZone>
             )}
           </section>
