@@ -6,6 +6,8 @@ export interface ApiResponse<T> {
 
 export interface ParentProfile {
   id: string;
+  /** Auth user id — use for chat/calls (not profile.id). */
+  userId?: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -189,11 +191,23 @@ export interface PlanInfo {
 
 export type StreamType = 'SCREEN' | 'CAMERA' | 'AUDIO';
 
+export interface ChatChannelItem {
+  id: string;
+  roomId: string;
+  name: string;
+  channelType: 'TEXT' | 'VOICE';
+  position: number;
+  createdAt: string;
+}
+
 export interface ChatRoomSummary {
   id: string;
   name: string;
   ownerUserId: string;
   owner: boolean;
+  myRole?: 'OWNER' | 'ADMIN' | 'MEMBER';
+  muted?: boolean;
+  canDecrypt?: boolean;
   memberCount: number;
   createdAt: string;
   updatedAt: string;
@@ -203,14 +217,35 @@ export interface ChatRoomSummary {
   lastReadMessageId?: string | null;
   /** Incoming messages after lastReadMessageId. */
   unreadCount?: number;
+  /** Text and voice channels in this server. */
+  channels?: ChatChannelItem[];
 }
 
 export interface ChatMemberItem {
   userId: string;
   label: string;
   nickname?: string;
-  role: 'OWNER' | 'MEMBER';
+  role: 'OWNER' | 'ADMIN' | 'MEMBER';
   joinedAt: string;
+  muted?: boolean;
+  canDecrypt?: boolean;
+}
+
+export interface ChatCallParticipant {
+  userId: string;
+  label: string;
+  nickname?: string;
+  joinedAt: string;
+}
+
+export interface ChatCallItem {
+  id: string;
+  roomId: string;
+  channelId?: string | null;
+  startedByUserId: string;
+  status: 'ACTIVE' | 'ENDED';
+  createdAt: string;
+  participants: ChatCallParticipant[];
 }
 
 export interface ChatInviteItem {
@@ -244,6 +279,7 @@ export interface ChatMessageReactionSummary {
 export interface ChatMessageItem {
   id: string;
   roomId: string;
+  channelId?: string | null;
   senderUserId: string;
   senderLabel: string;
   senderNickname?: string;
