@@ -11,9 +11,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.parentalcontrol.chat.domain.ChatDecryptSettings;
-import com.parentalcontrol.chat.domain.ChatRoom;
+import com.parentalcontrol.chat.domain.ChatRoomMember;
+import com.parentalcontrol.chat.domain.ChatRoomMemberRole;
 import com.parentalcontrol.chat.repository.ChatDecryptSettingsRepository;
-import com.parentalcontrol.chat.repository.ChatRoomRepository;
+import com.parentalcontrol.chat.repository.ChatRoomMemberRepository;
 import com.parentalcontrol.common.constant.MessageConstants;
 import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.security.SecurityUtils;
@@ -34,7 +35,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 @ExtendWith(MockitoExtension.class)
 class ChatDecryptUnlockServiceTest {
 
-  @Mock private ChatRoomRepository roomRepository;
+  @Mock private ChatRoomMemberRepository memberRepository;
   @Mock private ChatDecryptSettingsRepository settingsRepository;
   @Mock private PasswordEncoder passwordEncoder;
   @Mock private ChatService chatService;
@@ -53,7 +54,7 @@ class ChatDecryptUnlockServiceTest {
     decryptProperties.setPin("4829");
     service =
         new ChatDecryptUnlockService(
-            roomRepository, settingsRepository, decryptProperties, passwordEncoder, chatService);
+            memberRepository, settingsRepository, decryptProperties, passwordEncoder, chatService);
     security = Mockito.mockStatic(SecurityUtils.class);
   }
 
@@ -65,7 +66,8 @@ class ChatDecryptUnlockServiceTest {
   @Test
   void unlock_succeedsForOwnerWithEnvPin() {
     security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
-    when(roomRepository.findById(roomId)).thenReturn(Optional.of(ownedRoom()));
+    when(memberRepository.findByRoomIdAndUserId(roomId, ownerId))
+        .thenReturn(Optional.of(ownerMember()));
     when(settingsRepository.findById((short) 1)).thenReturn(Optional.empty());
     when(passwordEncoder.encode("4829")).thenReturn("hashed-4829");
 
@@ -74,9 +76,12 @@ class ChatDecryptUnlockServiceTest {
   }
 
   @Test
-  void unlock_succeedsForOwnerWithDbHash() {
-    security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
-    when(roomRepository.findById(roomId)).thenReturn(Optional.of(ownedRoom()));
+  void unlock_succeedsForGrantedMemberWithDbHash() {
+    security.when(SecurityUtils::requireUserId).thenReturn(otherId);
+    ChatRoomMember granted = member(otherId, ChatRoomMemberRole.MEMBER);
+    granted.setCanDecrypt(true);
+    when(memberRepository.findByRoomIdAndUserId(roomId, otherId))
+        .thenReturn(Optional.of(granted));
     when(settingsRepository.findById((short) 1))
         .thenReturn(
             Optional.of(
@@ -88,9 +93,10 @@ class ChatDecryptUnlockServiceTest {
   }
 
   @Test
-  void unlock_rejectsNonOwner() {
+  void unlock_rejectsMemberWithoutGrant() {
     security.when(SecurityUtils::requireUserId).thenReturn(otherId);
-    when(roomRepository.findById(roomId)).thenReturn(Optional.of(ownedRoom()));
+    when(memberRepository.findByRoomIdAndUserId(roomId, otherId))
+        .thenReturn(Optional.of(member(otherId, ChatRoomMemberRole.MEMBER)));
 
     BusinessException ex =
         assertThrows(BusinessException.class, () -> service.unlock(roomId, "4829"));
@@ -100,7 +106,8 @@ class ChatDecryptUnlockServiceTest {
   @Test
   void unlock_rejectsWrongPin() {
     security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
-    when(roomRepository.findById(roomId)).thenReturn(Optional.of(ownedRoom()));
+    when(memberRepository.findByRoomIdAndUserId(roomId, ownerId))
+        .thenReturn(Optional.of(ownerMember()));
     when(settingsRepository.findById((short) 1)).thenReturn(Optional.empty());
 
     BusinessException ex =
@@ -112,7 +119,8 @@ class ChatDecryptUnlockServiceTest {
   void unlock_rejectsWhenPinNotConfigured() {
     decryptProperties.setPin("");
     security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
-    when(roomRepository.findById(roomId)).thenReturn(Optional.of(ownedRoom()));
+    when(memberRepository.findByRoomIdAndUserId(roomId, ownerId))
+        .thenReturn(Optional.of(ownerMember()));
     when(settingsRepository.findById((short) 1)).thenReturn(Optional.empty());
 
     BusinessException ex =
@@ -146,7 +154,8 @@ class ChatDecryptUnlockServiceTest {
   @Test
   void resetPinAndClearRoom_wipesThenSavesNewHash() {
     security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
-    when(roomRepository.findById(roomId)).thenReturn(Optional.of(ownedRoom()));
+    when(memberRepository.findByRoomIdAndUserId(roomId, ownerId))
+        .thenReturn(Optional.of(ownerMember()));
     when(settingsRepository.findById((short) 1))
         .thenReturn(
             Optional.of(
@@ -155,7 +164,7 @@ class ChatDecryptUnlockServiceTest {
 
     service.resetPinAndClearRoom(roomId, "9999");
 
-    verify(chatService).clearChatHistory(roomId);
+    verify(chatService).clearChatHistoryAsSystem(roomId);
     ArgumentCaptor<ChatDecryptSettings> captor = ArgumentCaptor.forClass(ChatDecryptSettings.class);
     verify(settingsRepository).save(captor.capture());
     assertEquals("new-hash", captor.getValue().getPinHash());
@@ -178,9 +187,11 @@ class ChatDecryptUnlockServiceTest {
     assertFalse(service.status().isConfigured());
   }
 
-  private ChatRoom ownedRoom() {
-    ChatRoom room = ChatRoom.builder().ownerUserId(ownerId).name("notes").build();
-    room.setId(roomId);
-    return room;
+  private ChatRoomMember ownerMember() {
+    return member(ownerId, ChatRoomMemberRole.OWNER);
+  }
+
+  private ChatRoomMember member(UUID userId, ChatRoomMemberRole role) {
+    return ChatRoomMember.builder().roomId(roomId).userId(userId).role(role).build();
   }
 }

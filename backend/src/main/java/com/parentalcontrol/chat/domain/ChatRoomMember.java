@@ -54,4 +54,17 @@ public class ChatRoomMember extends BaseEntity {
    */
   @Column(name = "last_read_message_id")
   private UUID lastReadMessageId;
+
+  /** When true, member cannot send messages or typing signals. */
+  @Column(nullable = false)
+  @Builder.Default
+  private boolean muted = false;
+
+  /**
+   * When true, member may unlock decrypt with the server PIN. Room owners always may decrypt
+   * regardless of this flag.
+   */
+  @Column(name = "can_decrypt", nullable = false)
+  @Builder.Default
+  private boolean canDecrypt = false;
 }

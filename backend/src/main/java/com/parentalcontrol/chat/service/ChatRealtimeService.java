@@ -56,6 +56,13 @@ public class ChatRealtimeService {
         Map.of("eventType", "MEMBER_LEFT", "roomId", roomId.toString()));
   }
 
+  public void publishMemberRemoved(UUID memberUserId, UUID roomId) {
+    messagingTemplate.convertAndSendToUser(
+        memberUserId.toString(),
+        "/queue/chat-rooms",
+        Map.of("eventType", "MEMBER_REMOVED", "roomId", roomId.toString()));
+  }
+
   public void publishRoomDeleted(UUID memberUserId, UUID roomId) {
     messagingTemplate.convertAndSendToUser(
         memberUserId.toString(),
@@ -114,5 +121,10 @@ public class ChatRealtimeService {
             "nickname", nickname == null ? "" : nickname,
             "label", label == null ? "" : label,
             "typing", typing));
+  }
+
+  public void publishCallEvent(UUID memberUserId, Map<String, Object> event) {
+    messagingTemplate.convertAndSendToUser(
+        memberUserId.toString(), "/queue/chat-messages", event);
   }
 }

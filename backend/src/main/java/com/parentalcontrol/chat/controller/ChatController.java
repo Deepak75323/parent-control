@@ -14,10 +14,19 @@ import com.parentalcontrol.chat.dto.RespondChatInviteRequest;
 import com.parentalcontrol.chat.dto.SendChatMessageRequest;
 import com.parentalcontrol.chat.dto.SetChatMessageReactionRequest;
 import com.parentalcontrol.chat.dto.ChatTypingRequest;
+import com.parentalcontrol.chat.dto.ChatCallResponse;
+import com.parentalcontrol.chat.dto.ChatCallSignalRequest;
+import com.parentalcontrol.chat.dto.ChatChannelResponse;
 import com.parentalcontrol.chat.dto.ChatDecryptStatusResponse;
+import com.parentalcontrol.chat.dto.CreateChatChannelRequest;
 import com.parentalcontrol.chat.dto.ResetChatDecryptPinRequest;
 import com.parentalcontrol.chat.dto.SetChatDecryptPinRequest;
+import com.parentalcontrol.chat.dto.StartChatCallRequest;
+import com.parentalcontrol.chat.dto.TransferChatOwnershipRequest;
+import com.parentalcontrol.chat.dto.UpdateChatMemberRequest;
 import com.parentalcontrol.chat.dto.UnlockChatDecryptRequest;
+import com.parentalcontrol.chat.service.ChatCallService;
+import com.parentalcontrol.chat.service.ChatChannelService;
 import com.parentalcontrol.chat.service.ChatDecryptUnlockService;
 import com.parentalcontrol.chat.service.ChatService;
 import com.parentalcontrol.chat.service.ChatService.AttachmentPayload;
@@ -55,18 +64,33 @@ public class ChatController {
 
   private final ChatService chatService;
   private final ChatDecryptUnlockService chatDecryptUnlockService;
+  private final ChatCallService chatCallService;
+  private final ChatChannelService chatChannelService;
 
   @PostMapping("/rooms")
-  @Operation(summary = "Create a parent chat room")
+  @Operation(summary = "Create a parent chat room (server)")
   public ApiResponse<ChatRoomSummaryResponse> createRoom(
       @Valid @RequestBody CreateChatRoomRequest request) {
     return ApiResponse.ok(chatService.createRoom(request));
   }
 
   @GetMapping("/rooms")
-  @Operation(summary = "List chat rooms for the current parent")
+  @Operation(summary = "List chat rooms (servers) for the current parent")
   public ApiResponse<List<ChatRoomSummaryResponse>> listRooms() {
     return ApiResponse.ok(chatService.listRooms());
+  }
+
+  @GetMapping("/rooms/{roomId}/channels")
+  @Operation(summary = "List text and voice channels in a server")
+  public ApiResponse<List<ChatChannelResponse>> listChannels(@PathVariable UUID roomId) {
+    return ApiResponse.ok(chatChannelService.listChannels(roomId));
+  }
+
+  @PostMapping("/rooms/{roomId}/channels")
+  @Operation(summary = "Create a text or voice channel (owner/admin)")
+  public ApiResponse<ChatChannelResponse> createChannel(
+      @PathVariable UUID roomId, @Valid @RequestBody CreateChatChannelRequest request) {
+    return ApiResponse.ok(chatChannelService.createChannel(roomId, request));
   }
 
   @DeleteMapping("/rooms/{roomId}")
@@ -84,7 +108,7 @@ public class ChatController {
   }
 
   @PostMapping("/rooms/{roomId}/clear-history")
-  @Operation(summary = "Clear all messages for everyone (owner only, room stays)")
+  @Operation(summary = "Clear all messages for everyone (owner or admin, room stays)")
   public ApiResponse<Void> clearChatHistory(@PathVariable UUID roomId) {
     chatService.clearChatHistory(roomId);
     return ApiResponse.ok(null);
@@ -111,7 +135,7 @@ public class ChatController {
   }
 
   @PostMapping("/rooms/{roomId}/decrypt-unlock")
-  @Operation(summary = "Unlock decrypt view for this room (owner + server PIN)")
+  @Operation(summary = "Unlock decrypt view for this room (owner or granted member + server PIN)")
   public ApiResponse<Void> unlockDecrypt(
       @PathVariable UUID roomId, @Valid @RequestBody UnlockChatDecryptRequest request) {
     chatDecryptUnlockService.unlock(roomId, request.getPin());
@@ -132,6 +156,77 @@ public class ChatController {
   @Operation(summary = "List members of a chat room")
   public ApiResponse<List<ChatMemberResponse>> listMembers(@PathVariable UUID roomId) {
     return ApiResponse.ok(chatService.listMembers(roomId));
+  }
+
+  @DeleteMapping("/rooms/{roomId}/members/{userId}")
+  @Operation(summary = "Remove a member from the room (owner or admin)")
+  public ApiResponse<Void> removeMember(@PathVariable UUID roomId, @PathVariable UUID userId) {
+    chatService.removeMember(roomId, userId);
+    return ApiResponse.ok(null);
+  }
+
+  @PatchMapping("/rooms/{roomId}/members/{userId}")
+  @Operation(summary = "Update member role, mute, or decrypt grant (owner/admin)")
+  public ApiResponse<ChatMemberResponse> updateMember(
+      @PathVariable UUID roomId,
+      @PathVariable UUID userId,
+      @RequestBody UpdateChatMemberRequest request) {
+    return ApiResponse.ok(chatService.updateMember(roomId, userId, request));
+  }
+
+  @PostMapping("/rooms/{roomId}/transfer-ownership")
+  @Operation(summary = "Transfer room ownership to another member (owner only)")
+  public ApiResponse<Void> transferOwnership(
+      @PathVariable UUID roomId, @Valid @RequestBody TransferChatOwnershipRequest request) {
+    chatService.transferOwnership(roomId, request.getUserId());
+    return ApiResponse.ok(null);
+  }
+
+  @PostMapping("/rooms/{roomId}/calls")
+  @Operation(summary = "Start a multi-parent video call in a voice channel (or return the active one)")
+  public ApiResponse<ChatCallResponse> startCall(
+      @PathVariable UUID roomId,
+      @RequestBody(required = false) StartChatCallRequest request) {
+    UUID channelId = request != null ? request.getChannelId() : null;
+    return ApiResponse.ok(chatCallService.startOrGetActive(roomId, channelId));
+  }
+
+  @GetMapping("/rooms/{roomId}/calls/active")
+  @Operation(summary = "Get the active video call for a room/voice channel, if any")
+  public ApiResponse<ChatCallResponse> getActiveCall(
+      @PathVariable UUID roomId, @RequestParam(required = false) UUID channelId) {
+    return ApiResponse.ok(chatCallService.getActive(roomId, channelId));
+  }
+
+  @PostMapping("/rooms/{roomId}/calls/{callId}/join")
+  @Operation(summary = "Join an active multi-parent video call")
+  public ApiResponse<ChatCallResponse> joinCall(
+      @PathVariable UUID roomId, @PathVariable UUID callId) {
+    return ApiResponse.ok(chatCallService.join(roomId, callId));
+  }
+
+  @PostMapping("/rooms/{roomId}/calls/{callId}/leave")
+  @Operation(summary = "Leave a video call")
+  public ApiResponse<Void> leaveCall(@PathVariable UUID roomId, @PathVariable UUID callId) {
+    chatCallService.leave(roomId, callId);
+    return ApiResponse.ok(null);
+  }
+
+  @PostMapping("/rooms/{roomId}/calls/{callId}/end")
+  @Operation(summary = "End a video call for everyone (starter, owner, or admin)")
+  public ApiResponse<Void> endCall(@PathVariable UUID roomId, @PathVariable UUID callId) {
+    chatCallService.end(roomId, callId);
+    return ApiResponse.ok(null);
+  }
+
+  @PostMapping("/rooms/{roomId}/calls/{callId}/signal")
+  @Operation(summary = "Relay WebRTC offer/answer/ICE to another call participant")
+  public ApiResponse<Void> signalCall(
+      @PathVariable UUID roomId,
+      @PathVariable UUID callId,
+      @Valid @RequestBody ChatCallSignalRequest request) {
+    chatCallService.signal(roomId, callId, request);
+    return ApiResponse.ok(null);
   }
 
   @PostMapping("/rooms/{roomId}/invites")
@@ -155,12 +250,13 @@ public class ChatController {
   }
 
   @GetMapping("/rooms/{roomId}/messages")
-  @Operation(summary = "List messages in a chat room")
+  @Operation(summary = "List messages in a text channel")
   public ApiResponse<List<ChatMessageResponse>> listMessages(
       @PathVariable UUID roomId,
+      @RequestParam(required = false) UUID channelId,
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "50") int size) {
-    return ApiResponse.ok(chatService.listMessages(roomId, page, size));
+    return ApiResponse.ok(chatService.listMessages(roomId, channelId, page, size));
   }
 
   @PostMapping("/rooms/{roomId}/messages")
@@ -205,9 +301,12 @@ public class ChatController {
   public ApiResponse<ChatMessageResponse> sendMediaMessage(
       @PathVariable UUID roomId,
       @RequestPart("file") MultipartFile file,
-      @RequestPart(value = "caption", required = false) String caption,
-      @RequestPart(value = "replyToMessageId", required = false) UUID replyToMessageId) {
-    return ApiResponse.ok(chatService.sendMediaMessage(roomId, file, caption, replyToMessageId));
+      // Browser FormData fields are often application/octet-stream; @RequestPart rejects that.
+      @RequestParam(value = "caption", required = false) String caption,
+      @RequestParam(value = "replyToMessageId", required = false) UUID replyToMessageId,
+      @RequestParam(value = "channelId", required = false) UUID channelId) {
+    return ApiResponse.ok(
+        chatService.sendMediaMessage(roomId, file, caption, replyToMessageId, channelId));
   }
 
   @GetMapping("/rooms/{roomId}/messages/{messageId}/attachment")

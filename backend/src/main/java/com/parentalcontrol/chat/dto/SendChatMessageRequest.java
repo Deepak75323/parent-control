@@ -12,6 +12,9 @@ public class SendChatMessageRequest {
   @Size(min = 1, max = 2000)
   private String body;
 
+  /** Text channel; defaults to the server's first TEXT channel. */
+  private UUID channelId;
+
   /** Optional message in the same room being quoted. */
   private UUID replyToMessageId;
 }

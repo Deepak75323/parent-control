@@ -15,6 +15,28 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
 
   @Query(
       value =
+          "SELECT m FROM ChatMessage m WHERE m.roomId = :roomId AND m.channelId = :channelId "
+              + "AND m.deletedAt IS NULL "
+              + "AND m.createdAt > :clearedAfter "
+              + "AND NOT EXISTS ("
+              + "SELECT 1 FROM ChatMessageHide h WHERE h.messageId = m.id "
+              + "AND h.userId = :userId AND h.deletedAt IS NULL)",
+      countQuery =
+          "SELECT COUNT(m) FROM ChatMessage m WHERE m.roomId = :roomId AND m.channelId = :channelId "
+              + "AND m.deletedAt IS NULL "
+              + "AND m.createdAt > :clearedAfter "
+              + "AND NOT EXISTS ("
+              + "SELECT 1 FROM ChatMessageHide h WHERE h.messageId = m.id "
+              + "AND h.userId = :userId AND h.deletedAt IS NULL)")
+  Page<ChatMessage> findVisibleForMemberInChannelOrderByCreatedAtDesc(
+      @Param("roomId") UUID roomId,
+      @Param("channelId") UUID channelId,
+      @Param("userId") UUID userId,
+      @Param("clearedAfter") Instant clearedAfter,
+      Pageable pageable);
+
+  @Query(
+      value =
           "SELECT m FROM ChatMessage m WHERE m.roomId = :roomId AND m.deletedAt IS NULL "
               + "AND m.createdAt > :clearedAfter "
               + "AND NOT EXISTS ("

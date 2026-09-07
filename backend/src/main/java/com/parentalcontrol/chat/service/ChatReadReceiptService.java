@@ -183,6 +183,13 @@ public class ChatReadReceiptService {
       return ChatReceiptStatus.SENT;
     }
 
+    // WhatsApp-style mutual privacy: if the sender turned read receipts off, never
+    // report READ on their own messages (cap at DELIVERED).
+    ChatMessage message = messageRepository.findById(messageId).orElse(null);
+    if (message != null && !isReadReceiptsEnabled(message.getSenderUserId())) {
+      return ChatReceiptStatus.DELIVERED;
+    }
+
     List<ChatMessageReceipt> eligible = new ArrayList<>();
     for (ChatMessageReceipt receipt : receipts) {
       if (isReadReceiptsEnabled(receipt.getRecipientUserId())) {

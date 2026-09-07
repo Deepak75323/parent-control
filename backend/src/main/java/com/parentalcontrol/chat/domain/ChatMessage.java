@@ -26,6 +26,9 @@ public class ChatMessage extends BaseEntity {
   @Column(name = "room_id", nullable = false)
   private UUID roomId;
 
+  @Column(name = "channel_id")
+  private UUID channelId;
+
   @Column(name = "sender_user_id", nullable = false)
   private UUID senderUserId;
 

@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -64,6 +65,17 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(MultipartException.class)
   public ResponseEntity<ApiResponse<Void>> handleMultipart(MultipartException ex) {
     log.warn("Multipart request failed correlationId={}", correlationId(), ex);
+    return ResponseEntity.badRequest()
+        .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_ATTACHMENT_REQUIRED));
+  }
+
+  @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+  public ResponseEntity<ApiResponse<Void>> handleUnsupportedMediaType(
+      HttpMediaTypeNotSupportedException ex) {
+    log.warn(
+        "Unsupported media type correlationId={} contentType={}",
+        correlationId(),
+        ex.getContentType());
     return ResponseEntity.badRequest()
         .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_ATTACHMENT_REQUIRED));
   }

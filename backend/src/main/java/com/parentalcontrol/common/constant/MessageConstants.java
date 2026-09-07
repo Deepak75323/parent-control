@@ -304,10 +304,67 @@ public final class MessageConstants {
   public static final String CHAT_ONLY_OWNER_CAN_DELETE = "Only the room owner can delete this room";
 
   public static final String CHAT_ONLY_OWNER_CAN_CLEAR =
-      "Only the room owner can clear chat history";
+      "Only the room owner or an admin can clear chat history";
 
   public static final String CHAT_ONLY_OWNER_CAN_DECRYPT =
-      "Only the room owner can decrypt this chat";
+      "You do not have permission to decrypt this chat";
+
+  public static final String CHAT_ONLY_OWNER_CAN_TRANSFER =
+      "Only the room owner can transfer ownership";
+
+  public static final String CHAT_ONLY_OWNER_CAN_CHANGE_ROLE =
+      "Only the room owner can change member roles";
+
+  public static final String CHAT_CANNOT_MODERATE_TARGET =
+      "You cannot moderate that member";
+
+  public static final String CHAT_CANNOT_REMOVE_OWNER =
+      "Transfer ownership before removing the room owner";
+
+  public static final String CHAT_MEMBER_MUTED = "You are muted in this room";
+
+  public static final String CHAT_INVALID_MEMBER_ROLE =
+      "Role must be ADMIN or MEMBER";
+
+  public static final String CHAT_TRANSFER_MUST_BE_MEMBER =
+      "New owner must be an active member of this room";
+
+  public static final String CHAT_CHANNEL_NOT_FOUND = "Chat channel not found";
+
+  public static final String CHAT_CHANNEL_NAME_REQUIRED = "Channel name is required";
+
+  public static final String CHAT_CHANNEL_TYPE_REQUIRED = "Channel type is required";
+
+  public static final String CHAT_CHANNEL_NAME_TAKEN =
+      "A channel with that name already exists in this server";
+
+  public static final String CHAT_CHANNEL_LIMIT =
+      "This server already has the maximum number of channels";
+
+  public static final String CHAT_CHANNEL_CREATE_FORBIDDEN =
+      "Only the server owner or an admin can create channels";
+
+  public static final String CHAT_CHANNEL_TEXT_REQUIRED =
+      "Messages can only be sent in text channels";
+
+  public static final String CHAT_CHANNEL_VOICE_REQUIRED =
+      "Calls can only start in voice channels";
+
+  public static final String CHAT_CALL_NOT_FOUND = "Video call not found";
+
+  public static final String CHAT_CALL_NOT_ACTIVE = "This video call is not active";
+
+  public static final String CHAT_CALL_FULL =
+      "This video call is full (max 4 parents)";
+
+  public static final String CHAT_CALL_NOT_PARTICIPANT =
+      "You are not in this video call";
+
+  public static final String CHAT_CALL_CANNOT_END =
+      "Only the call starter, room owner, or an admin can end the call";
+
+  public static final String CHAT_CALL_SIGNAL_TARGET =
+      "Signal target must be an active call participant";
 
   public static final String CHAT_DECRYPT_NOT_CONFIGURED =
       "Chat decrypt is not configured on this server";

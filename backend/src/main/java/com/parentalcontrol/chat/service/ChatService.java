@@ -83,6 +83,7 @@ public class ChatService {
   private final FamilyHandleService familyHandleService;
   private final ParentProfileDao parentProfileDao;
   private final UserDao userDao;
+  private final ChatChannelService channelService;
 
   @Transactional
   public ChatRoomSummaryResponse createRoom(CreateChatRoomRequest request) {
@@ -101,14 +102,21 @@ public class ChatService {
             .joinedAt(Instant.now())
             .build());
 
+    channelService.ensureDefaultChannels(room.getId());
     return toRoomSummary(room, userId);
   }
 
   @Transactional(readOnly = true)
   public List<ChatRoomSummaryResponse> listRooms() {
     UUID userId = SecurityUtils.requireUserId();
-    return roomRepository.findAllForMember(userId).stream()
-        .map(room -> toRoomSummary(room, userId))
+    List<ChatRoom> rooms = roomRepository.findAllForMember(userId);
+    Map<UUID, List<com.parentalcontrol.chat.dto.ChatChannelResponse>> channelsByRoom =
+        channelService.channelsByRoomIds(rooms.stream().map(ChatRoom::getId).toList());
+    return rooms.stream()
+        .map(
+            room ->
+                toRoomSummary(
+                    room, userId, channelsByRoom.getOrDefault(room.getId(), List.of())))
         .toList();
   }
 
@@ -117,16 +125,91 @@ public class ChatService {
     UUID userId = SecurityUtils.requireUserId();
     requireActiveMember(roomId, userId);
     return memberRepository.findByRoomId(roomId).stream()
-        .map(
-            member ->
-                ChatMemberResponse.builder()
-                    .userId(member.getUserId())
-                    .label(displayLabel(member.getUserId()))
-                    .nickname(chatNicknameForUser(member.getUserId()))
-                    .role(member.getRole())
-                    .joinedAt(member.getJoinedAt())
-                    .build())
+        .map(this::toMemberResponse)
         .toList();
+  }
+
+  @Transactional
+  public void removeMember(UUID roomId, UUID targetUserId) {
+    UUID actorId = SecurityUtils.requireUserId();
+    ChatRoomMember actor = requireActiveMember(roomId, actorId);
+    ChatRoomMember target = requireActiveMember(roomId, targetUserId);
+    ChatRoomModerationRules.requireCanRemove(actor, target);
+
+    target.setDeletedAt(Instant.now());
+    memberRepository.save(target);
+
+    ChatRoom room = requireRoom(roomId);
+    room.setUpdatedAt(Instant.now());
+    roomRepository.save(room);
+
+    realtimeService.publishMemberRemoved(targetUserId, roomId);
+    notifyRoomListBump(roomId);
+  }
+
+  @Transactional
+  public ChatMemberResponse updateMember(
+      UUID roomId, UUID targetUserId, com.parentalcontrol.chat.dto.UpdateChatMemberRequest request) {
+    UUID actorId = SecurityUtils.requireUserId();
+    ChatRoomMember actor = requireActiveMember(roomId, actorId);
+    ChatRoomMember target = requireActiveMember(roomId, targetUserId);
+
+    boolean changed = false;
+    if (request.getRole() != null) {
+      ChatRoomMemberRole newRole = request.getRole();
+      if (newRole != ChatRoomMemberRole.ADMIN && newRole != ChatRoomMemberRole.MEMBER) {
+        throw new BusinessException(
+            ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_INVALID_MEMBER_ROLE);
+      }
+      ChatRoomModerationRules.requireCanChangeRole(actor, target);
+      target.setRole(newRole);
+      changed = true;
+    }
+    if (request.getMuted() != null) {
+      ChatRoomModerationRules.requireCanMute(actor, target);
+      target.setMuted(request.getMuted());
+      changed = true;
+    }
+    if (request.getCanDecrypt() != null) {
+      ChatRoomModerationRules.requireCanGrantDecrypt(actor, target);
+      target.setCanDecrypt(request.getCanDecrypt());
+      changed = true;
+    }
+    if (!changed) {
+      return toMemberResponse(target);
+    }
+
+    memberRepository.save(target);
+    notifyRoomListBump(roomId);
+    return toMemberResponse(target);
+  }
+
+  @Transactional
+  public void transferOwnership(UUID roomId, UUID newOwnerUserId) {
+    UUID actorId = SecurityUtils.requireUserId();
+    ChatRoom room = requireRoom(roomId);
+    if (!room.getOwnerUserId().equals(actorId)) {
+      throw new BusinessException(
+          ErrorCode.FORBIDDEN, MessageConstants.CHAT_ONLY_OWNER_CAN_TRANSFER);
+    }
+    if (actorId.equals(newOwnerUserId)) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_TRANSFER_MUST_BE_MEMBER);
+    }
+
+    ChatRoomMember currentOwner = requireActiveMember(roomId, actorId);
+    ChatRoomMember newOwner = requireActiveMember(roomId, newOwnerUserId);
+
+    currentOwner.setRole(ChatRoomMemberRole.ADMIN);
+    newOwner.setRole(ChatRoomMemberRole.OWNER);
+    memberRepository.save(currentOwner);
+    memberRepository.save(newOwner);
+
+    room.setOwnerUserId(newOwnerUserId);
+    room.setUpdatedAt(Instant.now());
+    roomRepository.save(room);
+
+    notifyRoomListBump(roomId);
   }
 
   @Transactional
@@ -171,21 +254,34 @@ public class ChatService {
     memberRepository.save(member);
   }
 
-  /** Removes all messages for everyone (owner only). */
+  /** Removes all messages for everyone (owner or admin). */
   @Transactional
   public void clearChatHistory(UUID roomId) {
     UUID userId = SecurityUtils.requireUserId();
-    requireActiveMember(roomId, userId);
-    ChatRoom room = requireRoom(roomId);
-    if (!room.getOwnerUserId().equals(userId)) {
+    ChatRoomMember actor = requireActiveMember(roomId, userId);
+    if (!ChatRoomModerationRules.canClearHistory(actor)) {
       throw new BusinessException(ErrorCode.FORBIDDEN, MessageConstants.CHAT_ONLY_OWNER_CAN_CLEAR);
     }
+    ChatRoom room = requireRoom(roomId);
 
     Instant now = Instant.now();
     softDeleteAllMessages(roomId, now);
     room.setUpdatedAt(now);
     roomRepository.save(room);
 
+    for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
+      realtimeService.publishChatCleared(member.getUserId(), roomId);
+    }
+  }
+
+  /** Used by decrypt reset — owner already authorized by caller. */
+  @Transactional
+  public void clearChatHistoryAsSystem(UUID roomId) {
+    ChatRoom room = requireRoom(roomId);
+    Instant now = Instant.now();
+    softDeleteAllMessages(roomId, now);
+    room.setUpdatedAt(now);
+    roomRepository.save(room);
     for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
       realtimeService.publishChatCleared(member.getUserId(), roomId);
     }
@@ -519,16 +615,19 @@ public class ChatService {
   }
 
   @Transactional(readOnly = true)
-  public List<ChatMessageResponse> listMessages(UUID roomId, int page, int size) {
+  public List<ChatMessageResponse> listMessages(
+      UUID roomId, UUID channelId, int page, int size) {
     UUID userId = SecurityUtils.requireUserId();
     ChatRoomMember member = requireActiveMember(roomId, userId);
+    UUID resolvedChannelId = channelService.resolveTextChannel(roomId, channelId).getId();
 
     Instant clearedAfter =
         member.getChatClearedAt() != null ? member.getChatClearedAt() : Instant.EPOCH;
 
     Page<ChatMessage> messages =
-        messageRepository.findVisibleForMemberOrderByCreatedAtDesc(
+        messageRepository.findVisibleForMemberInChannelOrderByCreatedAtDesc(
             roomId,
+            resolvedChannelId,
             userId,
             clearedAfter,
             PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
@@ -557,8 +656,9 @@ public class ChatService {
   @Transactional
   public ChatMessageResponse sendMessage(UUID roomId, SendChatMessageRequest request) {
     UUID userId = SecurityUtils.requireUserId();
-    requireActiveMember(roomId, userId);
+    requireNotMuted(requireActiveMember(roomId, userId));
     ChatRoom room = requireRoom(roomId);
+    UUID channelId = channelService.resolveTextChannel(roomId, request.getChannelId()).getId();
 
     String body = request.getBody().trim();
     UUID replyToMessageId = resolveReplyTarget(roomId, request.getReplyToMessageId());
@@ -566,6 +666,7 @@ public class ChatService {
         messageRepository.save(
             ChatMessage.builder()
                 .roomId(roomId)
+                .channelId(channelId)
                 .senderUserId(userId)
                 .body(body)
                 .messageType(ChatMessageType.TEXT)
@@ -611,7 +712,7 @@ public class ChatService {
   @Transactional(readOnly = true)
   public void notifyTyping(UUID roomId, boolean typing) {
     UUID userId = SecurityUtils.requireUserId();
-    requireActiveMember(roomId, userId);
+    requireNotMuted(requireActiveMember(roomId, userId));
     requireRoom(roomId);
     String nickname = chatNicknameForUser(userId);
     String label = displayLabel(userId);
@@ -635,10 +736,15 @@ public class ChatService {
 
   @Transactional
   public ChatMessageResponse sendMediaMessage(
-      UUID roomId, MultipartFile file, String caption, UUID replyToMessageId) {
+      UUID roomId,
+      MultipartFile file,
+      String caption,
+      UUID replyToMessageId,
+      UUID channelId) {
     UUID userId = SecurityUtils.requireUserId();
-    requireActiveMember(roomId, userId);
+    requireNotMuted(requireActiveMember(roomId, userId));
     ChatRoom room = requireRoom(roomId);
+    UUID resolvedChannelId = channelService.resolveTextChannel(roomId, channelId).getId();
 
     String body = caption != null ? caption.trim() : "";
     if (body.length() > 2000) {
@@ -654,6 +760,7 @@ public class ChatService {
         messageRepository.save(
             ChatMessage.builder()
                 .roomId(roomId)
+                .channelId(resolvedChannelId)
                 .senderUserId(userId)
                 .body(body)
                 .messageType(ChatMessageType.TEXT)
@@ -824,6 +931,18 @@ public class ChatService {
   }
 
   private ChatRoomSummaryResponse toRoomSummary(ChatRoom room, UUID viewerUserId) {
+    return toRoomSummary(
+        room,
+        viewerUserId,
+        channelService
+            .channelsByRoomIds(List.of(room.getId()))
+            .getOrDefault(room.getId(), List.of()));
+  }
+
+  private ChatRoomSummaryResponse toRoomSummary(
+      ChatRoom room,
+      UUID viewerUserId,
+      List<com.parentalcontrol.chat.dto.ChatChannelResponse> channels) {
     int memberCount = memberRepository.findByRoomId(room.getId()).size();
     boolean owner = room.getOwnerUserId().equals(viewerUserId);
     ChatRoomMember member =
@@ -834,18 +953,45 @@ public class ChatService {
     int unreadCount =
         readReceiptService.countUnread(
             room.getId(), viewerUserId, lastReadMessageId, unreadFromAt);
+    ChatRoomMemberRole myRole = member != null ? member.getRole() : ChatRoomMemberRole.MEMBER;
+    boolean muted = member != null && member.isMuted();
+    boolean canDecrypt =
+        member != null && ChatRoomModerationRules.canDecrypt(member);
     return ChatRoomSummaryResponse.builder()
         .id(room.getId())
         .name(room.getName())
         .ownerUserId(room.getOwnerUserId())
         .owner(owner)
+        .myRole(myRole)
+        .muted(muted)
+        .canDecrypt(canDecrypt)
         .memberCount(memberCount)
         .createdAt(room.getCreatedAt())
         .updatedAt(room.getUpdatedAt())
         .chatClearedAt(chatClearedAt)
         .lastReadMessageId(lastReadMessageId)
         .unreadCount(unreadCount)
+        .channels(channels)
         .build();
+  }
+
+  private ChatMemberResponse toMemberResponse(ChatRoomMember member) {
+    boolean decryptEffective = ChatRoomModerationRules.canDecrypt(member);
+    return ChatMemberResponse.builder()
+        .userId(member.getUserId())
+        .label(displayLabel(member.getUserId()))
+        .nickname(chatNicknameForUser(member.getUserId()))
+        .role(member.getRole())
+        .joinedAt(member.getJoinedAt())
+        .muted(member.isMuted())
+        .canDecrypt(decryptEffective)
+        .build();
+  }
+
+  private void requireNotMuted(ChatRoomMember member) {
+    if (member.isMuted()) {
+      throw new BusinessException(ErrorCode.FORBIDDEN, MessageConstants.CHAT_MEMBER_MUTED);
+    }
   }
 
   private ChatInviteResponse toInviteResponse(ChatRoomInvite invite, String roomName) {
@@ -955,6 +1101,7 @@ public class ChatService {
     return ChatMessageResponse.builder()
         .id(message.getId())
         .roomId(message.getRoomId())
+        .channelId(message.getChannelId())
         .senderUserId(message.getSenderUserId())
         .senderLabel(displayLabel(message.getSenderUserId()))
         .senderNickname(chatNicknameForUser(message.getSenderUserId()))

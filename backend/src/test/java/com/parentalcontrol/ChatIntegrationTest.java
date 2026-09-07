@@ -1,5 +1,6 @@
 package com.parentalcontrol;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -11,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -291,14 +293,43 @@ class ChatIntegrationTest {
     MockMultipartFile file =
         new MockMultipartFile("file", "test.png", "image/png", pngHeader);
 
+    MvcResult rooms =
+        mockMvc
+            .perform(get("/api/v1/chat/rooms").header("Authorization", "Bearer " + tokenB))
+            .andExpect(status().isOk())
+            .andReturn();
+    String textChannelId = null;
+    for (JsonNode room : readData(rooms)) {
+      if (!roomId.equals(room.get("id").asText())) {
+        continue;
+      }
+      for (JsonNode channel : room.path("channels")) {
+        if ("TEXT".equals(channel.path("type").asText())) {
+          textChannelId = channel.path("id").asText();
+          break;
+        }
+      }
+    }
+    assertNotNull(textChannelId);
+
+    // Mimic browser FormData: text fields often arrive as application/octet-stream.
+    MockMultipartFile channelIdPart =
+        new MockMultipartFile(
+            "channelId",
+            "",
+            "application/octet-stream",
+            textChannelId.getBytes(StandardCharsets.UTF_8));
+
     MvcResult upload =
         mockMvc
             .perform(
                 multipart("/api/v1/chat/rooms/" + roomId + "/messages/media")
                     .file(file)
+                    .file(channelIdPart)
                     .header("Authorization", "Bearer " + tokenB))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.messageType").value("IMAGE"))
+            .andExpect(jsonPath("$.data.channelId").value(textChannelId))
             .andExpect(jsonPath("$.data.attachmentViewOnce").value(true))
             .andExpect(jsonPath("$.data.ownMessage").value(true))
             .andExpect(jsonPath("$.data.attachmentUrl").doesNotExist())

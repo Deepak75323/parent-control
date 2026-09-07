@@ -13,6 +13,7 @@ import lombok.Value;
 public class ChatMessageResponse {
   UUID id;
   UUID roomId;
+  UUID channelId;
   UUID senderUserId;
   String senderLabel;
   String senderNickname;

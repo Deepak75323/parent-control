@@ -1,10 +1,11 @@
 package com.parentalcontrol.chat.service;
 
 import com.parentalcontrol.chat.domain.ChatDecryptSettings;
-import com.parentalcontrol.chat.domain.ChatRoom;
+import com.parentalcontrol.chat.domain.ChatRoomMember;
+import com.parentalcontrol.chat.domain.ChatRoomMemberRole;
 import com.parentalcontrol.chat.dto.ChatDecryptStatusResponse;
 import com.parentalcontrol.chat.repository.ChatDecryptSettingsRepository;
-import com.parentalcontrol.chat.repository.ChatRoomRepository;
+import com.parentalcontrol.chat.repository.ChatRoomMemberRepository;
 import com.parentalcontrol.common.constant.MessageConstants;
 import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.exception.ErrorCode;
@@ -25,7 +26,7 @@ public class ChatDecryptUnlockService {
 
   private static final short SETTINGS_ID = 1;
 
-  private final ChatRoomRepository roomRepository;
+  private final ChatRoomMemberRepository memberRepository;
   private final ChatDecryptSettingsRepository settingsRepository;
   private final ChatDecryptProperties decryptProperties;
   private final PasswordEncoder passwordEncoder;
@@ -53,13 +54,13 @@ public class ChatDecryptUnlockService {
   }
 
   /**
-   * Verifies the room owner and the server decrypt PIN. Does not return message plaintext — the
-   * client decodes locally after a successful unlock.
+   * Verifies decrypt permission (owner or granted) and the server decrypt PIN. Does not return
+   * message plaintext — the client decodes locally after a successful unlock.
    */
   @Transactional
   public void unlock(UUID roomId, String pin) {
     UUID userId = SecurityUtils.requireUserId();
-    requireRoomOwner(roomId, userId);
+    requireDecryptPermission(roomId, userId);
     if (!isConfigured()) {
       throw new BusinessException(
           ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_DECRYPT_NOT_CONFIGURED);
@@ -75,18 +76,18 @@ public class ChatDecryptUnlockService {
 
   /**
    * Snapchat-style forgot: wipe this room's messages for everyone, then set a new server PIN.
-   * Does not require the old PIN.
+   * Does not require the old PIN. Owner only.
    */
   @Transactional
   public void resetPinAndClearRoom(UUID roomId, String newPin) {
     UUID userId = SecurityUtils.requireUserId();
-    requireRoomOwner(roomId, userId);
+    requireRoomOwnerMembership(roomId, userId);
     requireFourDigit(newPin);
     if (!isConfigured()) {
       throw new BusinessException(
           ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_DECRYPT_NOT_CONFIGURED);
     }
-    chatService.clearChatHistory(roomId);
+    chatService.clearChatHistoryAsSystem(roomId);
     saveHash(newPin.trim());
   }
 
@@ -123,15 +124,29 @@ public class ChatDecryptUnlockService {
     settingsRepository.save(settings);
   }
 
-  private void requireRoomOwner(UUID roomId, UUID userId) {
-    ChatRoom room =
-        roomRepository
-            .findById(roomId)
+  private void requireDecryptPermission(UUID roomId, UUID userId) {
+    ChatRoomMember member =
+        memberRepository
+            .findByRoomIdAndUserId(roomId, userId)
             .orElseThrow(
                 () ->
                     new BusinessException(
-                        ErrorCode.NOT_FOUND, MessageConstants.CHAT_ROOM_NOT_FOUND));
-    if (!room.getOwnerUserId().equals(userId)) {
+                        ErrorCode.FORBIDDEN, MessageConstants.CHAT_NOT_A_MEMBER));
+    if (!ChatRoomModerationRules.canDecrypt(member)) {
+      throw new BusinessException(
+          ErrorCode.FORBIDDEN, MessageConstants.CHAT_ONLY_OWNER_CAN_DECRYPT);
+    }
+  }
+
+  private void requireRoomOwnerMembership(UUID roomId, UUID userId) {
+    ChatRoomMember member =
+        memberRepository
+            .findByRoomIdAndUserId(roomId, userId)
+            .orElseThrow(
+                () ->
+                    new BusinessException(
+                        ErrorCode.FORBIDDEN, MessageConstants.CHAT_NOT_A_MEMBER));
+    if (member.getRole() != ChatRoomMemberRole.OWNER) {
       throw new BusinessException(
           ErrorCode.FORBIDDEN, MessageConstants.CHAT_ONLY_OWNER_CAN_DECRYPT);
     }
