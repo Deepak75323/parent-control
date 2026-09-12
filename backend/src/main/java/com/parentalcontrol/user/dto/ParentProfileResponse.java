@@ -7,7 +7,10 @@ import lombok.Data;
 @Data
 @Builder
 public class ParentProfileResponse {
+  /** Parent profile row id (subscriptions, family settings). */
   private UUID id;
+  /** Auth user id — matches chat membership, messages, and call participant ids. */
+  private UUID userId;
   private String firstName;
   private String lastName;
   private String email;

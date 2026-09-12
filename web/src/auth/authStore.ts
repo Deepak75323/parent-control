@@ -42,6 +42,7 @@ interface AuthState {
   hydrate: () => void;
   clear: () => void;
   isAuthenticated: () => boolean;
+  patchProfile: (patch: Partial<ParentProfile>) => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -109,4 +110,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
   },
   isAuthenticated: () => Boolean(get().accessToken && get().refreshToken),
+  patchProfile: patch => {
+    set(state => {
+      if (!state.profile) {
+        return state;
+      }
+      const profile = {...state.profile, ...patch};
+      writeSession(PROFILE_KEY, JSON.stringify(profile));
+      return {profile};
+    });
+  },
 }));

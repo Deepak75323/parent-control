@@ -18,7 +18,6 @@ import com.parentalcontrol.chat.repository.ChatRoomMemberRepository;
 import com.parentalcontrol.common.constant.MessageConstants;
 import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.security.SecurityUtils;
-import com.parentalcontrol.config.ChatDecryptProperties;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -31,6 +30,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.util.StringUtils;
 
 @ExtendWith(MockitoExtension.class)
 class ChatDecryptUnlockServiceTest {
@@ -40,21 +40,19 @@ class ChatDecryptUnlockServiceTest {
   @Mock private PasswordEncoder passwordEncoder;
   @Mock private ChatService chatService;
 
-  private ChatDecryptProperties decryptProperties;
   private ChatDecryptUnlockService service;
   private MockedStatic<SecurityUtils> security;
 
   private final UUID ownerId = UUID.fromString("11111111-1111-1111-1111-111111111111");
   private final UUID otherId = UUID.fromString("22222222-2222-2222-2222-222222222222");
   private final UUID roomId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+  private static final String SIX_DIGIT_CODE = "987123";
 
   @BeforeEach
   void setUp() {
-    decryptProperties = new ChatDecryptProperties();
-    decryptProperties.setPin("4829");
     service =
         new ChatDecryptUnlockService(
-            memberRepository, settingsRepository, decryptProperties, passwordEncoder, chatService);
+            memberRepository, settingsRepository, passwordEncoder, chatService);
     security = Mockito.mockStatic(SecurityUtils.class);
   }
 
@@ -64,15 +62,16 @@ class ChatDecryptUnlockServiceTest {
   }
 
   @Test
-  void unlock_succeedsForOwnerWithEnvPin() {
+  void unlock_rejectsEnvOnlySecret() {
     security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
     when(memberRepository.findByRoomIdAndUserId(roomId, ownerId))
         .thenReturn(Optional.of(ownerMember()));
     when(settingsRepository.findById((short) 1)).thenReturn(Optional.empty());
-    when(passwordEncoder.encode("4829")).thenReturn("hashed-4829");
 
-    assertDoesNotThrow(() -> service.unlock(roomId, "4829"));
-    verify(settingsRepository).save(any(ChatDecryptSettings.class));
+    BusinessException ex =
+        assertThrows(BusinessException.class, () -> service.unlock(roomId, "4829"));
+    assertEquals(MessageConstants.CHAT_DECRYPT_NOT_CONFIGURED, ex.getMessage());
+    verify(settingsRepository, never()).save(any(ChatDecryptSettings.class));
   }
 
   @Test
@@ -85,11 +84,14 @@ class ChatDecryptUnlockServiceTest {
     when(settingsRepository.findById((short) 1))
         .thenReturn(
             Optional.of(
-                ChatDecryptSettings.builder().id((short) 1).pinHash("hashed-4829").build()));
-    when(passwordEncoder.matches("4829", "hashed-4829")).thenReturn(true);
+                ChatDecryptSettings.builder()
+                    .id((short) 1)
+                    .pinHash("hashed-987123")
+                    .cryptoSalt("c2FsdA==")
+                    .build()));
+    when(passwordEncoder.matches(SIX_DIGIT_CODE, "hashed-987123")).thenReturn(true);
 
-    assertDoesNotThrow(() -> service.unlock(roomId, "4829"));
-    verify(settingsRepository, never()).save(any());
+    assertDoesNotThrow(() -> service.unlock(roomId, SIX_DIGIT_CODE));
   }
 
   @Test
@@ -108,16 +110,23 @@ class ChatDecryptUnlockServiceTest {
     security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
     when(memberRepository.findByRoomIdAndUserId(roomId, ownerId))
         .thenReturn(Optional.of(ownerMember()));
-    when(settingsRepository.findById((short) 1)).thenReturn(Optional.empty());
+    when(settingsRepository.findById((short) 1))
+        .thenReturn(
+            Optional.of(
+                ChatDecryptSettings.builder()
+                    .id((short) 1)
+                    .pinHash("hashed-987123")
+                    .cryptoSalt("c2FsdA==")
+                    .build()));
+    when(passwordEncoder.matches("000000", "hashed-987123")).thenReturn(false);
 
     BusinessException ex =
-        assertThrows(BusinessException.class, () -> service.unlock(roomId, "0000"));
+        assertThrows(BusinessException.class, () -> service.unlock(roomId, "000000"));
     assertEquals(MessageConstants.CHAT_DECRYPT_PIN_INVALID, ex.getMessage());
   }
 
   @Test
   void unlock_rejectsWhenPinNotConfigured() {
-    decryptProperties.setPin("");
     security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
     when(memberRepository.findByRoomIdAndUserId(roomId, ownerId))
         .thenReturn(Optional.of(ownerMember()));
@@ -130,25 +139,39 @@ class ChatDecryptUnlockServiceTest {
 
   @Test
   void createPin_persistsHashWhenUnset() {
-    decryptProperties.setPin("");
     security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
     when(settingsRepository.findById((short) 1)).thenReturn(Optional.empty());
-    when(passwordEncoder.encode("1234")).thenReturn("hashed-1234");
+    when(passwordEncoder.encode(SIX_DIGIT_CODE)).thenReturn("hashed-secret");
+    when(settingsRepository.save(any(ChatDecryptSettings.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
 
-    service.createPin("1234");
+    service.createPin(SIX_DIGIT_CODE);
 
     ArgumentCaptor<ChatDecryptSettings> captor = ArgumentCaptor.forClass(ChatDecryptSettings.class);
     verify(settingsRepository).save(captor.capture());
-    assertEquals("hashed-1234", captor.getValue().getPinHash());
+    assertEquals("hashed-secret", captor.getValue().getPinHash());
+    assertTrue(StringUtils.hasText(captor.getValue().getCryptoSalt()));
   }
 
   @Test
   void createPin_rejectsWhenAlreadyConfigured() {
     security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
-    when(settingsRepository.findById((short) 1)).thenReturn(Optional.empty());
+    when(settingsRepository.findById((short) 1))
+        .thenReturn(
+            Optional.of(
+                ChatDecryptSettings.builder().id((short) 1).pinHash("hashed-secret").build()));
+
+    BusinessException ex =
+        assertThrows(BusinessException.class, () -> service.createPin(SIX_DIGIT_CODE));
+    assertEquals(MessageConstants.CHAT_DECRYPT_PIN_ALREADY_SET, ex.getMessage());
+  }
+
+  @Test
+  void createPin_rejectsShortPassphrase() {
+    security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
 
     BusinessException ex = assertThrows(BusinessException.class, () -> service.createPin("1234"));
-    assertEquals(MessageConstants.CHAT_DECRYPT_PIN_ALREADY_SET, ex.getMessage());
+    assertEquals(MessageConstants.CHAT_DECRYPT_PIN_INVALID, ex.getMessage());
   }
 
   @Test
@@ -160,9 +183,11 @@ class ChatDecryptUnlockServiceTest {
         .thenReturn(
             Optional.of(
                 ChatDecryptSettings.builder().id((short) 1).pinHash("old-hash").build()));
-    when(passwordEncoder.encode("9999")).thenReturn("new-hash");
+    when(passwordEncoder.encode(SIX_DIGIT_CODE)).thenReturn("new-hash");
+    when(settingsRepository.save(any(ChatDecryptSettings.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
 
-    service.resetPinAndClearRoom(roomId, "9999");
+    service.resetPinAndClearRoom(roomId, SIX_DIGIT_CODE);
 
     verify(chatService).clearChatHistoryAsSystem(roomId);
     ArgumentCaptor<ChatDecryptSettings> captor = ArgumentCaptor.forClass(ChatDecryptSettings.class);
@@ -171,16 +196,33 @@ class ChatDecryptUnlockServiceTest {
   }
 
   @Test
-  void status_reportsConfiguredFromEnv() {
+  void verifyPin_succeedsWithDbHash() {
     security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
-    when(settingsRepository.findById((short) 1)).thenReturn(Optional.empty());
+    when(settingsRepository.findById((short) 1))
+        .thenReturn(
+            Optional.of(
+                ChatDecryptSettings.builder().id((short) 1).pinHash("hashed-secret").build()));
+    when(passwordEncoder.matches(SIX_DIGIT_CODE, "hashed-secret")).thenReturn(true);
 
-    assertTrue(service.status().isConfigured());
+    assertDoesNotThrow(() -> service.verifyPin(SIX_DIGIT_CODE));
   }
 
   @Test
-  void status_reportsUnconfiguredWhenNoPin() {
-    decryptProperties.setPin("");
+  void verifyPin_rejectsWrongPassphrase() {
+    security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
+    when(settingsRepository.findById((short) 1))
+        .thenReturn(
+            Optional.of(
+                ChatDecryptSettings.builder().id((short) 1).pinHash("hashed-secret").build()));
+    when(passwordEncoder.matches("000000", "hashed-secret")).thenReturn(false);
+
+    BusinessException ex =
+        assertThrows(BusinessException.class, () -> service.verifyPin("000000"));
+    assertEquals(MessageConstants.CHAT_DECRYPT_PIN_INVALID, ex.getMessage());
+  }
+
+  @Test
+  void status_reportsUnconfiguredWhenNoDatabaseHash() {
     security.when(SecurityUtils::requireUserId).thenReturn(ownerId);
     when(settingsRepository.findById((short) 1)).thenReturn(Optional.empty());
 

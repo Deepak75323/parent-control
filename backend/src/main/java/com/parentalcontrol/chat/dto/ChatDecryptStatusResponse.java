@@ -7,4 +7,6 @@ import lombok.Value;
 @Builder
 public class ChatDecryptStatusResponse {
   boolean configured;
+  /** Base64 PBKDF2 salt when configured; null otherwise. */
+  String cryptoSalt;
 }

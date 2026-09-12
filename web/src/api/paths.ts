@@ -81,6 +81,7 @@ export const ApiPaths = {
   chatRoomDecryptReset: (roomId: string) => `${V1}/chat/rooms/${roomId}/decrypt-reset`,
   CHAT_DECRYPT_STATUS: `${V1}/chat/decrypt-status`,
   CHAT_DECRYPT_PIN: `${V1}/chat/decrypt-pin`,
+  CHAT_DECRYPT_VERIFY: `${V1}/chat/decrypt-verify`,
   chatMessage: (roomId: string, messageId: string) =>
     `${V1}/chat/rooms/${roomId}/messages/${messageId}`,
   chatMessageMarkUnread: (roomId: string, messageId: string) =>

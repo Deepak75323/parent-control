@@ -1,10 +1,14 @@
+import {useState} from 'react';
 import {Link} from 'react-router-dom';
+import {useAuthStore} from '../auth/authStore';
+import {CameraUnlockDialog} from './CameraUnlockDialog';
 import {useLiveStreamStore} from '../livestream/liveStreamStore';
 import {
   StreamControls,
   StreamTypePicker,
   StreamVideoView,
 } from '../livestream/StreamVideoView';
+import {userIdFromAccessToken} from '../lib/jwtSubject';
 
 type Props = {
   deviceId: string;
@@ -22,9 +26,21 @@ export function LiveStreamPanel({deviceId, deviceName}: Props) {
   const streamType = useLiveStreamStore(s => s.streamType);
   const start = useLiveStreamStore(s => s.start);
   const setPin = useLiveStreamStore(s => s.setPin);
+  const accessToken = useAuthStore(s => s.accessToken);
+  const profile = useAuthStore(s => s.profile);
+  const userId = userIdFromAccessToken(accessToken) ?? profile?.userId ?? '';
+  const [cameraGateOpen, setCameraGateOpen] = useState(false);
 
   const streamOnOtherDevice = sessionId && activeDeviceId && activeDeviceId !== deviceId;
   const streamOnThisDevice = sessionId && activeDeviceId === deviceId;
+
+  function requestStart() {
+    if (streamType === 'CAMERA') {
+      setCameraGateOpen(true);
+      return;
+    }
+    void start(deviceId, deviceName);
+  }
 
   return (
     <div className="card live-panel">
@@ -59,6 +75,12 @@ export function LiveStreamPanel({deviceId, deviceName}: Props) {
             </label>
           ) : null}
 
+          {streamType === 'CAMERA' && !sessionId ? (
+            <p className="muted tiny">
+              Camera requires fingerprint (set when you open the portal) or your chat decrypt code.
+            </p>
+          ) : null}
+
           {streamOnThisDevice ? (
             <>
               <StreamVideoView />
@@ -72,7 +94,7 @@ export function LiveStreamPanel({deviceId, deviceName}: Props) {
                 type="button"
                 className="btn primary"
                 disabled={busy}
-                onClick={() => void start(deviceId, deviceName)}>
+                onClick={requestStart}>
                 {busy ? 'Starting…' : 'Start'}
               </button>
             ) : streamOnThisDevice ? null : (
@@ -80,7 +102,7 @@ export function LiveStreamPanel({deviceId, deviceName}: Props) {
                 type="button"
                 className="btn primary"
                 disabled={busy}
-                onClick={() => void start(deviceId, deviceName)}>
+                onClick={requestStart}>
                 {busy ? 'Starting…' : 'Switch stream here'}
               </button>
             )}
@@ -93,6 +115,16 @@ export function LiveStreamPanel({deviceId, deviceName}: Props) {
           ) : null}
         </>
       )}
+
+      <CameraUnlockDialog
+        open={cameraGateOpen}
+        userId={userId}
+        onCancel={() => setCameraGateOpen(false)}
+        onUnlocked={() => {
+          setCameraGateOpen(false);
+          void start(deviceId, deviceName);
+        }}
+      />
     </div>
   );
 }

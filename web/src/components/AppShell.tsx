@@ -11,6 +11,7 @@ import {LiveStreamHost} from '../livestream/LiveStreamHost';
 import {useLiveStreamStore} from '../livestream/liveStreamStore';
 import {GlobalChatCallHost} from '../realtime/GlobalChatCallHost';
 import {useChatCallSessionStore} from '../realtime/chatCallSessionStore';
+import {ParentWebAuthnSetup} from './ParentWebAuthnSetup';
 import type {ChatCallParticipant, DeviceSummary} from '../types/api';
 
 const EMPTY_CALL_PARTICIPANTS: ChatCallParticipant[] = [];
@@ -413,6 +414,7 @@ export function AppShell() {
       ) : null}
     </div>
     <LiveStreamHost />
+    <ParentWebAuthnSetup />
     </>
   );
 }

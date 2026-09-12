@@ -253,6 +253,7 @@ public class AuthService {
   private ParentProfileResponse toProfileResponse(User user, ParentProfile profile) {
     return ParentProfileResponse.builder()
         .id(profile.getId())
+        .userId(user.getId())
         .firstName(profile.getFirstName())
         .lastName(profile.getLastName())
         .email(user.getEmail())

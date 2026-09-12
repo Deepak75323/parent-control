@@ -11,6 +11,7 @@ import {useAuthStore} from '../auth/authStore';
 import {useLogout} from '../auth/useLogout';
 import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {chatDisplayNickname} from '../lib/chatDisplayNickname';
+import {FingerprintSettingsCard} from '../components/ParentWebAuthnSetup';
 import {disconnectWebSocket} from '../realtime/websocket';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 
@@ -122,10 +123,11 @@ export function SettingsPage() {
       const {data} = await readReceiptsApi.setEnabled(next);
       const enabled = data.data?.enabled !== false;
       setReadReceiptsEnabled(enabled);
+      useAuthStore.getState().patchProfile({readReceiptsEnabled: enabled});
       setReadReceiptsMsg(
         enabled
-          ? 'Read receipts are on — others will see when you read their messages.'
-          : 'Read receipts are off — others will not see when you read their messages.',
+          ? 'Read receipts are on — green ticks when messages are read.'
+          : 'Read receipts are off — green read ticks hidden for you and others.',
       );
     } catch {
       setReadReceiptsMsg('Could not update read receipt setting');
@@ -233,6 +235,8 @@ export function SettingsPage() {
         </form>
       </div>
 
+      <FingerprintSettingsCard />
+
       <div className="card">
         <h2>Family handle</h2>
         <p className="muted">{handleStatus}</p>
@@ -250,8 +254,8 @@ export function SettingsPage() {
       <div className="card">
         <h2>Chat read receipts</h2>
         <p className="muted">
-          When enabled, other parents see blue ticks when you receive their messages and green
-          ticks when you read them — like WhatsApp. Turn off to hide your read status.
+          When on, others see when you read their messages and you see when they read yours —
+          like WhatsApp. Turn off and neither side gets green read ticks.
         </p>
         <div className="btn-row">
           <button

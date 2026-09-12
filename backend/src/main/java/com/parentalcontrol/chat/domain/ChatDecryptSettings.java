@@ -30,6 +30,10 @@ public class ChatDecryptSettings {
   @Column(name = "pin_hash", nullable = false, length = 100)
   private String pinHash;
 
+  /** Public PBKDF2 salt (Base64). Not secret — the passphrase is the secret. */
+  @Column(name = "crypto_salt", length = 64)
+  private String cryptoSalt;
+
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 

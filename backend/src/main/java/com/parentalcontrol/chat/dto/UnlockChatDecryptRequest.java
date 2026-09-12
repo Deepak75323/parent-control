@@ -7,7 +7,8 @@ import lombok.Data;
 @Data
 public class UnlockChatDecryptRequest {
 
+  /** Parent-selected 6-digit decrypt code. */
   @NotBlank
-  @Pattern(regexp = "^\\d{4}$", message = "Decrypt PIN must be exactly 4 digits")
+  @Pattern(regexp = "^\\d{6}$", message = "Decrypt code must be exactly 6 digits")
   private String pin;
 }

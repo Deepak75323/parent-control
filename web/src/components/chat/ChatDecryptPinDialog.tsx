@@ -1,5 +1,6 @@
 import {type FormEvent, useEffect, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
+import {isStrongChatDecryptCode} from '../../lib/chatDecryptCode';
 import {lockBodyScroll} from '../../lib/scrollLock';
 
 export type ChatDecryptDialogMode = 'create' | 'unlock' | 'reset';
@@ -31,6 +32,7 @@ export function ChatDecryptPinDialog({
   const [confirmPin, setConfirmPin] = useState('');
   const [wipeAck, setWipeAck] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const setupMode = mode === 'create' || mode === 'reset';
 
   useEffect(() => {
     if (!open) {
@@ -63,14 +65,14 @@ export function ChatDecryptPinDialog({
     return null;
   }
 
-  const pinValid = /^\d{4}$/.test(pin);
-  const confirmValid = pin === confirmPin && pinValid;
+  const pinValid = isStrongChatDecryptCode(pin);
+  const confirmed = pinValid && pin === confirmPin;
   const canSubmit =
     mode === 'unlock'
       ? pinValid && !busy
       : mode === 'create'
-        ? confirmValid && !busy
-        : confirmValid && wipeAck && !busy;
+        ? confirmed && !busy
+        : confirmed && wipeAck && !busy;
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -78,21 +80,25 @@ export function ChatDecryptPinDialog({
       return;
     }
     if (mode === 'reset') {
-      onReset(pin);
+      onReset(pin.trim());
       return;
     }
-    onSubmit(pin);
+    onSubmit(pin.trim());
   }
 
   const title =
-    mode === 'create' ? 'Create decrypt PIN' : mode === 'reset' ? 'Reset decrypt PIN' : 'Decrypt chat';
+    mode === 'create'
+      ? 'Create decrypt code'
+      : mode === 'reset'
+        ? 'Reset decrypt code'
+        : 'Decrypt chat';
 
   const message =
     mode === 'create'
-      ? 'Choose a 4-digit PIN for this server. You will need it to decrypt chat as a room owner. It is not emailed and cannot be recovered later.'
+      ? 'Choose a 6-digit decrypt code. Save it privately — not in .env and not in this chat. It cannot be recovered later.'
       : mode === 'reset'
-        ? 'If you no longer remember the current PIN, you can set a new one. This permanently deletes every message in this room for everyone (like Snapchat passkey reset). Other rooms are not wiped.'
-        : 'Enter the 4-digit server PIN. Decrypt stays on only while this room is open.';
+        ? 'Choose a new 6-digit code. This permanently deletes every message in this room for everyone.'
+        : 'Enter your 6-digit decrypt code. Decrypt stays on only while this room is open.';
 
   return createPortal(
     <div
@@ -114,45 +120,45 @@ export function ChatDecryptPinDialog({
         </h2>
         <p className="confirm-dialog-message">{message}</p>
         <label className="chat-decrypt-pin-label" htmlFor="chat-decrypt-pin-input">
-          {mode === 'reset' ? 'New PIN' : 'PIN'}
+          {mode === 'reset' ? 'New 6-digit code' : '6-digit decrypt code'}
           <input
             ref={inputRef}
             id="chat-decrypt-pin-input"
             className="chat-decrypt-pin-input"
             type="password"
             inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={4}
-            pattern="\d{4}"
+            pattern="\d{6}"
+            autoComplete={setupMode ? 'new-password' : 'current-password'}
+            maxLength={6}
             value={pin}
             disabled={busy}
-            onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+            onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
           />
         </label>
-        {mode === 'create' || mode === 'reset' ? (
-          <label className="chat-decrypt-pin-label" htmlFor="chat-decrypt-pin-confirm">
-            Confirm PIN
-            <input
-              id="chat-decrypt-pin-confirm"
-              className="chat-decrypt-pin-input"
-              type="password"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={4}
-              pattern="\d{4}"
-              value={confirmPin}
-              disabled={busy}
-              onChange={event => setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
-            />
-          </label>
+        {setupMode ? (
+          <>
+            <label className="chat-decrypt-pin-label" htmlFor="chat-decrypt-pin-confirm">
+              Confirm 6-digit code
+              <input
+                id="chat-decrypt-pin-confirm"
+                className="chat-decrypt-pin-input"
+                type="password"
+                inputMode="numeric"
+                pattern="\d{6}"
+                autoComplete="new-password"
+                maxLength={6}
+                value={confirmPin}
+                disabled={busy}
+                onChange={event =>
+                  setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 6))
+                }
+              />
+            </label>
+            {confirmPin.length > 0 && pin !== confirmPin ? (
+              <p className="chat-decrypt-pin-error">Codes do not match</p>
+            ) : null}
+          </>
         ) : null}
-        {mode === 'create' || mode === 'reset'
-          ? pinValid && confirmPin.length === 4 && pin !== confirmPin
-            ? (
-                <p className="chat-decrypt-pin-error">PINs do not match</p>
-              )
-            : null
-          : null}
         {mode === 'reset' ? (
           <label className="chat-decrypt-wipe-ack">
             <input
@@ -188,7 +194,7 @@ export function ChatDecryptPinDialog({
             Cancel
           </button>
           <button type="submit" className="btn primary" disabled={!canSubmit}>
-            {mode === 'create' ? 'Create PIN' : mode === 'reset' ? 'Wipe & reset PIN' : 'Unlock'}
+            {mode === 'create' ? 'Create code' : mode === 'reset' ? 'Wipe & reset' : 'Unlock'}
           </button>
         </div>
       </form>

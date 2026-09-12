@@ -18,6 +18,7 @@ import com.parentalcontrol.chat.dto.ChatCallResponse;
 import com.parentalcontrol.chat.dto.ChatCallSignalRequest;
 import com.parentalcontrol.chat.dto.ChatChannelResponse;
 import com.parentalcontrol.chat.dto.ChatDecryptStatusResponse;
+import com.parentalcontrol.chat.dto.ChatDecryptUnlockResponse;
 import com.parentalcontrol.chat.dto.CreateChatChannelRequest;
 import com.parentalcontrol.chat.dto.ResetChatDecryptPinRequest;
 import com.parentalcontrol.chat.dto.SetChatDecryptPinRequest;
@@ -122,34 +123,40 @@ public class ChatController {
   }
 
   @GetMapping("/decrypt-status")
-  @Operation(summary = "Whether a server decrypt PIN is already configured")
+  @Operation(summary = "Whether a server decrypt passphrase is already configured")
   public ApiResponse<ChatDecryptStatusResponse> decryptStatus() {
     return ApiResponse.ok(chatDecryptUnlockService.status());
   }
 
   @PostMapping("/decrypt-pin")
-  @Operation(summary = "Create the server decrypt PIN (only when not yet configured)")
-  public ApiResponse<Void> createDecryptPin(@Valid @RequestBody SetChatDecryptPinRequest request) {
-    chatDecryptUnlockService.createPin(request.getPin());
+  @Operation(summary = "Create the server decrypt passphrase (only when not yet configured)")
+  public ApiResponse<ChatDecryptUnlockResponse> createDecryptPin(
+      @Valid @RequestBody SetChatDecryptPinRequest request) {
+    return ApiResponse.ok(chatDecryptUnlockService.createPin(request.getPin()));
+  }
+
+  @PostMapping("/decrypt-verify")
+  @Operation(summary = "Verify decrypt passphrase (camera unlock fallback)")
+  public ApiResponse<Void> verifyDecryptPin(@Valid @RequestBody UnlockChatDecryptRequest request) {
+    chatDecryptUnlockService.verifyPin(request.getPin());
     return ApiResponse.ok(null);
   }
 
   @PostMapping("/rooms/{roomId}/decrypt-unlock")
-  @Operation(summary = "Unlock decrypt view for this room (owner or granted member + server PIN)")
-  public ApiResponse<Void> unlockDecrypt(
+  @Operation(summary = "Unlock decrypt view for this room (owner or granted member + passphrase)")
+  public ApiResponse<ChatDecryptUnlockResponse> unlockDecrypt(
       @PathVariable UUID roomId, @Valid @RequestBody UnlockChatDecryptRequest request) {
-    chatDecryptUnlockService.unlock(roomId, request.getPin());
-    return ApiResponse.ok(null);
+    return ApiResponse.ok(chatDecryptUnlockService.unlock(roomId, request.getPin()));
   }
 
   @PostMapping("/rooms/{roomId}/decrypt-reset")
   @Operation(
       summary =
-          "Forgot PIN: wipe this room's messages for everyone and set a new server decrypt PIN (owner only)")
-  public ApiResponse<Void> resetDecryptPin(
+          "Forgot passphrase: wipe this room's messages for everyone and set a new decrypt code (owner only)")
+  public ApiResponse<ChatDecryptUnlockResponse> resetDecryptPin(
       @PathVariable UUID roomId, @Valid @RequestBody ResetChatDecryptPinRequest request) {
-    chatDecryptUnlockService.resetPinAndClearRoom(roomId, request.getNewPin());
-    return ApiResponse.ok(null);
+    return ApiResponse.ok(
+        chatDecryptUnlockService.resetPinAndClearRoom(roomId, request.getNewPin()));
   }
 
   @GetMapping("/rooms/{roomId}/members")

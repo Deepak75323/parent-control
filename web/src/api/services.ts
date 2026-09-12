@@ -291,13 +291,19 @@ export const chatApi = {
   markRead: (roomId: string, lastMessageId: string) =>
     api.post<ApiResponse<void>>(ApiPaths.chatRoomRead(roomId), {lastMessageId}),
   unlockDecrypt: (roomId: string, pin: string) =>
-    api.post<ApiResponse<void>>(ApiPaths.chatRoomDecryptUnlock(roomId), {pin}),
+    api.post<ApiResponse<{cryptoSalt: string}>>(ApiPaths.chatRoomDecryptUnlock(roomId), {pin}),
   decryptStatus: () =>
-    api.get<ApiResponse<{configured: boolean}>>(ApiPaths.CHAT_DECRYPT_STATUS),
+    api.get<ApiResponse<{configured: boolean; cryptoSalt?: string | null}>>(
+      ApiPaths.CHAT_DECRYPT_STATUS,
+    ),
   createDecryptPin: (pin: string) =>
-    api.post<ApiResponse<void>>(ApiPaths.CHAT_DECRYPT_PIN, {pin}),
+    api.post<ApiResponse<{cryptoSalt: string}>>(ApiPaths.CHAT_DECRYPT_PIN, {pin}),
+  verifyDecryptPin: (pin: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.CHAT_DECRYPT_VERIFY, {pin}),
   resetDecryptPin: (roomId: string, newPin: string) =>
-    api.post<ApiResponse<void>>(ApiPaths.chatRoomDecryptReset(roomId), {newPin}),
+    api.post<ApiResponse<{cryptoSalt: string}>>(ApiPaths.chatRoomDecryptReset(roomId), {
+      newPin,
+    }),
   notifyTyping: (roomId: string, typing: boolean) =>
     api.post<ApiResponse<void>>(ApiPaths.chatRoomTyping(roomId), {typing}),
   markUnread: (roomId: string, messageId: string) =>

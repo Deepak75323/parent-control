@@ -115,6 +115,9 @@ class AuthServiceLoginTest {
 
     assertThat(response.getAccessToken()).isEqualTo("test-access-token");
     assertThat(response.getRefreshToken()).isEqualTo("test-refresh-token");
+    assertThat(response.getProfile()).isNotNull();
+    assertThat(response.getProfile().getId()).isEqualTo(profile.getId());
+    assertThat(response.getProfile().getUserId()).isEqualTo(user.getId());
   }
 
   @Test

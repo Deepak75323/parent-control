@@ -8,6 +8,6 @@ import lombok.Data;
 public class ResetChatDecryptPinRequest {
 
   @NotBlank
-  @Pattern(regexp = "^\\d{4}$", message = "Decrypt PIN must be exactly 4 digits")
+  @Pattern(regexp = "^\\d{6}$", message = "Decrypt code must be exactly 6 digits")
   private String newPin;
 }
