@@ -39,7 +39,8 @@ type EncodeOptions = {
 };
 
 /**
- * Each word becomes one glued token: 3 letters + word + 3 letters (e.g. hi → abchixyz).
+ * Each word becomes one glued token: 3 random letters + word + 3 random letters
+ * (e.g. hi → abchixyz).
  */
 export function encodeChatMessagePlaintext(plaintext: string, options?: EncodeOptions): string {
   const words = splitMessageWords(plaintext);

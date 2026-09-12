@@ -615,9 +615,7 @@ export function ChatPage() {
             ...message.replyTo,
             bodyPreview: message.replyTo.bodyPreview
               ? isEncryptedChatBody(message.replyTo.bodyPreview)
-                ? chatDecrypted
-                  ? '🔒…'
-                  : lockedChatBodyDisplay(message.replyTo.bodyPreview)
+                ? lockedChatBodyDisplay(message.replyTo.bodyPreview)
                 : chatDecrypted
                   ? decodeChatMessagePlaintext(message.replyTo.bodyPreview)
                   : lockedChatBodyDisplay(message.replyTo.bodyPreview)
@@ -757,10 +755,14 @@ export function ChatPage() {
     if (!chatDecrypted) {
       return lockedChatBodyDisplay(message.body);
     }
-    return (
-      revealedBodies[message.id] ??
-      (isEncryptedChatBody(message.body) ? '🔒…' : decodeChatMessagePlaintext(message.body))
-    );
+    if (revealedBodies[message.id]) {
+      return revealedBodies[message.id];
+    }
+    // Prefer padded/scrambled body over a lock placeholder while decrypt catches up.
+    if (isEncryptedChatBody(message.body)) {
+      return lockedChatBodyDisplay(message.body);
+    }
+    return decodeChatMessagePlaintext(message.body);
   }
 
   async function sealOutgoingBody(plaintext: string): Promise<string> {
@@ -2041,7 +2043,17 @@ export function ChatPage() {
 
     return (
       <>
-        {showMedia ? <ChatMessageMedia message={message} onConsumed={patchMessage} /> : null}
+        {showMedia ? (
+          <ChatMessageMedia
+            message={message}
+            onConsumed={patchMessage}
+            chatDecrypted={chatDecrypted}
+            canDecryptRoom={canDecryptSelected}
+            onRequestDecrypt={() => {
+              void openDecryptDialog();
+            }}
+          />
+        ) : null}
         {shown.body ? (
           <ChatMessageText
             text={shown.body}

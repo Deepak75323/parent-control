@@ -1,15 +1,17 @@
 import {describe, expect, it} from 'vitest';
 import {
+  chatObfuscationConfig,
   decodeChatMessagePlaintext,
   encodeChatMessagePlaintext,
 } from './chatMessageObfuscation';
 
 describe('chatMessageObfuscation', () => {
-  it('glues three letters before and after each word', () => {
+  it('glues three random letters before and after each word', () => {
     const encoded = encodeChatMessagePlaintext('hi', {seed: 'test-seed'});
     expect(encoded).not.toContain(' ');
     expect(encoded).toContain('hi');
     expect(encoded).toMatch(/^[a-z]{3}hi[a-z]{3}$/);
+    expect(chatObfuscationConfig.lettersPerSide).toBe(3);
   });
 
   it('encodes how are you as three glued chunks separated by spaces', () => {

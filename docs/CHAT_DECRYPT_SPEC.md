@@ -6,7 +6,7 @@ Updated: 2026-09-04 (portal create + Snapchat-style forgot reset)
 
 ## Objective
 
-Chat message bodies are stored obfuscated (3 random letters before and after each word). Room owners can unlock a **Decrypt chat** view with a 4-digit server PIN so they can read plaintext while that room is open.
+Chat message bodies are stored obfuscated (**3 random letters before and after each word**). Room owners can unlock a **Decrypt chat** view with a 6-digit parent code so they can read plaintext while that room is open. View-once photos/videos open only after that decrypt unlock, and only once.
 
 ## Product decisions
 

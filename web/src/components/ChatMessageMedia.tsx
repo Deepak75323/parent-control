@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import {chatApi} from '../api/services';
 import {ChatMediaPreview} from './chat/ChatMediaPreview';
 import type {ChatMessageItem} from '../types/api';
@@ -6,13 +6,23 @@ import type {ChatMessageItem} from '../types/api';
 type Props = {
   message: ChatMessageItem;
   onConsumed: (messageId: string, patch: Partial<ChatMessageItem>) => void;
+  /** View-once media opens only after decrypt unlock for this room. */
+  chatDecrypted?: boolean;
+  canDecryptRoom?: boolean;
+  onRequestDecrypt?: () => void;
 };
 
 function mediaLabel(message: ChatMessageItem): string {
   return message.messageType === 'VIDEO' ? 'video' : 'photo';
 }
 
-export function ChatMessageMedia({message, onConsumed}: Props) {
+export function ChatMessageMedia({
+  message,
+  onConsumed,
+  chatDecrypted = false,
+  canDecryptRoom = false,
+  onRequestDecrypt,
+}: Props) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState(false);
@@ -21,7 +31,19 @@ export function ChatMessageMedia({message, onConsumed}: Props) {
   const consumed = Boolean(message.attachmentConsumed || openedLocally);
   const label = mediaLabel(message);
 
+  useEffect(() => {
+    if (chatDecrypted || !blobUrl) {
+      return;
+    }
+    URL.revokeObjectURL(blobUrl);
+    setBlobUrl(null);
+  }, [chatDecrypted, blobUrl]);
+
   async function handleViewOnce() {
+    if (!chatDecrypted) {
+      onRequestDecrypt?.();
+      return;
+    }
     if (!message.canViewAttachment || opening || blobUrl) {
       return;
     }
@@ -49,7 +71,7 @@ export function ChatMessageMedia({message, onConsumed}: Props) {
   if (message.ownMessage) {
     return (
       <p className="chat-message-view-once muted">
-        View once {label} {consumed ? '· Opened' : '· Not opened yet'}
+        View once {label} {consumed ? '· Opened' : '· Locked until recipient unlocks'}
       </p>
     );
   }
@@ -66,7 +88,7 @@ export function ChatMessageMedia({message, onConsumed}: Props) {
     );
   }
 
-  if (blobUrl) {
+  if (blobUrl && chatDecrypted) {
     if (message.messageType === 'VIDEO') {
       return (
         <ChatMediaPreview
@@ -86,6 +108,20 @@ export function ChatMessageMedia({message, onConsumed}: Props) {
         src={blobUrl}
         alt={message.attachmentFileName ?? 'Image message'}
       />
+    );
+  }
+
+  if (message.canViewAttachment && !chatDecrypted) {
+    return (
+      <button
+        type="button"
+        className="chat-view-once-btn"
+        disabled={!canDecryptRoom}
+        onClick={() => onRequestDecrypt?.()}>
+        {canDecryptRoom
+          ? `Unlock decrypt to view ${label} once`
+          : `Decrypt required to view ${label}`}
+      </button>
     );
   }
 

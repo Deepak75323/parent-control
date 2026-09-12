@@ -4,7 +4,7 @@ import {
   readRememberedChatDecryptPassphrase,
   rememberChatDecryptPassphrase,
 } from './chatDecryptCredentialStore';
-import {deriveChatCryptoKey, encryptChatBody, isEncryptedChatBody} from './chatMessageCrypto';
+import {deriveChatCryptoKey, isEncryptedChatBody} from './chatMessageCrypto';
 
 /** @deprecated Prefer lockedChatBodyDisplay(body) — kept for older call sites. */
 export const LOCKED_CHAT_BODY = '🔒 Encrypted message';
@@ -111,19 +111,13 @@ export async function ensureChatEncryptSession(saltBase64: string): Promise<Cryp
 
 export async function encodeOutgoingChatBody(
   plaintext: string,
-  saltBase64?: string | null,
+  _saltBase64?: string | null,
 ): Promise<string> {
   if (outgoingBodyLeaksDecryptCode(plaintext)) {
     throw new Error('Decrypt code must not be sent in chat');
   }
-  if (!sessionKey && saltBase64) {
-    await ensureChatEncryptSession(saltBase64);
-  }
-  if (sessionKey) {
-    return encryptChatBody(plaintext, sessionKey);
-  }
-  // No remembered passphrase yet — still seal as random-looking text (legacy pad).
-  // After ⋮ unlock once, later sends use AES with the same decrypt code.
+  // Always seal as 5 random letters + word + 5 random letters so locked bubbles
+  // show padded words (not AES base64 soup). Unlock strips the padding.
   const {encodeChatMessagePlaintext} = await import('./chatMessageObfuscation');
   return encodeChatMessagePlaintext(plaintext);
 }
