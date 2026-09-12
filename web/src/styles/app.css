@@ -3725,7 +3725,9 @@ body.chat-resizing * {
 }
 
 .chat-thread-title-text {
+  flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .chat-thread-title h2 {
@@ -3749,6 +3751,7 @@ body.chat-resizing * {
 .chat-role-badge {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   padding: 2px 8px;
   border-radius: var(--radius-pill);
   background: var(--gp-primary-surface);
@@ -3760,6 +3763,10 @@ body.chat-resizing * {
 
 .chat-thread-members {
   font-size: 12px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chat-thread-title-btn {

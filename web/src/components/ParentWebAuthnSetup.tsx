@@ -2,7 +2,9 @@ import {useEffect, useState} from 'react';
 import {useAuthStore} from '../auth/authStore';
 import {userIdFromAccessToken} from '../lib/jwtSubject';
 import {
+  describeWebAuthnError,
   hasParentWebAuthnCredentials,
+  isPlatformAuthenticatorAvailable,
   isWebAuthnAvailable,
   listParentWebAuthnCredentials,
   registerParentWebAuthn,
@@ -30,12 +32,16 @@ export function ParentWebAuthnSetup() {
     }
     let cancelled = false;
     void (async () => {
-      const list = await listParentWebAuthnCredentials(userId);
+      const [list, platformReady] = await Promise.all([
+        listParentWebAuthnCredentials(userId),
+        isPlatformAuthenticatorAvailable(),
+      ]);
       if (cancelled) {
         return;
       }
       setCredentials(list);
-      if (list.length === 0) {
+      // Without a screen lock / passkey provider the prompt can only fail — stay out of the way.
+      if (list.length === 0 && platformReady) {
         setOpen(true);
       }
     })();
@@ -63,7 +69,7 @@ export function ParentWebAuthnSetup() {
       setCredentials(prev => [...prev.filter(c => c.credentialId !== entry.credentialId), entry]);
       setOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not register fingerprint');
+      setError(describeWebAuthnError(err));
     } finally {
       setBusy(false);
     }
@@ -100,10 +106,10 @@ export function ParentWebAuthnSetup() {
         {error ? <p className="error">{error}</p> : null}
         <div className="confirm-dialog-actions">
           <button type="button" className="btn ghost" disabled={busy} onClick={() => setOpen(false)}>
-            Later
+            {error ? 'Use decrypt code' : 'Later'}
           </button>
           <button type="button" className="btn primary" disabled={busy} onClick={() => void handleRegister()}>
-            {busy ? 'Waiting…' : 'Register fingerprint'}
+            {busy ? 'Waiting…' : error ? 'Try again' : 'Register fingerprint'}
           </button>
         </div>
       </div>
@@ -158,7 +164,7 @@ export function FingerprintSettingsCard() {
       setMsg(`Added “${entry.name}”`);
       setName('Fingerprint');
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : 'Could not add fingerprint');
+      setMsg(describeWebAuthnError(err));
     } finally {
       setBusy(false);
     }

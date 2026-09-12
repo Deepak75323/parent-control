@@ -71,9 +71,46 @@ function b64UrlToBuffer(value: string): ArrayBuffer {
 export function isWebAuthnAvailable(): boolean {
   return (
     typeof window !== 'undefined' &&
+    window.isSecureContext &&
     typeof window.PublicKeyCredential !== 'undefined' &&
     typeof navigator.credentials?.create === 'function'
   );
+}
+
+/** Android/iOS only offer biometrics when a screen lock or passkey provider exists. */
+export async function isPlatformAuthenticatorAvailable(): Promise<boolean> {
+  if (!isWebAuthnAvailable()) {
+    return false;
+  }
+  const check = window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable;
+  if (typeof check !== 'function') {
+    return false;
+  }
+  try {
+    return await check.call(window.PublicKeyCredential);
+  } catch {
+    return false;
+  }
+}
+
+/** Turn opaque credential-manager failures into something a parent can act on. */
+export function describeWebAuthnError(error: unknown): string {
+  const name = error instanceof DOMException ? error.name : '';
+  switch (name) {
+    case 'NotAllowedError':
+      return 'Fingerprint prompt was dismissed or timed out. Try again.';
+    case 'InvalidStateError':
+      return 'This device is already registered for camera unlock.';
+    case 'NotSupportedError':
+      return 'This device has no fingerprint or face unlock available for websites.';
+    case 'SecurityError':
+      return 'Fingerprint needs the HTTPS address — open the portal over https.';
+    case 'AbortError':
+      return 'Fingerprint registration was cancelled.';
+    default:
+      break;
+  }
+  return 'Could not reach the device credential manager. Set a screen lock and fingerprint in phone settings, then retry — or use your decrypt code.';
 }
 
 export async function listParentWebAuthnCredentials(
@@ -87,6 +124,31 @@ export async function hasParentWebAuthnCredentials(userId: string): Promise<bool
   return (await listParentWebAuthnCredentials(userId)).length > 0;
 }
 
+function creationOptions(
+  userId: string,
+  displayName: string,
+  selection: AuthenticatorSelectionCriteria,
+): CredentialCreationOptions {
+  return {
+    publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp: {name: 'Parent Control Portal', id: window.location.hostname},
+      user: {
+        id: new TextEncoder().encode(userId),
+        name: displayName || userId,
+        displayName: displayName || 'Parent',
+      },
+      pubKeyCredParams: [
+        {type: 'public-key', alg: -7},
+        {type: 'public-key', alg: -257},
+      ],
+      authenticatorSelection: selection,
+      timeout: 60_000,
+      attestation: 'none',
+    },
+  };
+}
+
 /** Register a platform authenticator (fingerprint / Face ID / Windows Hello). */
 export async function registerParentWebAuthn(
   userId: string,
@@ -96,30 +158,28 @@ export async function registerParentWebAuthn(
   if (!isWebAuthnAvailable()) {
     throw new Error('Fingerprint / biometric login is not supported in this browser');
   }
-  const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const userIdBytes = new TextEncoder().encode(userId);
-  const credential = (await navigator.credentials.create({
-    publicKey: {
-      challenge,
-      rp: {name: 'Parent Control Portal', id: window.location.hostname},
-      user: {
-        id: userIdBytes,
-        name: displayName || userId,
-        displayName: displayName || 'Parent',
-      },
-      pubKeyCredParams: [
-        {type: 'public-key', alg: -7},
-        {type: 'public-key', alg: -257},
-      ],
-      authenticatorSelection: {
+  let credential: PublicKeyCredential | null = null;
+  try {
+    credential = (await navigator.credentials.create(
+      creationOptions(userId, displayName, {
         authenticatorAttachment: 'platform',
         userVerification: 'required',
-        residentKey: 'preferred',
-      },
-      timeout: 60_000,
-      attestation: 'none',
-    },
-  })) as PublicKeyCredential | null;
+        residentKey: 'required',
+      }),
+    )) as PublicKeyCredential | null;
+  } catch (strictError) {
+    if (strictError instanceof DOMException && strictError.name === 'NotAllowedError') {
+      throw strictError;
+    }
+    // Android Credential Manager rejects discoverable platform keys on some builds;
+    // a device-credential key still gates the camera.
+    credential = (await navigator.credentials.create(
+      creationOptions(userId, displayName, {
+        userVerification: 'preferred',
+        residentKey: 'discouraged',
+      }),
+    )) as PublicKeyCredential | null;
+  }
   if (!credential) {
     throw new Error('Fingerprint registration was cancelled');
   }
@@ -148,11 +208,12 @@ export async function assertParentWebAuthn(userId: string): Promise<boolean> {
     type: 'public-key' as const,
     id: b64UrlToBuffer(c.credentialId),
   }));
+  // 'preferred' so a device-credential key from the relaxed registration path still works.
   const assertion = await navigator.credentials.get({
     publicKey: {
       challenge,
       allowCredentials,
-      userVerification: 'required',
+      userVerification: 'preferred',
       timeout: 60_000,
       rpId: window.location.hostname,
     },
