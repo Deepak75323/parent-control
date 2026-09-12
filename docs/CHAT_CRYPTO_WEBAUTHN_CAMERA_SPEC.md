@@ -1,6 +1,6 @@
 # Spec: Hard chat crypto + WebAuthn camera gate
 
-Status: **IMPLEMENTED (portal)** — locked view hides AES + legacy padding; camera gate uses fingerprint list or decrypt code  
+Status: **IMPLEMENTED (portal)** — locked view hides AES + legacy padding; camera gate requires fingerprint then decrypt code  
 Date: 2026-09-12
 
 ## Assumptions (correct me if wrong)
@@ -9,13 +9,13 @@ Date: 2026-09-12
 2. **Decrypt code** is an exact 6-digit numeric code entered and confirmed by the parent in the portal. It is not stored in `.env`.
 3. **Messages** are encrypted client-side with AES-256-GCM; key = PBKDF2(passphrase, public salt). Server stores ciphertext only. The portal refuses to send a message that contains the live decrypt code.
 4. **Fingerprint** = platform WebAuthn (Touch ID / Windows Hello / USB key). Multiple credentials allowed per parent account; registered once when portal opens after login.
-5. **Camera start** on web requires WebAuthn success **or** decrypt-passphrase fallback.
+5. **Camera start** on web requires WebAuthn success **then** decrypt-code verify when a fingerprint is registered. Decrypt code alone only if no fingerprint is registered on that browser.
 6. Legacy obfuscated messages (`abc…xyz` padding) remain readable after unlock via the old decoder.
 
 ## Objective
 
 - Chat bodies unreadable without the decrypt code (including to an AI that only sees DB/API ciphertext).
-- Opening **Camera** live view on the web requires a registered fingerprint, with decrypt password as backup.
+- Opening **Camera** live view on the web requires registered fingerprint **and** decrypt password (so another enrolled finger on the phone is not enough alone).
 
 ## Non-goals
 
@@ -28,7 +28,7 @@ Date: 2026-09-12
 | Method | Path | Notes |
 |--------|------|--------|
 | GET | `/chat/decrypt-status` | + `cryptoSalt` (base64) when configured |
-| POST | `/chat/decrypt-verify` | `{ pin }` — verify only (camera fallback) |
+| POST | `/chat/decrypt-verify` | `{ pin }` — verify only (camera step 2) |
 | unlock/create | existing | return `cryptoSalt`; create/reset/unlock accept exactly 6 digits |
 
 ## Client modules

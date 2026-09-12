@@ -1,13 +1,17 @@
-import {type FormEvent, useState} from 'react';
+import {type FormEvent, useEffect, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {chatApi} from '../api/services';
 import {lockBodyScroll} from '../lib/scrollLock';
 import {
   assertParentWebAuthn,
+  describeWebAuthnError,
   hasParentWebAuthnCredentials,
   isWebAuthnAvailable,
 } from '../lib/webAuthnParentGate';
-import {useEffect} from 'react';
+import {
+  cameraUnlockCanEnterDecryptCode,
+  cameraUnlockNeedsFingerprintFirst,
+} from '../lib/cameraUnlockPolicy';
 
 type Props = {
   open: boolean;
@@ -16,30 +20,43 @@ type Props = {
   onCancel: () => void;
 };
 
+type Step = 'loading' | 'fingerprint' | 'password';
+
 /**
- * Gate for starting CAMERA live view: fingerprint first, decrypt code fallback.
+ * Gate for CAMERA live view:
+ * - If a fingerprint is registered: biometric first, then decrypt code (both required).
+ * - If not: decrypt code only.
  */
 export function CameraUnlockDialog({open, userId, onUnlocked, onCancel}: Props) {
-  const [mode, setMode] = useState<'choose' | 'password'>('choose');
+  const [step, setStep] = useState<Step>('loading');
+  const [requiresFingerprint, setRequiresFingerprint] = useState(false);
+  const [biometricPassed, setBiometricPassed] = useState(false);
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
-      setMode('choose');
+      setStep('loading');
+      setRequiresFingerprint(false);
+      setBiometricPassed(false);
       setPin('');
       setError(null);
+      setBusy(false);
       return;
     }
     const unlockScroll = lockBodyScroll();
     let cancelled = false;
     void (async () => {
-      if (!isWebAuthnAvailable() || !(await hasParentWebAuthnCredentials(userId))) {
-        if (!cancelled) {
-          setMode('password');
-        }
+      const hasFp =
+        isWebAuthnAvailable() && (await hasParentWebAuthnCredentials(userId));
+      if (cancelled) {
+        return;
       }
+      const requires = cameraUnlockNeedsFingerprintFirst(hasFp);
+      setRequiresFingerprint(requires);
+      setBiometricPassed(!requires);
+      setStep(requires ? 'fingerprint' : 'password');
     })();
     return () => {
       cancelled = true;
@@ -55,19 +72,15 @@ export function CameraUnlockDialog({open, userId, onUnlocked, onCancel}: Props) 
     setBusy(true);
     setError(null);
     try {
-      if (!isWebAuthnAvailable()) {
-        setMode('password');
-        return;
-      }
       const ok = await assertParentWebAuthn(userId);
       if (!ok) {
-        setError('Fingerprint not verified. Try again or use decrypt code.');
+        setError('Fingerprint not verified. Try again.');
         return;
       }
-      onUnlocked();
+      setBiometricPassed(true);
+      setStep('password');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Fingerprint failed');
-      setMode('password');
+      setError(describeWebAuthnError(err));
     } finally {
       setBusy(false);
     }
@@ -75,6 +88,16 @@ export function CameraUnlockDialog({open, userId, onUnlocked, onCancel}: Props) 
 
   async function tryPassword(event: FormEvent) {
     event.preventDefault();
+    if (
+      !cameraUnlockCanEnterDecryptCode({
+        hasRegisteredFingerprint: requiresFingerprint,
+        biometricPassed,
+      })
+    ) {
+      setError('Complete fingerprint first');
+      setStep('fingerprint');
+      return;
+    }
     if (!/^\d{6}$/.test(pin.trim())) {
       setError('Enter your 6-digit decrypt code');
       return;
@@ -91,6 +114,18 @@ export function CameraUnlockDialog({open, userId, onUnlocked, onCancel}: Props) 
     }
   }
 
+  const title =
+    step === 'password' && biometricPassed && requiresFingerprint
+      ? 'Enter decrypt code'
+      : 'Unlock camera';
+
+  const message =
+    step === 'fingerprint'
+      ? 'Step 1 of 2: confirm with fingerprint. You will still enter your decrypt code next — so another fingerprint on this phone is not enough alone.'
+      : requiresFingerprint
+        ? 'Step 2 of 2: enter your 6-digit chat decrypt code to open the camera.'
+        : 'Enter your 6-digit chat decrypt code to open the camera. (No fingerprint is registered on this browser.)';
+
   return createPortal(
     <div
       className="confirm-dialog-overlay"
@@ -102,13 +137,11 @@ export function CameraUnlockDialog({open, userId, onUnlocked, onCancel}: Props) 
       }}>
       <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="camera-unlock-title">
         <h2 id="camera-unlock-title" className="confirm-dialog-title">
-          Unlock camera
+          {title}
         </h2>
-        <p className="confirm-dialog-message">
-          Confirm with fingerprint to open the child camera. If biometrics are unavailable, use your
-          chat decrypt code.
-        </p>
-        {mode === 'choose' ? (
+        <p className="confirm-dialog-message">{message}</p>
+        {step === 'loading' ? <p className="muted">Checking fingerprint…</p> : null}
+        {step === 'fingerprint' ? (
           <div className="confirm-dialog-actions" style={{flexDirection: 'column', gap: 8}}>
             <button
               type="button"
@@ -117,18 +150,13 @@ export function CameraUnlockDialog({open, userId, onUnlocked, onCancel}: Props) 
               onClick={() => void tryFingerprint()}>
               {busy ? 'Waiting…' : 'Use fingerprint'}
             </button>
-            <button
-              type="button"
-              className="btn ghost"
-              disabled={busy}
-              onClick={() => setMode('password')}>
-              Use decrypt code instead
-            </button>
             <button type="button" className="btn ghost" disabled={busy} onClick={onCancel}>
               Cancel
             </button>
+            {error ? <p className="error">{error}</p> : null}
           </div>
-        ) : (
+        ) : null}
+        {step === 'password' ? (
           <form onSubmit={event => void tryPassword(event)}>
             <label className="form-row">
               Decrypt code
@@ -145,16 +173,30 @@ export function CameraUnlockDialog({open, userId, onUnlocked, onCancel}: Props) 
             </label>
             {error ? <p className="error">{error}</p> : null}
             <div className="confirm-dialog-actions">
-              <button type="button" className="btn ghost" disabled={busy} onClick={() => setMode('choose')}>
-                Back
-              </button>
+              {requiresFingerprint ? (
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setBiometricPassed(false);
+                    setPin('');
+                    setError(null);
+                    setStep('fingerprint');
+                  }}>
+                  Back
+                </button>
+              ) : (
+                <button type="button" className="btn ghost" disabled={busy} onClick={onCancel}>
+                  Cancel
+                </button>
+              )}
               <button type="submit" className="btn primary" disabled={busy}>
-                Unlock
+                Unlock camera
               </button>
             </div>
           </form>
-        )}
-        {mode === 'choose' && error ? <p className="error">{error}</p> : null}
+        ) : null}
       </div>
     </div>,
     document.body,

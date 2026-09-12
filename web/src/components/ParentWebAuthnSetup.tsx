@@ -82,9 +82,8 @@ export function ParentWebAuthnSetup() {
           Set fingerprint for camera
         </h2>
         <p className="confirm-dialog-message">
-          Register a device fingerprint (Touch ID, Face ID, or Windows Hello). It is required to open
-          the child camera on the web. You can add more later; if biometrics fail, use your decrypt
-          code instead.
+          Register a device fingerprint (Touch ID, Face ID, or Windows Hello). Camera unlock needs
+          this fingerprint first, then your chat decrypt code.
         </p>
         <label className="form-row">
           Fingerprint name
@@ -106,7 +105,7 @@ export function ParentWebAuthnSetup() {
         {error ? <p className="error">{error}</p> : null}
         <div className="confirm-dialog-actions">
           <button type="button" className="btn ghost" disabled={busy} onClick={() => setOpen(false)}>
-            {error ? 'Use decrypt code' : 'Later'}
+            {error ? 'Close' : 'Later'}
           </button>
           <button type="button" className="btn primary" disabled={busy} onClick={() => void handleRegister()}>
             {busy ? 'Waiting…' : error ? 'Try again' : 'Register fingerprint'}
@@ -174,8 +173,8 @@ export function FingerprintSettingsCard() {
     <div className="card">
       <h2>Camera fingerprints</h2>
       <p className="muted">
-        Registered biometrics unlock the child camera on this browser. Add more than one if needed.
-        If fingerprint fails, use your chat decrypt code.
+        Fingerprints are step 1 for camera unlock on this browser; your decrypt code is always step
+        2. Add more than one device fingerprint if needed.
       </p>
       {credentials.length === 0 ? (
         <p className="muted tiny">None registered yet.</p>

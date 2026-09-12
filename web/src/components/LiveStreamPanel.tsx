@@ -77,7 +77,7 @@ export function LiveStreamPanel({deviceId, deviceName}: Props) {
 
           {streamType === 'CAMERA' && !sessionId ? (
             <p className="muted tiny">
-              Camera requires fingerprint (set when you open the portal) or your chat decrypt code.
+              Camera requires fingerprint first, then your chat decrypt code (both).
             </p>
           ) : null}
 
