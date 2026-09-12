@@ -1,16 +1,54 @@
 import {messageContainsDecryptCode} from './chatDecryptCode';
-import {deriveChatCryptoKey, encryptChatBody} from './chatMessageCrypto';
+import {
+  clearRememberedChatDecryptPassphrase,
+  readRememberedChatDecryptPassphrase,
+  rememberChatDecryptPassphrase,
+} from './chatDecryptCredentialStore';
+import {deriveChatCryptoKey, encryptChatBody, isEncryptedChatBody} from './chatMessageCrypto';
 
+/** @deprecated Prefer lockedChatBodyDisplay(body) — kept for older call sites. */
 export const LOCKED_CHAT_BODY = '🔒 Encrypted message';
+
+const AES_PREFIX = 'pcp1:';
+
+/**
+ * Locked-room preview: looks like random text (not plaintext, not a lock label).
+ * Stable for the same stored body so the bubble does not flicker.
+ */
+export function lockedChatBodyDisplay(body: string | null | undefined): string {
+  if (!body) {
+    return '';
+  }
+  if (isEncryptedChatBody(body)) {
+    const raw = body
+      .slice(AES_PREFIX.length)
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toLowerCase();
+    if (!raw) {
+      return '••••••••';
+    }
+    // Chunk into fake "words" so it reads like scrambled chat, not a crypto dump.
+    return raw.match(/.{1,7}/g)?.join(' ') ?? raw;
+  }
+  // Legacy padded bodies already look like random letter soup.
+  return body;
+}
 
 let sessionKey: CryptoKey | null = null;
 let sessionSalt: string | null = null;
 let sessionPassphrase: string | null = null;
 
+/** Clears in-memory crypto only. Does not forget the remembered passphrase. */
 export function clearChatDecryptSession(): void {
   sessionKey = null;
   sessionSalt = null;
   sessionPassphrase = null;
+}
+
+/** Logout / wipe: drop memory and remembered passphrase. */
+export function wipeChatDecryptCredentials(): void {
+  clearChatDecryptSession();
+  clearRememberedChatDecryptPassphrase();
 }
 
 export function setChatDecryptSession(key: CryptoKey, salt: string, passphrase?: string): void {
@@ -18,14 +56,16 @@ export function setChatDecryptSession(key: CryptoKey, salt: string, passphrase?:
   sessionSalt = salt;
   if (passphrase) {
     sessionPassphrase = passphrase;
+    rememberChatDecryptPassphrase(passphrase);
   }
 }
 
 export function outgoingBodyLeaksDecryptCode(plaintext: string): boolean {
-  if (!sessionPassphrase) {
+  const code = sessionPassphrase ?? readRememberedChatDecryptPassphrase();
+  if (!code) {
     return false;
   }
-  return messageContainsDecryptCode(plaintext, sessionPassphrase);
+  return messageContainsDecryptCode(plaintext, code);
 }
 
 export function getChatDecryptKey(): CryptoKey | null {
@@ -40,6 +80,11 @@ export function hasChatDecryptSession(): boolean {
   return sessionKey != null;
 }
 
+/** True when we can AES-encrypt outbound messages (view may still be locked). */
+export function canEncryptChatMessages(): boolean {
+  return sessionKey != null || readRememberedChatDecryptPassphrase() != null;
+}
+
 export async function openChatDecryptSession(
   passphrase: string,
   saltBase64: string,
@@ -49,17 +94,41 @@ export async function openChatDecryptSession(
   return key;
 }
 
-export async function encodeOutgoingChatBody(plaintext: string): Promise<string> {
-  if (!sessionKey) {
-    throw new Error('Decrypt session required to encrypt chat');
+/**
+ * Load encrypt key from the remembered passphrase without unlocking the view.
+ * Returns null when the parent has never unlocked on this browser session.
+ */
+export async function ensureChatEncryptSession(saltBase64: string): Promise<CryptoKey | null> {
+  if (sessionKey && sessionSalt === saltBase64) {
+    return sessionKey;
   }
+  const remembered = readRememberedChatDecryptPassphrase();
+  if (!remembered) {
+    return null;
+  }
+  return openChatDecryptSession(remembered, saltBase64);
+}
+
+export async function encodeOutgoingChatBody(
+  plaintext: string,
+  saltBase64?: string | null,
+): Promise<string> {
   if (outgoingBodyLeaksDecryptCode(plaintext)) {
     throw new Error('Decrypt code must not be sent in chat');
   }
-  return encryptChatBody(plaintext, sessionKey);
+  if (!sessionKey && saltBase64) {
+    await ensureChatEncryptSession(saltBase64);
+  }
+  if (sessionKey) {
+    return encryptChatBody(plaintext, sessionKey);
+  }
+  // No remembered passphrase yet — still seal as random-looking text (legacy pad).
+  // After ⋮ unlock once, later sends use AES with the same decrypt code.
+  const {encodeChatMessagePlaintext} = await import('./chatMessageObfuscation');
+  return encodeChatMessagePlaintext(plaintext);
 }
 
-/** Decode for display. Locked view never returns stored ciphertext or legacy padding. */
+/** Decode for display. Locked view shows random-looking ciphertext, never plaintext. */
 export async function decodeIncomingChatBody(
   body: string | null | undefined,
   unlocked: boolean,
@@ -67,19 +136,19 @@ export async function decodeIncomingChatBody(
   if (!body) {
     return '';
   }
-  const {isEncryptedChatBody, decryptChatBody} = await import('./chatMessageCrypto');
+  const {decryptChatBody} = await import('./chatMessageCrypto');
   if (isEncryptedChatBody(body)) {
     if (!unlocked || !sessionKey) {
-      return LOCKED_CHAT_BODY;
+      return lockedChatBodyDisplay(body);
     }
     try {
       return await decryptChatBody(body, sessionKey);
     } catch {
-      return LOCKED_CHAT_BODY;
+      return lockedChatBodyDisplay(body);
     }
   }
   if (!unlocked) {
-    return LOCKED_CHAT_BODY;
+    return lockedChatBodyDisplay(body);
   }
   const {decodeChatMessagePlaintext} = await import('./chatMessageObfuscation');
   return decodeChatMessagePlaintext(body);

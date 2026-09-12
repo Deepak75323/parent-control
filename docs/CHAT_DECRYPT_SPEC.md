@@ -11,10 +11,10 @@ Chat message bodies are stored obfuscated (3 random letters before and after eac
 ## Product decisions
 
 1. **Who unlocks:** chat room owner, or a member granted decrypt by an owner/admin (PIN still required).
-2. **PIN:** exactly 4 digits, **server-wide** (one PIN for the deployment).
-3. **Create:** the parent enters and confirms an exact 6-digit code in the portal the first time decrypt is used. There is no `CHAT_DECRYPT_PIN` env secret.
+2. **PIN:** exactly 6 digits, parent-chosen in the portal (no env secret).
+3. **Create:** auto-opens only when no decrypt code exists yet. After it is set, unlock is manual via ⋮ → Decrypt chat — not on every room open or send attempt.
 4. **Scope:** view-only decode while that room is open; cleared on leave / switch room / Lock chat.
-5. **Storage:** messages stay obfuscated in the DB; PIN is stored as bcrypt hash in `chat_decrypt_settings`.
+5. **Storage:** messages stay obfuscated/encrypted in the DB; PIN is stored as bcrypt hash in `chat_decrypt_settings`.
 6. **Forgot PIN:** try the current PIN first. If forgotten, owner may **Wipe & reset PIN** — deletes **all messages in that room for everyone**, then sets a new PIN (Snapchat passkey-style). The old PIN cannot be revealed or emailed.
 
 ---

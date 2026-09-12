@@ -726,6 +726,8 @@ h2 {
   letter-spacing: 0.35em;
   text-align: center;
   font-variant-numeric: tabular-nums;
+  /* Mask digits without type=password (which steals focus on mobile autofill). */
+  -webkit-text-security: disc;
 }
 
 .chat-decrypt-pin-input:focus {
@@ -737,6 +739,13 @@ h2 {
   margin: 0 0 14px;
   font-size: 13px;
   color: var(--gp-danger, #c62828);
+}
+
+.chat-decrypt-pin-hint {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--gp-text-secondary);
 }
 
 .chat-decrypt-forgot-link {
@@ -782,16 +791,21 @@ h2 {
 .chat-decrypt-wipe-ack {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
   margin: 0 0 12px;
+  padding: 10px 0;
   font-size: 13px;
   line-height: 1.4;
   color: var(--gp-text-secondary);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .chat-decrypt-wipe-ack input {
-  margin-top: 2px;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  flex-shrink: 0;
 }
 
 .chat-decrypt-banner {
@@ -6009,7 +6023,10 @@ body.chat-resizing * {
   }
 
   .confirm-dialog-overlay {
-    align-items: end;
+    align-items: flex-start;
+    justify-content: center;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     padding: 12px;
     padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
@@ -6017,14 +6034,24 @@ body.chat-resizing * {
   .confirm-dialog {
     width: 100%;
     max-width: none;
+    max-height: none;
+    margin: auto 0 12px;
     padding: 20px 18px max(18px, env(safe-area-inset-bottom));
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    border-radius: var(--radius-xl);
   }
 
   .confirm-dialog-actions {
     flex-direction: column-reverse;
     align-items: stretch;
     gap: 8px;
+    position: sticky;
+    bottom: 0;
+    padding-top: 8px;
+    background: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--gp-surface) 0%, transparent),
+      var(--gp-surface) 28%
+    );
   }
 
   .confirm-dialog-actions .btn {

@@ -120,8 +120,7 @@ export function ChatHeader({
           <div className="chat-thread-subtitle">
             <span className="chat-role-badge">Parent</span>
             <span className="chat-thread-members muted tiny">
-              {room.name}
-              {' · '}
+              {channelLabel ? `${room.name} · ` : ''}
               {room.memberCount} member{room.memberCount === 1 ? '' : 's'}
               {room.owner ? ' · you own this server' : ''}
             </span>

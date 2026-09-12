@@ -32,7 +32,11 @@ export function ChatDecryptPinDialog({
   const [confirmPin, setConfirmPin] = useState('');
   const [wipeAck, setWipeAck] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const confirmRef = useRef<HTMLInputElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const onCancelRef = useRef(onCancel);
   const setupMode = mode === 'create' || mode === 'reset';
+  onCancelRef.current = onCancel;
 
   useEffect(() => {
     if (!open) {
@@ -47,19 +51,23 @@ export function ChatDecryptPinDialog({
     return lockBodyScroll();
   }, [open, mode]);
 
+  // Focus the first field only when the dialog opens — never again on parent re-renders.
   useEffect(() => {
     if (!open) {
       return;
     }
-    inputRef.current?.focus();
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 50);
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
-        onCancel();
+        onCancelRef.current();
       }
     }
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [open, onCancel]);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
 
   if (!open || typeof document === 'undefined') {
     return null;
@@ -86,6 +94,10 @@ export function ChatDecryptPinDialog({
     onSubmit(pin.trim());
   }
 
+  function digitsOnly(value: string): string {
+    return value.replace(/\D/g, '').slice(0, 6);
+  }
+
   const title =
     mode === 'create'
       ? 'Create decrypt code'
@@ -99,6 +111,15 @@ export function ChatDecryptPinDialog({
       : mode === 'reset'
         ? 'Choose a new 6-digit code. This permanently deletes every message in this room for everyone.'
         : 'Enter your 6-digit decrypt code. Decrypt stays on only while this room is open.';
+
+  const resetHint =
+    mode !== 'reset' || canSubmit
+      ? null
+      : !pinValid
+        ? 'Enter a new 6-digit code.'
+        : !confirmed
+          ? 'Tap Confirm and type the same 6 digits again.'
+          : 'Check the box below, then Wipe & reset becomes tappable.';
 
   return createPortal(
     <div
@@ -114,6 +135,7 @@ export function ChatDecryptPinDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="chat-decrypt-pin-title"
+        autoComplete="off"
         onSubmit={handleSubmit}>
         <h2 id="chat-decrypt-pin-title" className="confirm-dialog-title">
           {title}
@@ -125,14 +147,25 @@ export function ChatDecryptPinDialog({
             ref={inputRef}
             id="chat-decrypt-pin-input"
             className="chat-decrypt-pin-input"
-            type="password"
+            name="decrypt-pin"
+            type="tel"
             inputMode="numeric"
             pattern="\d{6}"
-            autoComplete={setupMode ? 'new-password' : 'current-password'}
+            autoComplete="one-time-code"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            enterKeyHint={setupMode ? 'next' : 'done'}
             maxLength={6}
             value={pin}
             disabled={busy}
-            onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+            onChange={event => setPin(digitsOnly(event.target.value))}
+            onKeyDown={event => {
+              if (event.key === 'Enter' && setupMode && pin.length === 6) {
+                event.preventDefault();
+                confirmRef.current?.focus();
+              }
+            }}
           />
         </label>
         {setupMode ? (
@@ -140,18 +173,30 @@ export function ChatDecryptPinDialog({
             <label className="chat-decrypt-pin-label" htmlFor="chat-decrypt-pin-confirm">
               Confirm 6-digit code
               <input
+                ref={confirmRef}
                 id="chat-decrypt-pin-confirm"
                 className="chat-decrypt-pin-input"
-                type="password"
+                name="decrypt-pin-confirm"
+                type="tel"
                 inputMode="numeric"
                 pattern="\d{6}"
-                autoComplete="new-password"
+                autoComplete="one-time-code"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                enterKeyHint="done"
                 maxLength={6}
                 value={confirmPin}
                 disabled={busy}
-                onChange={event =>
-                  setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 6))
-                }
+                onChange={event => {
+                  const next = digitsOnly(event.target.value);
+                  setConfirmPin(next);
+                  if (next.length === 6 && pin === next) {
+                    window.setTimeout(() => {
+                      actionsRef.current?.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+                    }, 0);
+                  }
+                }}
               />
             </label>
             {confirmPin.length > 0 && pin !== confirmPin ? (
@@ -170,6 +215,7 @@ export function ChatDecryptPinDialog({
             I understand this deletes all messages in this room for everyone
           </label>
         ) : null}
+        {resetHint ? <p className="chat-decrypt-pin-hint">{resetHint}</p> : null}
         {error ? <p className="chat-decrypt-pin-error">{error}</p> : null}
         {mode === 'unlock' ? (
           <button
@@ -189,7 +235,7 @@ export function ChatDecryptPinDialog({
             I remember my PIN
           </button>
         ) : null}
-        <div className="confirm-dialog-actions">
+        <div className="confirm-dialog-actions" ref={actionsRef}>
           <button type="button" className="btn ghost" disabled={busy} onClick={onCancel}>
             Cancel
           </button>

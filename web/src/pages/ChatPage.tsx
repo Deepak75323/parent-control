@@ -11,9 +11,9 @@ import {
 import {
   clearChatDecryptSession,
   encodeOutgoingChatBody,
+  ensureChatEncryptSession,
   getChatDecryptKey,
-  hasChatDecryptSession,
-  LOCKED_CHAT_BODY,
+  lockedChatBodyDisplay,
   openChatDecryptSession,
   outgoingBodyLeaksDecryptCode,
 } from '../lib/chatDecryptSession';
@@ -44,6 +44,9 @@ import {
 } from '../lib/chatChannelNav';
 import {ConnectParentModal} from '../components/chat/ConnectParentModal';
 import {ChatDecryptPinDialog, type ChatDecryptDialogMode} from '../components/chat/ChatDecryptPinDialog';
+import {
+  shouldAutoOpenDecryptSetup,
+} from '../lib/chatDecryptPromptPolicy';
 import {ChatMembersManageDialog} from '../components/chat/ChatMembersManageDialog';
 import {ChatWorkspaceLayout} from '../components/chat/ChatWorkspaceLayout';
 import {useChatCallSessionStore} from '../realtime/chatCallSessionStore';
@@ -188,6 +191,7 @@ export function ChatPage() {
   const [decryptPinOpen, setDecryptPinOpen] = useState(false);
   const [decryptPinError, setDecryptPinError] = useState<string | null>(null);
   const [decryptDialogMode, setDecryptDialogMode] = useState<ChatDecryptDialogMode>('unlock');
+  const [cryptoSalt, setCryptoSalt] = useState<string | null>(null);
 
   const setReadCursor = (messageId: string | null) => {
     lastReadMessageIdRef.current = messageId;
@@ -226,6 +230,7 @@ export function ChatPage() {
     setRevealedBodies({});
     setDecryptPinOpen(false);
     setDecryptPinError(null);
+    setCryptoSalt(null);
     // Do not leave the call when switching rooms — Discord-style: stay connected.
     setActiveCall(null);
     if (!selectedRoomId) {
@@ -240,6 +245,41 @@ export function ChatPage() {
       }
     })();
   }, [selectedRoomId]);
+
+  // Auto-prompt only for first-time decrypt code setup — never for unlock on every visit.
+  // Restore encrypt key from remembered passphrase so send works while view stays locked.
+  useEffect(() => {
+    if (!selectedRoomId || !canDecryptSelected) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const {data} = await chatApi.decryptStatus();
+        if (cancelled) {
+          return;
+        }
+        const configured = Boolean(data.data?.configured);
+        const salt = data.data?.cryptoSalt ?? null;
+        setCryptoSalt(salt);
+        if (shouldAutoOpenDecryptSetup({canDecrypt: canDecryptSelected, configured})) {
+          setDecryptDialogMode('create');
+          setDecryptPinOpen(true);
+          return;
+        }
+        if (configured && salt) {
+          await ensureChatEncryptSession(salt);
+        }
+      } catch {
+        if (!cancelled) {
+          setCryptoSalt(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRoomId, canDecryptSelected]);
 
   useEffect(() => {
     if (!chatCallEvent || !selectedRoomId || chatCallEvent.roomId !== selectedRoomId) {
@@ -577,10 +617,10 @@ export function ChatPage() {
               ? isEncryptedChatBody(message.replyTo.bodyPreview)
                 ? chatDecrypted
                   ? '🔒…'
-                  : LOCKED_CHAT_BODY
+                  : lockedChatBodyDisplay(message.replyTo.bodyPreview)
                 : chatDecrypted
                   ? decodeChatMessagePlaintext(message.replyTo.bodyPreview)
-                  : LOCKED_CHAT_BODY
+                  : lockedChatBodyDisplay(message.replyTo.bodyPreview)
               : message.replyTo.bodyPreview,
           }
         : message.replyTo,
@@ -637,6 +677,7 @@ export function ChatPage() {
         throw new Error('Decrypt salt missing from server');
       }
       await openChatDecryptSession(pin, salt);
+      setCryptoSalt(salt);
       setChatDecrypted(true);
       setDecryptPinOpen(false);
     } catch (err) {
@@ -662,6 +703,7 @@ export function ChatPage() {
       setApiMessages(prev => prev.filter(message => message.roomId !== selectedRoomId));
       setMessagesLoadedAt(prev => ({...prev, [selectedRoomId]: Date.now()}));
       await openChatDecryptSession(newPin, salt);
+      setCryptoSalt(salt);
       setChatDecrypted(true);
       setDecryptPinOpen(false);
       setNotice('Decrypt code reset. This room\'s chat history was deleted.');
@@ -687,13 +729,13 @@ export function ChatPage() {
         }
         if (isEncryptedChatBody(message.body)) {
           if (!key) {
-            next[message.id] = LOCKED_CHAT_BODY;
+            next[message.id] = lockedChatBodyDisplay(message.body);
             continue;
           }
           try {
             next[message.id] = await decryptChatBody(message.body, key);
           } catch {
-            next[message.id] = LOCKED_CHAT_BODY;
+            next[message.id] = lockedChatBodyDisplay(message.body);
           }
         } else {
           next[message.id] = decodeChatMessagePlaintext(message.body);
@@ -713,7 +755,7 @@ export function ChatPage() {
       return '';
     }
     if (!chatDecrypted) {
-      return LOCKED_CHAT_BODY;
+      return lockedChatBodyDisplay(message.body);
     }
     return (
       revealedBodies[message.id] ??
@@ -722,7 +764,7 @@ export function ChatPage() {
   }
 
   async function sealOutgoingBody(plaintext: string): Promise<string> {
-    return encodeOutgoingChatBody(plaintext);
+    return encodeOutgoingChatBody(plaintext, cryptoSalt);
   }
 
   function rejectIfDecryptCodeInDraft(plaintext: string): boolean {
@@ -734,12 +776,9 @@ export function ChatPage() {
   }
 
   function requireDecryptToSend(): boolean {
-    if (hasChatDecryptSession() && chatDecrypted) {
-      return true;
-    }
-    setNotice('Unlock decrypt to send AES-encrypted messages');
-    void openDecryptDialog();
-    return false;
+    // Always allow send — bodies are sealed as random-looking text (AES if key known).
+    // View plaintext still requires ⋮ → Decrypt chat.
+    return true;
   }
 
   const unreadMessages = useMemo(
@@ -765,7 +804,6 @@ export function ChatPage() {
       setSelectedRoomId(roomId);
       setSelectedChannelId(channelId);
       setChatDecrypted(false);
-      clearChatDecryptSession();
       setRevealedBodies({});
       setDecryptPinOpen(false);
       setDecryptPinError(null);
@@ -2048,7 +2086,6 @@ export function ChatPage() {
         }}
         onLockDecrypt={() => {
           setChatDecrypted(false);
-          clearChatDecryptSession();
           setRevealedBodies({});
         }}>
         {renderMessageBody(message)}
@@ -2099,7 +2136,6 @@ export function ChatPage() {
                     disabled: busy,
                     onSelect: () => {
                       setChatDecrypted(false);
-                      clearChatDecryptSession();
                       setRevealedBodies({});
                     },
                   }

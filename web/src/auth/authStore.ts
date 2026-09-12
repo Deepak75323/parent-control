@@ -1,5 +1,6 @@
 import {create} from 'zustand';
 import type {ParentProfile} from '../types/api';
+import {wipeChatDecryptCredentials} from '../lib/chatDecryptSession';
 import {clearMobileSessionEndedMark, wasMobileSessionEnded} from './mobileSession';
 
 const ACCESS_KEY = 'pcp_web_access';
@@ -102,6 +103,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     writeSession(REFRESH_KEY, null);
     writeSession(EMAIL_KEY, null);
     writeSession(PROFILE_KEY, null);
+    wipeChatDecryptCredentials();
     set({
       accessToken: null,
       refreshToken: null,
