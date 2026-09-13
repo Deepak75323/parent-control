@@ -25,4 +25,9 @@ public class ChatRoom extends BaseEntity {
 
   @Column(nullable = false, length = 64)
   private String name;
+
+  /** True for 1:1 friend DMs — not ordinary servers that happen to have 2 members. */
+  @Column(name = "direct_message", nullable = false)
+  @Builder.Default
+  private boolean directMessage = false;
 }

@@ -210,6 +210,8 @@ export interface ChatRoomSummary {
   muted?: boolean;
   canDecrypt?: boolean;
   memberCount: number;
+  /** True for friend DMs; false/absent for ordinary servers (even with 2 members). */
+  directMessage?: boolean;
   createdAt: string;
   updatedAt: string;
   /** When set, messages before this time are hidden for this user only. */

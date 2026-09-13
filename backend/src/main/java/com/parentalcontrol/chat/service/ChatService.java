@@ -107,8 +107,9 @@ public class ChatService {
   }
 
   /**
-   * Find or create a 2-person DM room for two parents (used after friend accept). Owner is {@code
-   * userA}.
+   * Find or create a 2-person <em>direct message</em> room for two parents (used after friend
+   * accept / friend click). Does not reuse ordinary servers that happen to have 2 members (e.g.
+   * Notes). Owner is {@code userA}.
    */
   @Transactional
   public UUID ensureDirectRoomBetween(UUID userA, UUID userB, String roomName) {
@@ -117,6 +118,9 @@ public class ChatService {
           ErrorCode.VALIDATION_ERROR, MessageConstants.FRIEND_CANNOT_ADD_YOURSELF);
     }
     for (ChatRoom room : roomRepository.findAllForMember(userA)) {
+      if (!room.isDirectMessage()) {
+        continue;
+      }
       List<ChatRoomMember> members = memberRepository.findByRoomId(room.getId());
       if (members.size() != 2) {
         continue;
@@ -135,7 +139,8 @@ public class ChatService {
       name = "Direct message";
     }
     ChatRoom room =
-        roomRepository.save(ChatRoom.builder().ownerUserId(userA).name(name).build());
+        roomRepository.save(
+            ChatRoom.builder().ownerUserId(userA).name(name).directMessage(true).build());
     Instant now = Instant.now();
     memberRepository.save(
         ChatRoomMember.builder()
@@ -1017,6 +1022,7 @@ public class ChatService {
         .muted(muted)
         .canDecrypt(canDecrypt)
         .memberCount(memberCount)
+        .directMessage(room.isDirectMessage())
         .createdAt(room.getCreatedAt())
         .updatedAt(room.getUpdatedAt())
         .chatClearedAt(chatClearedAt)

@@ -126,8 +126,7 @@ public class ParentFriendService {
     friendship.setRespondedAt(Instant.now());
     if (Boolean.TRUE.equals(request.getAccept())) {
       friendship.setStatus(ParentFriendshipStatus.ACCEPTED);
-      String roomName =
-          "Chat with " + chatNicknameForUser(friendship.getRequesterUserId());
+      String roomName = chatNicknameForUser(friendship.getRequesterUserId());
       UUID dmRoomId =
           chatService.ensureDirectRoomBetween(
               friendship.getRequesterUserId(), friendship.getAddresseeUserId(), roomName);
@@ -188,7 +187,7 @@ public class ParentFriendService {
 
     UUID owner = friendship.getRequesterUserId();
     UUID peer = friendship.getAddresseeUserId();
-    String roomName = "Chat with " + chatNicknameForUser(friendUserId);
+    String roomName = chatNicknameForUser(friendUserId);
     UUID dmRoomId = chatService.ensureDirectRoomBetween(owner, peer, roomName);
     if (friendship.getDmRoomId() == null || !friendship.getDmRoomId().equals(dmRoomId)) {
       friendship.setDmRoomId(dmRoomId);

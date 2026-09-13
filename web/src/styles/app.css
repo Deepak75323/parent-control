@@ -2655,6 +2655,52 @@ body.chat-resizing * {
   cursor: pointer;
 }
 
+.chat-dm-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+}
+
+.chat-dm-row .chat-dm-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-dm-row.active,
+.chat-dm-row:hover {
+  background: var(--chat-comm-hover);
+}
+
+.chat-dm-row.active .chat-dm-item,
+.chat-dm-row:hover .chat-dm-item {
+  color: var(--chat-comm-text);
+}
+
+.chat-dm-remove {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--chat-comm-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.chat-dm-row:hover .chat-dm-remove,
+.chat-dm-row:focus-within .chat-dm-remove {
+  opacity: 1;
+}
+
+.chat-dm-remove:hover:not(:disabled) {
+  background: color-mix(in srgb, #ef4444 25%, transparent);
+  color: #fecaca;
+}
+
 .chat-dm-item:hover,
 .chat-dm-item.active {
   background: var(--chat-comm-hover);

@@ -208,6 +208,19 @@ export function ChatPage() {
     () => rooms.find(room => room.id === selectedRoomId) ?? null,
     [rooms, selectedRoomId],
   );
+  const selectedRoomDisplay = useMemo(() => {
+    if (!selectedRoom || !isDirectStyleRoom(selectedRoom)) {
+      return selectedRoom;
+    }
+    const friend = friends.find(entry => entry.dmRoomId === selectedRoom.id);
+    if (!friend) {
+      return selectedRoom;
+    }
+    return {
+      ...selectedRoom,
+      name: friend.nickname || friend.label || selectedRoom.name,
+    };
+  }, [selectedRoom, friends]);
   const selectedChannel = useMemo(
     () => selectedRoom?.channels?.find(channel => channel.id === selectedChannelId) ?? null,
     [selectedRoom, selectedChannelId],
@@ -1151,6 +1164,9 @@ export function ChatPage() {
     nickname: string;
     dmRoomId?: string | null;
   }) {
+    if (busy) {
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -1169,13 +1185,10 @@ export function ChatPage() {
           entry.userId === friend.userId ? {...entry, dmRoomId: roomId} : entry,
         ),
       );
-      let room = rooms.find(entry => entry.id === roomId);
-      if (!room) {
-        const {data: roomsData} = await chatApi.listRooms();
-        const list = roomsData.data ?? [];
-        setRooms(list);
-        room = list.find(entry => entry.id === roomId);
-      }
+      const {data: roomsData} = await chatApi.listRooms();
+      const list = roomsData.data ?? [];
+      setRooms(list);
+      const room = list.find(entry => entry.id === roomId);
       if (!room) {
         await alert({
           title: 'Could not open chat',
@@ -1187,6 +1200,38 @@ export function ChatPage() {
       selectTextChannel(room.id, defaultTextChannel(room)?.id ?? null);
     } catch {
       setError('Could not open direct message');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemoveFriend(friend: {
+    userId: string;
+    label: string;
+    nickname: string;
+  }) {
+    const display = friend.nickname || friend.label;
+    const ok = await confirm({
+      title: 'Remove friend?',
+      message: `${display} will be removed from your friends list. Your direct message history is kept.`,
+      confirmLabel: 'Remove',
+      danger: true,
+    });
+    if (!ok) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await friendsApi.remove(friend.userId);
+      setFriends(prev => prev.filter(entry => entry.userId !== friend.userId));
+      await alert({
+        title: 'Friend removed',
+        message: `${display} is no longer on your friends list.`,
+        confirmLabel: 'OK',
+      });
+    } catch {
+      setError('Could not remove friend');
     } finally {
       setBusy(false);
     }
@@ -2433,7 +2478,8 @@ export function ChatPage() {
         setConnectParentOpen(true);
       }}
       friends={friends}
-      onSelectFriend={friend => handleSelectFriend(friend)}
+      onSelectFriend={friend => void handleSelectFriend(friend)}
+      onRemoveFriend={friend => void handleRemoveFriend(friend)}
       selfDisplayName={ownDisplayName}
       selfSeed={ownSeed}
       onOpenSelfSettings={() => navigate('/settings')}
@@ -2659,7 +2705,7 @@ export function ChatPage() {
                 />
 
                 <ChatHeader
-                  room={selectedRoom}
+                  room={selectedRoomDisplay ?? selectedRoom}
                   channelLabel={
                     isDirectStyleRoom(selectedRoom)
                       ? null
@@ -2810,11 +2856,13 @@ export function ChatPage() {
                     <EmptyChatState
                       title={
                         isDirectStyleRoom(selectedRoom)
-                          ? `Start a conversation with ${selectedRoom.name}`
+                          ? `Start a conversation with ${
+                              selectedRoomDisplay?.name ?? selectedRoom.name
+                            }`
                           : `Start a conversation in #${selectedChannel?.name ?? 'general'}`
                       }
                       subtitle="Send a message in this text channel, or invite another parent to the server."
-                      avatarName={selectedRoom.name}
+                      avatarName={selectedRoomDisplay?.name ?? selectedRoom.name}
                       avatarSeed={selectedRoom.id}
                       showInvite={canManageMembers(myRole) || selectedRoom.owner}
                       inviteIdentifier={inviteIdentifier}

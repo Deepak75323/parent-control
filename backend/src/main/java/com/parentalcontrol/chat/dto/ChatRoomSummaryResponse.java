@@ -21,6 +21,8 @@ public class ChatRoomSummaryResponse {
   /** Current viewer may unlock decrypt (owners always true). */
   boolean canDecrypt;
   int memberCount;
+  /** Friend DM (not a 2-person server like Notes). */
+  boolean directMessage;
   Instant createdAt;
   Instant updatedAt;
   /** Per-member: local clear-chat timestamp (messages before this are hidden for this user). */

@@ -4,8 +4,11 @@ import {textChannels, voiceChannels} from '../../lib/chatChannelNav';
 import type {ChatChannelItem, ChatRoomSummary} from '../../types/api';
 import {ChatVoiceSelfBar} from './ChatVoiceSelfBar';
 
-/** Two-member rooms are shown under Direct; larger rooms under server switcher. */
+/** Friend DMs use directMessage; fall back to 2-member heuristic for older API payloads. */
 export function isDirectStyleRoom(room: ChatRoomSummary): boolean {
+  if (typeof room.directMessage === 'boolean') {
+    return room.directMessage;
+  }
   return room.memberCount === 2;
 }
 
@@ -45,6 +48,13 @@ type Props = {
     nickname: string;
     dmRoomId?: string | null;
   }) => void;
+  onRemoveFriend?: (friend: {
+    friendshipId?: string;
+    userId: string;
+    label: string;
+    nickname: string;
+    dmRoomId?: string | null;
+  }) => void;
   /** Shown in Discord-style self / mute bar. */
   selfDisplayName?: string;
   selfSeed?: string;
@@ -73,12 +83,22 @@ export function ChatRoomsPanel({
   onManageMembers,
   friends = [],
   onSelectFriend,
+  onRemoveFriend,
   selfDisplayName = 'You',
   selfSeed = 'self',
   onOpenSelfSettings,
 }: Props) {
   const directRooms = useMemo(() => rooms.filter(isDirectStyleRoom), [rooms]);
   const servers = useMemo(() => rooms.filter(room => !isDirectStyleRoom(room)), [rooms]);
+  const friendByDmRoomId = useMemo(() => {
+    const map = new Map<string, (typeof friends)[number]>();
+    for (const friend of friends) {
+      if (friend.dmRoomId) {
+        map.set(friend.dmRoomId, friend);
+      }
+    }
+    return map;
+  }, [friends]);
   const selectedServer =
     rooms.find(room => room.id === selectedRoomId) ?? servers[0] ?? directRooms[0] ?? null;
 
@@ -339,19 +359,37 @@ export function ChatRoomsPanel({
             </p>
           ) : (
             friends.map(friend => (
-              <button
+              <div
                 key={friend.userId}
-                type="button"
-                className={`chat-dm-item${
+                className={`chat-dm-row${
                   friend.dmRoomId && friend.dmRoomId === selectedRoomId ? ' active' : ''
-                }`}
-                onClick={() => onSelectFriend?.(friend)}>
-                <Avatar name={friend.nickname || friend.label} seed={friend.userId} size="sm" />
-                <span className="chat-dm-meta">
-                  <span className="chat-dm-name">{friend.nickname || friend.label}</span>
-                  <span className="muted tiny">{friend.label}</span>
-                </span>
-              </button>
+                }`}>
+                <button
+                  type="button"
+                  className="chat-dm-item"
+                  disabled={busy}
+                  onClick={() => onSelectFriend?.(friend)}>
+                  <Avatar name={friend.nickname || friend.label} seed={friend.userId} size="sm" />
+                  <span className="chat-dm-meta">
+                    <span className="chat-dm-name">{friend.nickname || friend.label}</span>
+                    <span className="muted tiny">{friend.label}</span>
+                  </span>
+                </button>
+                {onRemoveFriend ? (
+                  <button
+                    type="button"
+                    className="chat-dm-remove"
+                    title="Remove friend"
+                    aria-label={`Remove ${friend.nickname || friend.label}`}
+                    disabled={busy}
+                    onClick={event => {
+                      event.stopPropagation();
+                      onRemoveFriend(friend);
+                    }}>
+                    ×
+                  </button>
+                ) : null}
+              </div>
             ))
           )}
         </CategorySection>
@@ -370,6 +408,10 @@ export function ChatRoomsPanel({
           ) : (
             directRooms.map(room => {
               const defaultText = textChannels(room)[0];
+              const linkedFriend = friendByDmRoomId.get(room.id);
+              const displayName = linkedFriend
+                ? linkedFriend.nickname || linkedFriend.label
+                : room.name;
               return (
                 <button
                   key={room.id}
@@ -382,9 +424,9 @@ export function ChatRoomsPanel({
                       onSelectServer(room.id);
                     }
                   }}>
-                  <Avatar name={room.name} seed={room.id} size="sm" />
+                  <Avatar name={displayName} seed={linkedFriend?.userId ?? room.id} size="sm" />
                   <span className="chat-dm-meta">
-                    <span className="chat-dm-name">{room.name}</span>
+                    <span className="chat-dm-name">{displayName}</span>
                     {(room.unreadCount ?? 0) > 0 ? (
                       <span className="chat-room-unread-badge">{room.unreadCount}</span>
                     ) : null}
