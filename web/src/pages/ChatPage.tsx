@@ -1132,7 +1132,13 @@ export function ChatPage() {
     }
   }
 
-  function handleSelectFriend(friend: FriendSummaryItem) {
+  function handleSelectFriend(friend: {
+    friendshipId?: string;
+    userId: string;
+    label: string;
+    nickname: string;
+    dmRoomId?: string | null;
+  }) {
     if (!friend.dmRoomId) {
       setNotice('No direct message yet — wait for them to accept, or ask them to send a request.');
       return;

@@ -32,12 +32,14 @@ type Props = {
   onManageMembers?: () => void;
   /** Accepted friends (graph); click opens dmRoomId when present. */
   friends?: Array<{
+    friendshipId?: string;
     userId: string;
     label: string;
     nickname: string;
     dmRoomId?: string | null;
   }>;
   onSelectFriend?: (friend: {
+    friendshipId?: string;
     userId: string;
     label: string;
     nickname: string;
