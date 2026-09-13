@@ -3,7 +3,7 @@ import {ConfirmDialog, type ConfirmDialogProps} from '../components/ConfirmDialo
 
 type ConfirmOptions = Pick<
   ConfirmDialogProps,
-  'title' | 'message' | 'confirmLabel' | 'cancelLabel' | 'danger'
+  'title' | 'message' | 'confirmLabel' | 'cancelLabel' | 'danger' | 'hideCancel'
 >;
 
 type PendingConfirm = ConfirmOptions & {
@@ -19,6 +19,15 @@ export function useConfirmDialog(busy = false) {
     });
   }, []);
 
+  /** Single-button info/success prompt (same chrome as confirm). */
+  const alert = useCallback((options: Omit<ConfirmOptions, 'hideCancel' | 'cancelLabel' | 'danger'>) => {
+    return confirm({
+      ...options,
+      confirmLabel: options.confirmLabel ?? 'OK',
+      hideCancel: true,
+    });
+  }, [confirm]);
+
   const close = useCallback((result: boolean) => {
     setPending(current => {
       current?.resolve(result);
@@ -33,6 +42,7 @@ export function useConfirmDialog(busy = false) {
       message={pending?.message ?? ''}
       confirmLabel={pending?.confirmLabel}
       cancelLabel={pending?.cancelLabel}
+      hideCancel={pending?.hideCancel}
       danger={pending?.danger}
       busy={busy}
       onConfirm={() => close(true)}
@@ -40,5 +50,5 @@ export function useConfirmDialog(busy = false) {
     />
   );
 
-  return {confirm, dialog};
+  return {confirm, alert, dialog};
 }

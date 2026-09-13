@@ -137,7 +137,7 @@ export function ChatPage() {
   const initialScrollDoneRef = useRef<string | null>(null);
   const roomsDrawerDismissedRef = useRef(false);
   const [atBottom, setAtBottom] = useState(true);
-  const {confirm, dialog: confirmDialog} = useConfirmDialog(busy);
+  const {confirm, alert, dialog: confirmDialog} = useConfirmDialog(busy);
 
   const ownDisplayName = useMemo(
     () =>
@@ -387,7 +387,11 @@ export function ChatPage() {
     try {
       await friendsApi.sendRequest(identifier);
       setConnectParentOpen(false);
-      setNotice(`Friend request sent to ${identifier}`);
+      await alert({
+        title: 'Friend request sent',
+        message: `Your friend request was sent to ${identifier}. They’ll see it at the top of Chat.`,
+        confirmLabel: 'OK',
+      });
       await loadFriendRequests();
     } catch {
       setConnectParentError('Could not send request — check @handle or email');
@@ -1121,9 +1125,17 @@ export function ChatPage() {
           setRooms(prev => [room, ...prev.filter(existing => existing.id !== room.id)]);
           selectTextChannel(room.id, defaultTextChannel(room)?.id ?? null);
         }
-        setNotice('Friend request accepted — direct message ready');
+        await alert({
+          title: 'Friend request accepted',
+          message: 'You’re friends now. A direct message is ready in the sidebar.',
+          confirmLabel: 'OK',
+        });
       } else if (!accept) {
-        setNotice('Friend request declined');
+        await alert({
+          title: 'Friend request declined',
+          message: 'The request was declined.',
+          confirmLabel: 'OK',
+        });
       }
     } catch {
       setError('Could not respond to friend request');
@@ -1140,7 +1152,11 @@ export function ChatPage() {
     dmRoomId?: string | null;
   }) {
     if (!friend.dmRoomId) {
-      setNotice('No direct message yet — wait for them to accept, or ask them to send a request.');
+      void alert({
+        title: 'No direct message yet',
+        message: 'Wait for them to accept, or ask them to send you a friend request.',
+        confirmLabel: 'OK',
+      });
       return;
     }
     const room = rooms.find(entry => entry.id === friend.dmRoomId);
