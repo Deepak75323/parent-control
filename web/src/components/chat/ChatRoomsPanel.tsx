@@ -1,4 +1,4 @@
-import {type FormEvent, type ReactNode, useMemo, useState} from 'react';
+import {type FormEvent, type ReactNode, useEffect, useMemo, useState} from 'react';
 import {Avatar} from '../Avatar';
 import {textChannels, voiceChannels} from '../../lib/chatChannelNav';
 import type {ChatChannelItem, ChatRoomSummary} from '../../types/api';
@@ -99,8 +99,27 @@ export function ChatRoomsPanel({
     }
     return map;
   }, [friends]);
+
+  const selectedRoom = rooms.find(room => room.id === selectedRoomId) ?? null;
+  const viewingDirect = Boolean(selectedRoom && isDirectStyleRoom(selectedRoom));
+
+  /** Keep last server for channels/header while a DM is open — otherwise you can't switch back. */
+  const [serverContextId, setServerContextId] = useState<string | null>(null);
+  useEffect(() => {
+    if (selectedRoom && !isDirectStyleRoom(selectedRoom)) {
+      setServerContextId(selectedRoom.id);
+    }
+  }, [selectedRoom]);
+  useEffect(() => {
+    if (serverContextId && !servers.some(room => room.id === serverContextId)) {
+      setServerContextId(servers[0]?.id ?? null);
+    } else if (!serverContextId && servers.length > 0) {
+      setServerContextId(servers[0].id);
+    }
+  }, [servers, serverContextId]);
+
   const selectedServer =
-    rooms.find(room => room.id === selectedRoomId) ?? servers[0] ?? directRooms[0] ?? null;
+    servers.find(room => room.id === serverContextId) ?? servers[0] ?? null;
 
   const [serverMenuOpen, setServerMenuOpen] = useState(false);
   const [textOpen, setTextOpen] = useState(true);
@@ -112,10 +131,8 @@ export function ChatRoomsPanel({
 
   const texts = textChannels(selectedServer);
   const voices = voiceChannels(selectedServer);
-  const selectedIsDirect = Boolean(selectedServer && isDirectStyleRoom(selectedServer));
   const canCreateChannels =
     Boolean(selectedServer) &&
-    !selectedIsDirect &&
     (selectedServer!.owner || selectedServer!.myRole === 'ADMIN');
 
   function submitNewChannel(event: FormEvent) {
@@ -142,9 +159,11 @@ export function ChatRoomsPanel({
               {selectedServer?.name ?? 'Parent Community'}
             </strong>
             <span className="chat-server-header-meta">
-              {selectedServer
-                ? `${selectedServer.memberCount} member${selectedServer.memberCount === 1 ? '' : 's'}`
-                : 'Select or create a server'}
+              {viewingDirect
+                ? 'Direct message open — pick a server to return'
+                : selectedServer
+                  ? `${selectedServer.memberCount} member${selectedServer.memberCount === 1 ? '' : 's'}`
+                  : 'Select or create a server'}
             </span>
           </div>
           <span className="chat-server-header-caret" aria-hidden>
@@ -165,7 +184,7 @@ export function ChatRoomsPanel({
 
       {serverMenuOpen ? (
         <div className="chat-server-menu" role="menu">
-          {servers.length === 0 && directRooms.length === 0 ? (
+          {servers.length === 0 ? (
             <p className="chat-room-empty">No servers yet</p>
           ) : (
             <>
@@ -174,8 +193,11 @@ export function ChatRoomsPanel({
                   key={room.id}
                   type="button"
                   role="menuitem"
-                  className={`chat-server-menu-item${room.id === selectedServer?.id ? ' active' : ''}`}
+                  className={`chat-server-menu-item${
+                    room.id === selectedServer?.id && !viewingDirect ? ' active' : ''
+                  }`}
                   onClick={() => {
+                    setServerContextId(room.id);
                     onSelectServer(room.id);
                     setServerMenuOpen(false);
                   }}>
@@ -254,8 +276,13 @@ export function ChatRoomsPanel({
       ) : null}
 
       <div className="chat-comm-scroll">
-        {selectedServer && !selectedIsDirect ? (
+        {selectedServer ? (
           <>
+            {viewingDirect ? (
+              <p className="chat-channel-empty chat-channel-empty--dm-hint">
+                Viewing a direct message. Click a channel below or choose a server above to return.
+              </p>
+            ) : null}
             <CategorySection
               id="text-channels"
               title="Text channels"
@@ -274,9 +301,15 @@ export function ChatRoomsPanel({
                   <ChannelRow
                     key={channel.id}
                     channel={channel}
-                    selected={channel.id === selectedChannelId}
-                    unread={
+                    selected={
+                      !viewingDirect &&
+                      selectedServer.id === selectedRoomId &&
                       channel.id === selectedChannelId
+                    }
+                    unread={
+                      channel.id === selectedChannelId &&
+                      selectedServer.id === selectedRoomId &&
+                      !viewingDirect
                         ? 0
                         : (selectedServer.unreadCount ?? 0) > 0 &&
                             channel.name.toLowerCase() === 'general'
@@ -337,11 +370,6 @@ export function ChatRoomsPanel({
               </form>
             ) : null}
           </>
-        ) : selectedServer && selectedIsDirect ? (
-          <p className="chat-channel-empty chat-channel-empty--dm-hint">
-            Direct chat with {selectedServer.name}. Use Voice/Video in the header — this is not a
-            server channel.
-          </p>
         ) : (
           <p className="chat-room-empty">Create a server to add channels</p>
         )}
