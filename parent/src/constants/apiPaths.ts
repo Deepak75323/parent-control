@@ -74,6 +74,8 @@ export const ApiPaths = {
   PARENT_FAMILY_HANDLE_STATUS: `${V1}/parent/family-handle/status`,
   PARENT_READ_RECEIPTS: `${V1}/parent/read-receipts`,
   PARENT_READ_RECEIPTS_STATUS: `${V1}/parent/read-receipts/status`,
+  PARENT_SHARE_PRESENCE: `${V1}/parent/share-presence`,
+  PARENT_SHARE_PRESENCE_STATUS: `${V1}/parent/share-presence/status`,
   PARENT_ANALYTICS_BATCH: `${V1}/parent/analytics/batch`,
 
   STREAMING: `${V1}/streaming`,

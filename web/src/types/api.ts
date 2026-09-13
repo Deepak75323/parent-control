@@ -16,6 +16,7 @@ export interface ParentProfile {
   emailVerified?: boolean;
   chatNickname?: string;
   readReceiptsEnabled?: boolean;
+  sharePresenceEnabled?: boolean;
 }
 
 export interface AuthResponse {

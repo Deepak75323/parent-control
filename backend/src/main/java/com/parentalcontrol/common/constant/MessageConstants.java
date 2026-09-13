@@ -127,6 +127,8 @@ public final class MessageConstants {
 
   public static final String INVALID_DEVICE_TOKEN = "Invalid device token";
 
+  public static final String INVALID_EMAIL_OR_PASSWORD = "Invalid email or password";
+
   public static final String INVALID_OR_EXPIRED_RESET_LINK = "Invalid or expired reset link";
 
   public static final String INVALID_OR_EXPIRED_VERIFICATION_LINK =

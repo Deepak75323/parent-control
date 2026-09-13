@@ -31,6 +31,13 @@ public interface ChatRoomMemberRepository extends JpaRepository<ChatRoomMember, 
 
   @Query(
       """
+      SELECT m FROM ChatRoomMember m
+      WHERE m.userId = :userId AND m.deletedAt IS NULL
+      """)
+  List<ChatRoomMember> findActiveByUserId(@Param("userId") UUID userId);
+
+  @Query(
+      """
       SELECT CASE WHEN COUNT(m) > 0 THEN true ELSE false END FROM ChatRoomMember m
       WHERE m.roomId = :roomId AND m.userId = :userId AND m.deletedAt IS NULL
       """)

@@ -123,6 +123,11 @@ public class ChatRealtimeService {
             "typing", typing));
   }
 
+  public void publishPresenceUpdate(UUID memberUserId, Map<String, Object> event) {
+    messagingTemplate.convertAndSendToUser(
+        memberUserId.toString(), "/queue/chat-messages", event);
+  }
+
   public void publishCallEvent(UUID memberUserId, Map<String, Object> event) {
     messagingTemplate.convertAndSendToUser(
         memberUserId.toString(), "/queue/chat-messages", event);

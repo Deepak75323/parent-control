@@ -30,6 +30,7 @@ import {
 } from '../lib/chatUnreadMerge';
 import {resolveChatDisplayNickname} from '../lib/chatDisplayNickname';
 import {formatChatTypingLine} from '../lib/chatTypingLabel';
+import {formatPartnerPresenceLabel} from '../lib/parentPresence';
 import {validateChatMediaFile} from '../lib/chatMediaUpload';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {Avatar} from '../components/Avatar';
@@ -166,8 +167,10 @@ export function ChatPage() {
   const receiptPatches = useRealtimeStore(s => s.receiptPatches);
   const reactionPatches = useRealtimeStore(s => s.reactionPatches);
   const chatTypingByRoom = useRealtimeStore(s => s.chatTypingByRoom);
+  const partnerPresenceByRoom = useRealtimeStore(s => s.partnerPresenceByRoom);
   const pruneExpiredChatTyping = useRealtimeStore(s => s.pruneExpiredChatTyping);
   const clearChatTypingForRoom = useRealtimeStore(s => s.clearChatTypingForRoom);
+  const [presenceNowMs, setPresenceNowMs] = useState(() => Date.now());
   const deliveredMarkedRef = useRef<Set<string>>(new Set());
   const lastReadMarkedRef = useRef<string | null>(null);
   const catchUpReadRef = useRef<() => void>(() => undefined);
@@ -984,6 +987,24 @@ export function ChatPage() {
     }
   }, []);
 
+  const loadPartnerPresence = useCallback(async (roomId: string) => {
+    try {
+      const {data} = await chatApi.partnerPresence(roomId);
+      const payload = data.data;
+      if (!payload?.userId) {
+        return;
+      }
+      useRealtimeStore.getState().upsertPartnerPresence(roomId, {
+        userId: payload.userId,
+        online: Boolean(payload.online),
+        lastSeenAt: payload.lastSeenAt ?? null,
+        hidden: Boolean(payload.hidden),
+      });
+    } catch {
+      // Presence is best-effort; header falls back to member count.
+    }
+  }, []);
+
   async function handleRemoveMember(userId: string) {
     if (!selectedRoomId) {
       return;
@@ -1081,14 +1102,27 @@ export function ChatPage() {
     setApiMessages(prev => prev.filter(message => message.roomId !== selectedRoomId));
     void loadMessages(selectedRoomId, selectedChannelId);
     void loadRoomMembers(selectedRoomId);
-  }, [selectedRoomId, selectedChannelId, loadMessages, loadRoomMembers]);
+    const room = rooms.find(entry => entry.id === selectedRoomId);
+    if (room && isDirectStyleRoom(room)) {
+      void loadPartnerPresence(selectedRoomId);
+    }
+  }, [selectedRoomId, selectedChannelId, loadMessages, loadRoomMembers, loadPartnerPresence, rooms]);
 
   useEffect(() => {
     if (!selectedRoomId) {
       return;
     }
     void loadRoomMembers(selectedRoomId);
-  }, [selectedRoomId, loadRoomMembers, chatRoomsEpoch]);
+    const room = rooms.find(entry => entry.id === selectedRoomId);
+    if (room && isDirectStyleRoom(room)) {
+      void loadPartnerPresence(selectedRoomId);
+    }
+  }, [selectedRoomId, loadRoomMembers, loadPartnerPresence, chatRoomsEpoch, rooms]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setPresenceNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!selectedRoomId || !chatClearedEpoch[selectedRoomId]) {
@@ -2198,6 +2232,13 @@ export function ChatPage() {
       ]
     : [];
 
+  const partnerPresence =
+    selectedRoomId && selectedRoom && isDirectStyleRoom(selectedRoom)
+      ? partnerPresenceByRoom[selectedRoomId] ?? null
+      : null;
+  const partnerPresenceLabel = formatPartnerPresenceLabel(partnerPresence, presenceNowMs);
+  const partnerOnline = Boolean(partnerPresence && !partnerPresence.hidden && partnerPresence.online);
+
   const voiceChannelName = useMemo(() => {
     if (!activeCall?.channelId || !selectedRoom) {
       return null;
@@ -2494,6 +2535,8 @@ export function ChatPage() {
                   onVoiceCall={() => void handleStartOrJoinCall('voice')}
                   onVideoCall={() => void handleStartOrJoinCall('video')}
                   callDisabled={inCall}
+                  partnerPresenceLabel={partnerPresenceLabel}
+                  partnerOnline={partnerOnline}
                 />
 
                 {inCall && callMinimized ? (

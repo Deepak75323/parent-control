@@ -50,9 +50,12 @@ export const ApiPaths = {
   PARENT_FAMILY_HANDLE_STATUS: `${V1}/parent/family-handle/status`,
   PARENT_READ_RECEIPTS: `${V1}/parent/read-receipts`,
   PARENT_READ_RECEIPTS_STATUS: `${V1}/parent/read-receipts/status`,
+  PARENT_SHARE_PRESENCE: `${V1}/parent/share-presence`,
+  PARENT_SHARE_PRESENCE_STATUS: `${V1}/parent/share-presence/status`,
 
   CHAT_ROOMS: `${V1}/chat/rooms`,
   chatRoom: (roomId: string) => `${V1}/chat/rooms/${roomId}`,
+  chatRoomPresence: (roomId: string) => `${V1}/chat/rooms/${roomId}/presence`,
   chatRoomClearHistory: (roomId: string) => `${V1}/chat/rooms/${roomId}/clear-history`,
   chatRoomClearChat: (roomId: string) => `${V1}/chat/rooms/${roomId}/clear-chat`,
   chatRoomLeave: (roomId: string) => `${V1}/chat/rooms/${roomId}/leave`,

@@ -125,12 +125,16 @@ public class AuthService {
     User user =
         userRepository
             .findByEmailIgnoreCase(normalizedEmail)
-            .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
+            .orElseThrow(
+                () ->
+                    new BusinessException(
+                        ErrorCode.INVALID_CREDENTIALS, MessageConstants.INVALID_EMAIL_OR_PASSWORD));
     // Lockout check after confirming the email exists — prevents DoS on unknown accounts.
     loginAttemptService.assertNotLocked(normalizedEmail);
     if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
       loginAttemptService.recordFailure(normalizedEmail);
-      throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
+      throw new BusinessException(
+          ErrorCode.INVALID_CREDENTIALS, MessageConstants.INVALID_EMAIL_OR_PASSWORD);
     }
     if (emailVerificationProperties.isEnforcementEnabled() && !user.isEmailVerified()) {
       throw new BusinessException(
@@ -262,6 +266,7 @@ public class AuthService {
         .emailVerified(user.isEmailVerified())
         .chatNickname(ChatNicknameGenerator.fromEmail(user.getEmail()))
         .readReceiptsEnabled(profile.isReadReceiptsEnabled())
+        .sharePresenceEnabled(profile.isSharePresenceEnabled())
         .build();
   }
 

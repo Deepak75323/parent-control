@@ -19,7 +19,7 @@ Preserve rooms, invites, moderation, messages, mesh WebRTC.
 1. Existing `chat_rooms` = communities/servers; `chat_channels` TEXT|VOICE already shipped (V44).
 2. Direct = heuristic `memberCount === 2` until a friends/DM API exists — do not fake presence or a friend graph.
 3. No channel categories API yet — UI uses fixed TEXT / VOICE category sections (collapsible).
-4. No parent presence API — do not show fake online dots.
+4. No parent presence API — do not show fake online dots. **(Superseded 2026-09-14:** real presence for 2-person chats — see `PARENT_PRESENCE_SPEC.md`.)
 5. Video in call uses a **dedicated main workspace** (not docked above messages). Side chat during call uses the right panel.
 
 ## In scope (this increment)

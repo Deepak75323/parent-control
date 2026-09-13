@@ -55,6 +55,13 @@ public class ParentProfile extends BaseEntity {
   @Builder.Default
   private boolean readReceiptsEnabled = true;
 
+  /**
+   * When false, this parent does not share Online / Last seen with 2-person chat partners.
+   */
+  @Column(name = "share_presence_enabled", nullable = false)
+  @Builder.Default
+  private boolean sharePresenceEnabled = true;
+
   public UUID getUserId() {
     return user != null ? user.getId() : null;
   }

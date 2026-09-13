@@ -6,6 +6,7 @@ import {
   familyHandleApi,
   parentPinApi,
   readReceiptsApi,
+  sharePresenceApi,
 } from '../api/services';
 import {useAuthStore} from '../auth/authStore';
 import {useLogout} from '../auth/useLogout';
@@ -33,6 +34,8 @@ export function SettingsPage() {
   const [handleStatus, setHandleStatus] = useState<string | null>(null);
   const [readReceiptsEnabled, setReadReceiptsEnabled] = useState(true);
   const [readReceiptsMsg, setReadReceiptsMsg] = useState<string | null>(null);
+  const [sharePresenceEnabled, setSharePresenceEnabled] = useState(true);
+  const [sharePresenceMsg, setSharePresenceMsg] = useState<string | null>(null);
   const [deletePassword, setDeletePassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -41,10 +44,11 @@ export function SettingsPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [pinRes, handleRes, receiptsRes] = await Promise.all([
+      const [pinRes, handleRes, receiptsRes, presenceRes] = await Promise.all([
         parentPinApi.status(),
         familyHandleApi.status(),
         readReceiptsApi.status(),
+        sharePresenceApi.status(),
       ]);
       setPinConfigured(Boolean(pinRes.data.data?.pinConfigured));
       setHandle(handleRes.data.data?.familyHandle ?? '');
@@ -54,6 +58,7 @@ export function SettingsPage() {
           : 'Not configured',
       );
       setReadReceiptsEnabled(receiptsRes.data.data?.enabled !== false);
+      setSharePresenceEnabled(presenceRes.data.data?.enabled !== false);
     } catch {
       setError('Failed to load settings');
     }
@@ -131,6 +136,27 @@ export function SettingsPage() {
       );
     } catch {
       setReadReceiptsMsg('Could not update read receipt setting');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onToggleSharePresence = async () => {
+    const next = !sharePresenceEnabled;
+    setBusy(true);
+    setSharePresenceMsg(null);
+    try {
+      const {data} = await sharePresenceApi.setEnabled(next);
+      const enabled = data.data?.enabled !== false;
+      setSharePresenceEnabled(enabled);
+      useAuthStore.getState().patchProfile({sharePresenceEnabled: enabled});
+      setSharePresenceMsg(
+        enabled
+          ? 'Partners can see when you are Online or Last seen.'
+          : 'Online / Last seen hidden from chat partners.',
+      );
+    } catch {
+      setSharePresenceMsg('Could not update share presence setting');
     } finally {
       setBusy(false);
     }
@@ -267,6 +293,24 @@ export function SettingsPage() {
           </button>
         </div>
         {readReceiptsMsg ? <p className="muted">{readReceiptsMsg}</p> : null}
+      </div>
+
+      <div className="card">
+        <h2>Share presence</h2>
+        <p className="muted">
+          When on, your partner in a 2-person chat can see Online or Last seen. Turn off to hide
+          that from them.
+        </p>
+        <div className="btn-row">
+          <button
+            type="button"
+            className={`btn ${sharePresenceEnabled ? 'primary' : 'ghost'}`}
+            disabled={busy}
+            onClick={() => void onToggleSharePresence()}>
+            {sharePresenceEnabled ? 'Share presence: On' : 'Share presence: Off'}
+          </button>
+        </div>
+        {sharePresenceMsg ? <p className="muted">{sharePresenceMsg}</p> : null}
       </div>
 
       <div className="card">

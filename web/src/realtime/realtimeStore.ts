@@ -22,6 +22,13 @@ export type ChatTypingPeer = {
   expiresAt: number;
 };
 
+export type PartnerPresenceLive = {
+  userId: string;
+  online: boolean;
+  lastSeenAt?: string | null;
+  hidden: boolean;
+};
+
 export type ChatCallLiveEvent = {
   eventType: string;
   roomId: string;
@@ -54,6 +61,8 @@ interface RealtimeState {
   reactionPatches: Record<string, ChatMessageItem['reactions']>;
   /** Ephemeral typing peers keyed by room (auto-expire client-side). */
   chatTypingByRoom: Record<string, ChatTypingPeer[]>;
+  /** Partner presence for 2-person rooms (STOMP + cold GET). */
+  partnerPresenceByRoom: Record<string, PartnerPresenceLive>;
   chatClearedEpoch: Record<string, number>;
   /** Wall-clock ms when history was cleared for everyone (owner) — stale WS cache is ignored before this. */
   chatClearedAt: Record<string, number>;
@@ -83,6 +92,7 @@ interface RealtimeState {
     peer: Omit<ChatTypingPeer, 'expiresAt'>,
     typing: boolean,
   ) => void;
+  upsertPartnerPresence: (roomId: string, presence: PartnerPresenceLive) => void;
   clearChatTypingForRoom: (roomId: string) => void;
   pruneExpiredChatTyping: () => void;
   markRoomIncomingRead: (roomId: string) => void;
@@ -123,6 +133,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   receiptPatches: {},
   reactionPatches: {},
   chatTypingByRoom: {},
+  partnerPresenceByRoom: {},
   chatClearedEpoch: {},
   chatClearedAt: {},
   personalChatClearedAt: {},
@@ -188,6 +199,13 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
         },
       };
     }),
+  upsertPartnerPresence: (roomId, presence) =>
+    set(state => ({
+      partnerPresenceByRoom: {
+        ...state.partnerPresenceByRoom,
+        [roomId]: presence,
+      },
+    })),
   clearChatTypingForRoom: roomId =>
     set(state => {
       if (!state.chatTypingByRoom[roomId]) {
@@ -335,6 +353,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       receiptPatches: {},
       reactionPatches: {},
       chatTypingByRoom: {},
+      partnerPresenceByRoom: {},
       chatClearedEpoch: {},
       chatClearedAt: {},
       personalChatClearedAt: {},

@@ -4,7 +4,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useAuthStore} from '../store/authStore';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {Card, HeroBlock, MenuRow, ScreenShell} from '../components/AppScreen';
-import {readReceiptsApi} from '../services/api';
+import {readReceiptsApi, sharePresenceApi} from '../services/api';
 import {appAlert} from '../utils/appAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
@@ -14,6 +14,9 @@ export function SettingsScreen({navigation}: Props) {
   const [readReceiptsEnabled, setReadReceiptsEnabled] = useState(true);
   const [receiptsLoading, setReceiptsLoading] = useState(true);
   const [receiptsBusy, setReceiptsBusy] = useState(false);
+  const [sharePresenceEnabled, setSharePresenceEnabled] = useState(true);
+  const [presenceLoading, setPresenceLoading] = useState(true);
+  const [presenceBusy, setPresenceBusy] = useState(false);
 
   const loadReadReceipts = useCallback(async () => {
     setReceiptsLoading(true);
@@ -27,9 +30,22 @@ export function SettingsScreen({navigation}: Props) {
     }
   }, []);
 
+  const loadSharePresence = useCallback(async () => {
+    setPresenceLoading(true);
+    try {
+      const {data} = await sharePresenceApi.status();
+      setSharePresenceEnabled(data.data?.enabled !== false);
+    } catch {
+      // Keep default On if status fails.
+    } finally {
+      setPresenceLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadReadReceipts();
-  }, [loadReadReceipts]);
+    void loadSharePresence();
+  }, [loadReadReceipts, loadSharePresence]);
 
   const onToggleReadReceipts = async (next: boolean) => {
     if (receiptsBusy) {
@@ -46,6 +62,24 @@ export function SettingsScreen({navigation}: Props) {
       appAlert('Couldn’t update', 'Check your connection and try again.');
     } finally {
       setReceiptsBusy(false);
+    }
+  };
+
+  const onToggleSharePresence = async (next: boolean) => {
+    if (presenceBusy) {
+      return;
+    }
+    const previous = sharePresenceEnabled;
+    setSharePresenceEnabled(next);
+    setPresenceBusy(true);
+    try {
+      const {data} = await sharePresenceApi.setEnabled(next);
+      setSharePresenceEnabled(data.data?.enabled !== false);
+    } catch {
+      setSharePresenceEnabled(previous);
+      appAlert('Couldn’t update', 'Check your connection and try again.');
+    } finally {
+      setPresenceBusy(false);
     }
   };
 
@@ -83,8 +117,8 @@ export function SettingsScreen({navigation}: Props) {
             <Text style={styles.toggleTitle}>Read receipts</Text>
             <Text style={styles.toggleSub}>
               {readReceiptsEnabled
-                ? 'Others see when you read their chat messages'
-                : 'Others will not see when you read their messages'}
+                ? 'You and others see green ticks when messages are read'
+                : 'Green read ticks hidden for you and others'}
             </Text>
           </View>
           {receiptsLoading ? (
@@ -94,6 +128,28 @@ export function SettingsScreen({navigation}: Props) {
               value={readReceiptsEnabled}
               disabled={receiptsBusy}
               onValueChange={value => void onToggleReadReceipts(value)}
+            />
+          )}
+        </View>
+        <View style={[styles.toggleRow, styles.toggleRowBorder]}>
+          <View style={styles.toggleIconWrap}>
+            <Text style={styles.toggleIcon}>🟢</Text>
+          </View>
+          <View style={styles.toggleText}>
+            <Text style={styles.toggleTitle}>Share presence</Text>
+            <Text style={styles.toggleSub}>
+              {sharePresenceEnabled
+                ? 'Partner can see Online / Last seen in 2-person chats'
+                : 'Online / Last seen hidden from chat partners'}
+            </Text>
+          </View>
+          {presenceLoading ? (
+            <ActivityIndicator />
+          ) : (
+            <Switch
+              value={sharePresenceEnabled}
+              disabled={presenceBusy}
+              onValueChange={value => void onToggleSharePresence(value)}
             />
           )}
         </View>

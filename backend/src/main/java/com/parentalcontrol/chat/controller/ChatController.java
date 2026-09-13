@@ -14,6 +14,7 @@ import com.parentalcontrol.chat.dto.RespondChatInviteRequest;
 import com.parentalcontrol.chat.dto.SendChatMessageRequest;
 import com.parentalcontrol.chat.dto.SetChatMessageReactionRequest;
 import com.parentalcontrol.chat.dto.ChatTypingRequest;
+import com.parentalcontrol.chat.dto.ChatPartnerPresenceResponse;
 import com.parentalcontrol.chat.dto.ChatCallResponse;
 import com.parentalcontrol.chat.dto.ChatCallSignalRequest;
 import com.parentalcontrol.chat.dto.ChatChannelResponse;
@@ -30,6 +31,7 @@ import com.parentalcontrol.chat.service.ChatCallService;
 import com.parentalcontrol.chat.service.ChatChannelService;
 import com.parentalcontrol.chat.service.ChatDecryptUnlockService;
 import com.parentalcontrol.chat.service.ChatService;
+import com.parentalcontrol.chat.service.ParentPresenceFanoutService;
 import com.parentalcontrol.chat.service.ChatService.AttachmentPayload;
 import com.parentalcontrol.common.api.ApiResponse;
 import com.parentalcontrol.common.constant.ApiConstants;
@@ -67,6 +69,7 @@ public class ChatController {
   private final ChatDecryptUnlockService chatDecryptUnlockService;
   private final ChatCallService chatCallService;
   private final ChatChannelService chatChannelService;
+  private final ParentPresenceFanoutService parentPresenceFanoutService;
 
   @PostMapping("/rooms")
   @Operation(summary = "Create a parent chat room (server)")
@@ -79,6 +82,12 @@ public class ChatController {
   @Operation(summary = "List chat rooms (servers) for the current parent")
   public ApiResponse<List<ChatRoomSummaryResponse>> listRooms() {
     return ApiResponse.ok(chatService.listRooms());
+  }
+
+  @GetMapping("/rooms/{roomId}/presence")
+  @Operation(summary = "Partner Online / Last seen for a 2-person chat (hidden if they opted out)")
+  public ApiResponse<ChatPartnerPresenceResponse> partnerPresence(@PathVariable UUID roomId) {
+    return ApiResponse.ok(parentPresenceFanoutService.partnerPresenceForRoom(roomId));
   }
 
   @GetMapping("/rooms/{roomId}/channels")

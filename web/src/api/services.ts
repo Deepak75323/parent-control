@@ -161,6 +161,13 @@ export const readReceiptsApi = {
     api.post<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_READ_RECEIPTS, {enabled}),
 };
 
+export const sharePresenceApi = {
+  status: () =>
+    api.get<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_SHARE_PRESENCE_STATUS),
+  setEnabled: (enabled: boolean) =>
+    api.post<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_SHARE_PRESENCE, {enabled}),
+};
+
 export const policiesApi = {
   list: (type?: string) =>
     api.get<ApiResponse<PolicySummary[]>>(ApiPaths.POLICIES, {params: type ? {type} : {}}),
@@ -203,6 +210,15 @@ export const chatApi = {
   leaveRoom: (roomId: string) => api.post<ApiResponse<void>>(ApiPaths.chatRoomLeave(roomId), {}),
   listMembers: (roomId: string) =>
     api.get<ApiResponse<ChatMemberItem[]>>(ApiPaths.chatRoomMembers(roomId)),
+  partnerPresence: (roomId: string) =>
+    api.get<
+      ApiResponse<{
+        userId?: string | null;
+        online: boolean;
+        lastSeenAt?: string | null;
+        hidden: boolean;
+      }>
+    >(ApiPaths.chatRoomPresence(roomId)),
   removeMember: (roomId: string, userId: string) =>
     api.delete<ApiResponse<void>>(ApiPaths.chatRoomMember(roomId, userId)),
   updateMember: (

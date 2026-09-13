@@ -3783,6 +3783,31 @@ body.chat-resizing * {
   text-overflow: ellipsis;
 }
 
+.chat-partner-presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.chat-partner-presence--online {
+  color: var(--gp-success, #1f9d55);
+}
+
+.chat-partner-presence-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9aa3b2;
+  flex-shrink: 0;
+}
+
+.chat-partner-presence-dot.online {
+  background: #6bff8f;
+  box-shadow: 0 0 0 2px rgba(107, 255, 143, 0.25);
+}
+
 .chat-thread-title-btn {
   border: 0;
   background: transparent;

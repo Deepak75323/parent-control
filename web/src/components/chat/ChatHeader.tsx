@@ -32,6 +32,9 @@ type Props = {
   onVoiceCall?: () => void;
   onVideoCall?: () => void;
   callDisabled?: boolean;
+  /** DM-only partner presence label (Online / Last seen). */
+  partnerPresenceLabel?: string | null;
+  partnerOnline?: boolean;
 };
 
 export function ChatHeader({
@@ -56,6 +59,8 @@ export function ChatHeader({
   onVoiceCall,
   onVideoCall,
   callDisabled = false,
+  partnerPresenceLabel = null,
+  partnerOnline = false,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuId = useId();
@@ -119,11 +124,23 @@ export function ChatHeader({
           </h2>
           <div className="chat-thread-subtitle">
             <span className="chat-role-badge">Parent</span>
-            <span className="chat-thread-members muted tiny">
-              {channelLabel ? `${room.name} · ` : ''}
-              {room.memberCount} member{room.memberCount === 1 ? '' : 's'}
-              {room.owner ? ' · you own this server' : ''}
-            </span>
+            {partnerPresenceLabel ? (
+              <span
+                className={`chat-partner-presence muted tiny${partnerOnline ? ' chat-partner-presence--online' : ''}`}
+                aria-live="polite">
+                <span
+                  className={`chat-partner-presence-dot${partnerOnline ? ' online' : ''}`}
+                  aria-hidden
+                />
+                {partnerPresenceLabel}
+              </span>
+            ) : (
+              <span className="chat-thread-members muted tiny">
+                {channelLabel ? `${room.name} · ` : ''}
+                {room.memberCount} member{room.memberCount === 1 ? '' : 's'}
+                {room.owner ? ' · you own this server' : ''}
+              </span>
+            )}
           </div>
         </div>
       </div>

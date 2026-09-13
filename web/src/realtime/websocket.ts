@@ -238,6 +238,28 @@ export function connectWebSocket(): void {
           );
           return;
         }
+        if (
+          'eventType' in event &&
+          event.eventType === 'PRESENCE_UPDATE' &&
+          'userId' in event &&
+          typeof (event as {userId?: string}).userId === 'string' &&
+          typeof (event as {roomId?: string}).roomId === 'string'
+        ) {
+          const presenceEvent = event as {
+            roomId: string;
+            userId: string;
+            online?: boolean;
+            lastSeenAt?: string | null;
+            hidden?: boolean;
+          };
+          useRealtimeStore.getState().upsertPartnerPresence(presenceEvent.roomId, {
+            userId: presenceEvent.userId,
+            online: Boolean(presenceEvent.online),
+            lastSeenAt: presenceEvent.lastSeenAt ?? null,
+            hidden: Boolean(presenceEvent.hidden),
+          });
+          return;
+        }
         useRealtimeStore.getState().upsertLiveChatMessage(event as ChatMessageItem);
       });
 

@@ -21,4 +21,6 @@ public class ParentProfileResponse {
   private String chatNickname;
   /** Whether this parent shares read receipts in chat. */
   private boolean readReceiptsEnabled;
+  /** Whether this parent shares Online / Last seen with DM partners. */
+  private boolean sharePresenceEnabled;
 }
