@@ -200,6 +200,8 @@ export const friendsApi = {
     api.post<ApiResponse<FriendRequestItem>>(ApiPaths.friendRequestRespond(requestId), {
       accept,
     }),
+  openDm: (friendUserId: string) =>
+    api.post<ApiResponse<FriendSummaryItem>>(ApiPaths.friendOpenDm(friendUserId)),
   remove: (friendUserId: string) =>
     api.delete<ApiResponse<void>>(ApiPaths.friendRemove(friendUserId)),
 };

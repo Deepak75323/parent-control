@@ -1144,34 +1144,52 @@ export function ChatPage() {
     }
   }
 
-  function handleSelectFriend(friend: {
+  async function handleSelectFriend(friend: {
     friendshipId?: string;
     userId: string;
     label: string;
     nickname: string;
     dmRoomId?: string | null;
   }) {
-    if (!friend.dmRoomId) {
-      void alert({
-        title: 'No direct message yet',
-        message: 'Wait for them to accept, or ask them to send you a friend request.',
-        confirmLabel: 'OK',
-      });
-      return;
-    }
-    const room = rooms.find(entry => entry.id === friend.dmRoomId);
-    if (room) {
-      selectTextChannel(room.id, defaultTextChannel(room)?.id ?? null);
-      return;
-    }
-    void chatApi.listRooms().then(({data}) => {
-      const list = data.data ?? [];
-      setRooms(list);
-      const found = list.find(entry => entry.id === friend.dmRoomId);
-      if (found) {
-        selectTextChannel(found.id, defaultTextChannel(found)?.id ?? null);
+    setBusy(true);
+    setError(null);
+    try {
+      const {data} = await friendsApi.openDm(friend.userId);
+      const roomId = data.data?.dmRoomId;
+      if (!roomId) {
+        await alert({
+          title: 'Could not open chat',
+          message: 'No direct message is available for this friend yet.',
+          confirmLabel: 'OK',
+        });
+        return;
       }
-    });
+      setFriends(prev =>
+        prev.map(entry =>
+          entry.userId === friend.userId ? {...entry, dmRoomId: roomId} : entry,
+        ),
+      );
+      let room = rooms.find(entry => entry.id === roomId);
+      if (!room) {
+        const {data: roomsData} = await chatApi.listRooms();
+        const list = roomsData.data ?? [];
+        setRooms(list);
+        room = list.find(entry => entry.id === roomId);
+      }
+      if (!room) {
+        await alert({
+          title: 'Could not open chat',
+          message: 'The direct message room could not be loaded. Try refreshing.',
+          confirmLabel: 'OK',
+        });
+        return;
+      }
+      selectTextChannel(room.id, defaultTextChannel(room)?.id ?? null);
+    } catch {
+      setError('Could not open direct message');
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => {

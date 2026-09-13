@@ -63,6 +63,12 @@ public class ParentFriendController {
     return ApiResponse.ok(parentFriendService.listFriends());
   }
 
+  @PostMapping("/{friendUserId}/dm")
+  @Operation(summary = "Open or create direct message with an accepted friend")
+  public ApiResponse<FriendSummaryResponse> openDm(@PathVariable UUID friendUserId) {
+    return ApiResponse.ok(parentFriendService.openDm(friendUserId));
+  }
+
   @DeleteMapping("/{friendUserId}")
   @Operation(summary = "Remove a friend")
   public ApiResponse<Void> removeFriend(@PathVariable UUID friendUserId) {

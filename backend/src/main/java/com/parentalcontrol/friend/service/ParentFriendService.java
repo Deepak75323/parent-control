@@ -168,6 +168,42 @@ public class ParentFriendService {
         .toList();
   }
 
+  /**
+   * Discord-style: open (find or create) the DM for an accepted friend and return the room id.
+   * Backfills {@code dmRoomId} when accept previously skipped room creation.
+   */
+  @Transactional
+  public FriendSummaryResponse openDm(UUID friendUserId) {
+    UUID userId = SecurityUtils.requireUserId();
+    if (friendUserId == null || friendUserId.equals(userId)) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR, MessageConstants.FRIEND_CANNOT_ADD_YOURSELF);
+    }
+    ParentFriendship friendship =
+        friendshipRepository
+            .findActiveBetween(
+                userId, friendUserId, List.of(ParentFriendshipStatus.ACCEPTED))
+            .orElseThrow(
+                () -> new BusinessException(ErrorCode.NOT_FOUND, MessageConstants.FRIEND_NOT_FOUND));
+
+    UUID owner = friendship.getRequesterUserId();
+    UUID peer = friendship.getAddresseeUserId();
+    String roomName = "Chat with " + chatNicknameForUser(friendUserId);
+    UUID dmRoomId = chatService.ensureDirectRoomBetween(owner, peer, roomName);
+    if (friendship.getDmRoomId() == null || !friendship.getDmRoomId().equals(dmRoomId)) {
+      friendship.setDmRoomId(dmRoomId);
+      friendshipRepository.save(friendship);
+    }
+
+    return FriendSummaryResponse.builder()
+        .friendshipId(friendship.getId())
+        .userId(friendUserId)
+        .label(displayLabel(friendUserId))
+        .nickname(chatNicknameForUser(friendUserId))
+        .dmRoomId(dmRoomId)
+        .build();
+  }
+
   @Transactional
   public void removeFriend(UUID friendUserId) {
     UUID userId = SecurityUtils.requireUserId();

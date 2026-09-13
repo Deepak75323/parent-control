@@ -342,7 +342,9 @@ export function ChatRoomsPanel({
               <button
                 key={friend.userId}
                 type="button"
-                className="chat-dm-item"
+                className={`chat-dm-item${
+                  friend.dmRoomId && friend.dmRoomId === selectedRoomId ? ' active' : ''
+                }`}
                 onClick={() => onSelectFriend?.(friend)}>
                 <Avatar name={friend.nickname || friend.label} seed={friend.userId} size="sm" />
                 <span className="chat-dm-meta">

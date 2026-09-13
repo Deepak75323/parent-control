@@ -129,4 +129,33 @@ class ParentFriendServiceTest {
     assertEquals(roomId, response.getDmRoomId());
     verify(chatService).ensureDirectRoomBetween(eq(other), eq(me), any());
   }
+
+  @Test
+  void openDm_ensuresRoomAndBackfillsMissingDmRoomId() {
+    ParentFriendship accepted =
+        ParentFriendship.builder()
+            .requesterUserId(me)
+            .addresseeUserId(other)
+            .inviteeIdentifier("@other")
+            .status(ParentFriendshipStatus.ACCEPTED)
+            .dmRoomId(null)
+            .build();
+    accepted.setId(UUID.randomUUID());
+    when(friendshipRepository.findActiveBetween(
+            eq(me), eq(other), eq(List.of(ParentFriendshipStatus.ACCEPTED))))
+        .thenReturn(Optional.of(accepted));
+    UUID roomId = UUID.randomUUID();
+    when(chatService.ensureDirectRoomBetween(eq(me), eq(other), any())).thenReturn(roomId);
+    when(friendshipRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    User otherUser = User.builder().email("o@example.com").role(Role.ROLE_PARENT).build();
+    otherUser.setId(other);
+    when(userDao.findById(any())).thenReturn(Optional.of(otherUser));
+    when(parentProfileDao.findByUser_Id(any())).thenReturn(Optional.empty());
+
+    var summary = service.openDm(other);
+
+    assertEquals(roomId, summary.getDmRoomId());
+    assertEquals(other, summary.getUserId());
+    verify(chatService).ensureDirectRoomBetween(eq(me), eq(other), any());
+  }
 }

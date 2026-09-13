@@ -59,6 +59,7 @@ export const ApiPaths = {
   friendRequestRespond: (requestId: string) =>
     `${V1}/parent/friends/requests/${requestId}/respond`,
   friendRemove: (friendUserId: string) => `${V1}/parent/friends/${friendUserId}`,
+  friendOpenDm: (friendUserId: string) => `${V1}/parent/friends/${friendUserId}/dm`,
 
   CHAT_ROOMS: `${V1}/chat/rooms`,
   chatRoom: (roomId: string) => `${V1}/chat/rooms/${roomId}`,
