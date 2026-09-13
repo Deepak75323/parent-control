@@ -168,6 +168,42 @@ export const sharePresenceApi = {
     api.post<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_SHARE_PRESENCE, {enabled}),
 };
 
+export type FriendRequestItem = {
+  id: string;
+  requesterUserId: string;
+  addresseeUserId: string;
+  status: string;
+  identifier: string;
+  counterpartLabel?: string;
+  counterpartNickname?: string;
+  dmRoomId?: string | null;
+  createdAt?: string;
+};
+
+export type FriendSummaryItem = {
+  friendshipId: string;
+  userId: string;
+  label: string;
+  nickname: string;
+  dmRoomId?: string | null;
+};
+
+export const friendsApi = {
+  list: () => api.get<ApiResponse<FriendSummaryItem[]>>(ApiPaths.PARENT_FRIENDS),
+  pendingIncoming: () =>
+    api.get<ApiResponse<FriendRequestItem[]>>(ApiPaths.PARENT_FRIENDS_PENDING),
+  pendingOutgoing: () =>
+    api.get<ApiResponse<FriendRequestItem[]>>(ApiPaths.PARENT_FRIENDS_OUTGOING),
+  sendRequest: (identifier: string) =>
+    api.post<ApiResponse<FriendRequestItem>>(ApiPaths.PARENT_FRIENDS_REQUESTS, {identifier}),
+  respond: (requestId: string, accept: boolean) =>
+    api.post<ApiResponse<FriendRequestItem>>(ApiPaths.friendRequestRespond(requestId), {
+      accept,
+    }),
+  remove: (friendUserId: string) =>
+    api.delete<ApiResponse<void>>(ApiPaths.friendRemove(friendUserId)),
+};
+
 export const policiesApi = {
   list: (type?: string) =>
     api.get<ApiResponse<PolicySummary[]>>(ApiPaths.POLICIES, {params: type ? {type} : {}}),

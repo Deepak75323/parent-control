@@ -1,7 +1,7 @@
 import {Fragment, type FormEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useLocation, useNavigate} from 'react-router-dom';
 import axios from 'axios';
-import {chatApi} from '../api/services';
+import {chatApi, friendsApi, type FriendRequestItem, type FriendSummaryItem} from '../api/services';
 import {useAuthStore} from '../auth/authStore';
 import {decodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
 import {
@@ -85,6 +85,8 @@ export function ChatPage() {
   const myUserId = userIdFromAccessToken(accessToken) ?? profile?.userId ?? undefined;
   const [rooms, setRooms] = useState<ChatRoomSummary[]>([]);
   const [invites, setInvites] = useState<ChatInviteItem[]>([]);
+  const [friendRequests, setFriendRequests] = useState<FriendRequestItem[]>([]);
+  const [friends, setFriends] = useState<FriendSummaryItem[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [apiMessages, setApiMessages] = useState<ChatMessageItem[]>([]);
@@ -158,6 +160,7 @@ export function ChatPage() {
   const syncPersonalChatClearedAt = useRealtimeStore(s => s.syncPersonalChatClearedAt);
   const syncLiveChatMessagesFromApi = useRealtimeStore(s => s.syncLiveChatMessagesFromApi);
   const chatInvitesEpoch = useRealtimeStore(s => s.chatInvitesEpoch);
+  const friendsEpoch = useRealtimeStore(s => s.friendsEpoch);
   const liveChatMessages = useRealtimeStore(s => s.liveChatMessages);
   const deletedChatMessageIds = useRealtimeStore(s => s.deletedChatMessageIds);
   const chatClearedEpoch = useRealtimeStore(s => s.chatClearedEpoch);
@@ -377,23 +380,17 @@ export function ChatPage() {
     }
   }
 
-  async function handleConnectParent(identifier: string, roomName: string) {
+  async function handleConnectParent(identifier: string) {
     setBusy(true);
     setConnectParentError(null);
     setError(null);
     try {
-      const {data} = await chatApi.createRoom(roomName);
-      const room = data.data;
-      if (!room) {
-        throw new Error('No room returned');
-      }
-      await chatApi.invite(room.id, identifier);
-      setRooms(prev => [room, ...prev.filter(existing => existing.id !== room.id)]);
-      selectTextChannel(room.id, defaultTextChannel(room)?.id ?? null);
+      await friendsApi.sendRequest(identifier);
       setConnectParentOpen(false);
-      setNotice(`Invite sent to ${identifier}`);
+      setNotice(`Friend request sent to ${identifier}`);
+      await loadFriendRequests();
     } catch {
-      setConnectParentError('Could not connect — check @handle or email');
+      setConnectParentError('Could not send request — check @handle or email');
     } finally {
       setBusy(false);
     }
@@ -1044,6 +1041,24 @@ export function ChatPage() {
     }
   }, []);
 
+  const loadFriendRequests = useCallback(async () => {
+    try {
+      const {data} = await friendsApi.pendingIncoming();
+      setFriendRequests(data.data ?? []);
+    } catch {
+      // Non-fatal — banner stays empty.
+    }
+  }, []);
+
+  const loadFriends = useCallback(async () => {
+    try {
+      const {data} = await friendsApi.list();
+      setFriends(data.data ?? []);
+    } catch {
+      // Non-fatal.
+    }
+  }, []);
+
   const loadMessages = useCallback(
     async (roomId: string, channelId?: string | null) => {
       const loadGen = ++messagesLoadGenRef.current;
@@ -1084,6 +1099,58 @@ export function ChatPage() {
   useEffect(() => {
     void loadInvites();
   }, [loadInvites, chatInvitesEpoch]);
+
+  useEffect(() => {
+    void loadFriendRequests();
+    void loadFriends();
+  }, [loadFriendRequests, loadFriends, friendsEpoch, chatRoomsEpoch]);
+
+  async function respondFriendRequest(requestId: string, accept: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      const {data} = await friendsApi.respond(requestId, accept);
+      setFriendRequests(prev => prev.filter(req => req.id !== requestId));
+      await loadFriends();
+      await loadRooms();
+      const roomId = data.data?.dmRoomId;
+      if (accept && roomId) {
+        const {data: roomsData} = await chatApi.listRooms();
+        const room = (roomsData.data ?? []).find(entry => entry.id === roomId);
+        if (room) {
+          setRooms(prev => [room, ...prev.filter(existing => existing.id !== room.id)]);
+          selectTextChannel(room.id, defaultTextChannel(room)?.id ?? null);
+        }
+        setNotice('Friend request accepted — direct message ready');
+      } else if (!accept) {
+        setNotice('Friend request declined');
+      }
+    } catch {
+      setError('Could not respond to friend request');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleSelectFriend(friend: FriendSummaryItem) {
+    if (!friend.dmRoomId) {
+      setNotice('No direct message yet — wait for them to accept, or ask them to send a request.');
+      return;
+    }
+    const room = rooms.find(entry => entry.id === friend.dmRoomId);
+    if (room) {
+      selectTextChannel(room.id, defaultTextChannel(room)?.id ?? null);
+      return;
+    }
+    void chatApi.listRooms().then(({data}) => {
+      const list = data.data ?? [];
+      setRooms(list);
+      const found = list.find(entry => entry.id === friend.dmRoomId);
+      if (found) {
+        selectTextChannel(found.id, defaultTextChannel(found)?.id ?? null);
+      }
+    });
+  }
 
   useEffect(() => {
     if (!selectedRoomId) {
@@ -2325,6 +2392,8 @@ export function ChatPage() {
         setConnectParentError(null);
         setConnectParentOpen(true);
       }}
+      friends={friends}
+      onSelectFriend={friend => handleSelectFriend(friend)}
       selfDisplayName={ownDisplayName}
       selfSeed={ownSeed}
       onOpenSelfSettings={() => navigate('/settings')}
@@ -2379,6 +2448,48 @@ export function ChatPage() {
         }}
         onConnect={handleConnectParent}
       />
+      {friendRequests.length > 0 ? (
+        <div className="chat-invites-banner">
+          <div className="chat-invites-banner-head">
+            <strong>
+              {friendRequests.length} friend request
+              {friendRequests.length === 1 ? '' : 's'}
+            </strong>
+          </div>
+          <ul className="chat-invites-list">
+            {friendRequests.map(request => (
+              <li key={request.id} className="chat-invite-row-item">
+                <div>
+                  <span className="chat-invite-room">
+                    {resolveChatDisplayNickname(
+                      request.counterpartNickname,
+                      request.counterpartLabel,
+                    )}
+                  </span>
+                  <span className="muted tiny"> wants to be friends</span>
+                </div>
+                <div className="chat-invite-actions">
+                  <button
+                    type="button"
+                    className="btn primary sm"
+                    disabled={busy}
+                    onClick={() => void respondFriendRequest(request.id, true)}>
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    disabled={busy}
+                    onClick={() => void respondFriendRequest(request.id, false)}>
+                    Decline
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {invites.length > 0 ? (
         <div className="chat-invites-banner">
           <div className="chat-invites-banner-head">

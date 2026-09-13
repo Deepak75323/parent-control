@@ -106,6 +106,57 @@ public class ChatService {
     return toRoomSummary(room, userId);
   }
 
+  /**
+   * Find or create a 2-person DM room for two parents (used after friend accept). Owner is {@code
+   * userA}.
+   */
+  @Transactional
+  public UUID ensureDirectRoomBetween(UUID userA, UUID userB, String roomName) {
+    if (userA == null || userB == null || userA.equals(userB)) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR, MessageConstants.FRIEND_CANNOT_ADD_YOURSELF);
+    }
+    for (ChatRoom room : roomRepository.findAllForMember(userA)) {
+      List<ChatRoomMember> members = memberRepository.findByRoomId(room.getId());
+      if (members.size() != 2) {
+        continue;
+      }
+      boolean hasB = members.stream().anyMatch(m -> m.getUserId().equals(userB));
+      if (hasB) {
+        return room.getId();
+      }
+    }
+
+    String name;
+    if (StringUtils.hasText(roomName)) {
+      String trimmed = roomName.trim();
+      name = trimmed.length() <= 64 ? trimmed : trimmed.substring(0, 64);
+    } else {
+      name = "Direct message";
+    }
+    ChatRoom room =
+        roomRepository.save(ChatRoom.builder().ownerUserId(userA).name(name).build());
+    Instant now = Instant.now();
+    memberRepository.save(
+        ChatRoomMember.builder()
+            .roomId(room.getId())
+            .userId(userA)
+            .role(ChatRoomMemberRole.OWNER)
+            .joinedAt(now)
+            .build());
+    memberRepository.save(
+        ChatRoomMember.builder()
+            .roomId(room.getId())
+            .userId(userB)
+            .role(ChatRoomMemberRole.MEMBER)
+            .joinedAt(now)
+            .build());
+    channelService.ensureDefaultChannels(room.getId());
+    realtimeService.publishRoomListBump(userA);
+    realtimeService.publishRoomListBump(userB);
+    return room.getId();
+  }
+
   @Transactional(readOnly = true)
   public List<ChatRoomSummaryResponse> listRooms() {
     UUID userId = SecurityUtils.requireUserId();

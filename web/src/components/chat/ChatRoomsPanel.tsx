@@ -30,6 +30,19 @@ type Props = {
   onConnectParent?: () => void;
   onInviteParents?: () => void;
   onManageMembers?: () => void;
+  /** Accepted friends (graph); click opens dmRoomId when present. */
+  friends?: Array<{
+    userId: string;
+    label: string;
+    nickname: string;
+    dmRoomId?: string | null;
+  }>;
+  onSelectFriend?: (friend: {
+    userId: string;
+    label: string;
+    nickname: string;
+    dmRoomId?: string | null;
+  }) => void;
   /** Shown in Discord-style self / mute bar. */
   selfDisplayName?: string;
   selfSeed?: string;
@@ -56,6 +69,8 @@ export function ChatRoomsPanel({
   onConnectParent,
   onInviteParents,
   onManageMembers,
+  friends = [],
+  onSelectFriend,
   selfDisplayName = 'You',
   selfSeed = 'self',
   onOpenSelfSettings,
@@ -69,6 +84,7 @@ export function ChatRoomsPanel({
   const [textOpen, setTextOpen] = useState(true);
   const [voiceOpen, setVoiceOpen] = useState(true);
   const [dmOpen, setDmOpen] = useState(true);
+  const [friendsOpen, setFriendsOpen] = useState(true);
   const [addingType, setAddingType] = useState<'TEXT' | 'VOICE' | null>(null);
   const [newChannelName, setNewChannelName] = useState('');
 
@@ -309,15 +325,43 @@ export function ChatRoomsPanel({
         )}
 
         <CategorySection
+          id="friends"
+          title="Friends"
+          open={friendsOpen}
+          onToggle={() => setFriendsOpen(v => !v)}
+          onAdd={onConnectParent}
+          addLabel="Add friend">
+          {friends.length === 0 ? (
+            <p className="chat-channel-empty">
+              Add a parent by @handle or email. After they accept, they appear here.
+            </p>
+          ) : (
+            friends.map(friend => (
+              <button
+                key={friend.userId}
+                type="button"
+                className="chat-dm-item"
+                onClick={() => onSelectFriend?.(friend)}>
+                <Avatar name={friend.nickname || friend.label} seed={friend.userId} size="sm" />
+                <span className="chat-dm-meta">
+                  <span className="chat-dm-name">{friend.nickname || friend.label}</span>
+                  <span className="muted tiny">{friend.label}</span>
+                </span>
+              </button>
+            ))
+          )}
+        </CategorySection>
+
+        <CategorySection
           id="direct-messages"
           title="Direct messages"
           open={dmOpen}
           onToggle={() => setDmOpen(v => !v)}
           onAdd={onConnectParent}
-          addLabel="Connect parent">
+          addLabel="Add friend">
           {directRooms.length === 0 ? (
             <p className="chat-channel-empty">
-              Two-person chats appear here after you connect a parent.
+              Direct chats open after a friend accepts your request.
             </p>
           ) : (
             directRooms.map(room => {
@@ -360,7 +404,7 @@ export function ChatRoomsPanel({
             className="btn chat-connect-parent-btn"
             disabled={busy}
             onClick={onConnectParent}>
-            + Connect Parent
+            + Add Friend
           </button>
         ) : null}
       </div>

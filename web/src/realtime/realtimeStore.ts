@@ -53,6 +53,7 @@ interface RealtimeState {
   streamingState?: StreamingStateLive;
   chatRoomsEpoch: number;
   chatInvitesEpoch: number;
+  friendsEpoch: number;
   liveChatMessages: ChatMessageItem[];
   deletedChatMessageIds: Record<string, true>;
   /** Latest receipt status per message (WebSocket updates). */
@@ -76,6 +77,7 @@ interface RealtimeState {
   bumpDeviceList: () => void;
   bumpChatRooms: () => void;
   bumpChatInvites: () => void;
+  bumpFriends: () => void;
   pushChatCallEvent: (event: Omit<ChatCallLiveEvent, 'seq'>) => void;
   pushLiveChatMessage: (message: ChatMessageItem) => void;
   upsertLiveChatMessage: (message: ChatMessageItem) => void;
@@ -128,6 +130,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   streamingState: undefined,
   chatRoomsEpoch: 0,
   chatInvitesEpoch: 0,
+  friendsEpoch: 0,
   liveChatMessages: [],
   deletedChatMessageIds: {},
   receiptPatches: {},
@@ -144,6 +147,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   bumpDeviceList: () => set(state => ({deviceListEpoch: state.deviceListEpoch + 1})),
   bumpChatRooms: () => set(state => ({chatRoomsEpoch: state.chatRoomsEpoch + 1})),
   bumpChatInvites: () => set(state => ({chatInvitesEpoch: state.chatInvitesEpoch + 1})),
+  bumpFriends: () => set(state => ({friendsEpoch: state.friendsEpoch + 1})),
   pushChatCallEvent: event =>
     set(state => ({
       chatCallEpoch: state.chatCallEpoch + 1,
@@ -348,6 +352,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       streamingState: undefined,
       chatRoomsEpoch: 0,
       chatInvitesEpoch: 0,
+      friendsEpoch: 0,
       liveChatMessages: [],
       deletedChatMessageIds: {},
       receiptPatches: {},

@@ -431,5 +431,19 @@ public final class MessageConstants {
 
   public static final String CHAT_REACTION_EMOJI_INVALID = "Reaction emoji is invalid";
 
+  public static final String FRIEND_CANNOT_ADD_YOURSELF = "You cannot send a friend request to yourself";
+
+  public static final String FRIEND_ALREADY_FRIENDS = "You are already friends with that parent";
+
+  public static final String FRIEND_REQUEST_ALREADY_PENDING =
+      "A friend request is already pending with that parent";
+
+  public static final String FRIEND_REQUEST_NOT_FOUND = "Friend request not found";
+
+  public static final String FRIEND_REQUEST_ALREADY_RESPONDED =
+      "This friend request has already been responded to";
+
+  public static final String FRIEND_NOT_FOUND = "Friend not found";
+
   private MessageConstants() {}
 }

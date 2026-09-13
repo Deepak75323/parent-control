@@ -268,6 +268,12 @@ export function connectWebSocket(): void {
         useRealtimeStore.getState().bumpChatInvites();
       });
 
+      client?.subscribe('/user/queue/friend-requests', msg => {
+        parseJson<{eventType?: string}>(msg);
+        useRealtimeStore.getState().bumpFriends();
+        useRealtimeStore.getState().bumpChatRooms();
+      });
+
       client?.subscribe('/user/queue/chat-rooms', msg => {
         const event = parseJson<{eventType: string; roomId?: string}>(msg);
         if (event.eventType === 'ROOM_DELETED' && event.roomId) {

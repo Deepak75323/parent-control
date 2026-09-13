@@ -5,24 +5,24 @@ type Props = {
   busy: boolean;
   error: string | null;
   onClose: () => void;
-  onConnect: (identifier: string, roomName: string) => Promise<void>;
+  /** Send friend request by @handle or email. */
+  onConnect: (identifier: string) => Promise<void>;
 };
 
 /**
- * Connect Parent — creates a room and invites by @handle or email (existing chat APIs).
+ * Add friend — sends a friend request by @handle or email.
+ * After they accept, a DM room is created automatically.
  */
 export function ConnectParentModal({open, busy, error, onClose, onConnect}: Props) {
   const titleId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [identifier, setIdentifier] = useState('');
-  const [roomName, setRoomName] = useState('');
 
   useEffect(() => {
     if (!open) {
       return;
     }
     setIdentifier('');
-    setRoomName('');
     const timer = window.setTimeout(() => inputRef.current?.focus(), 50);
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape' && !busy) {
@@ -46,10 +46,7 @@ export function ConnectParentModal({open, busy, error, onClose, onConnect}: Prop
     if (!id) {
       return;
     }
-    const name =
-      roomName.trim() ||
-      `Chat with ${id.replace(/^@/, '').split('@')[0] || 'parent'}`.slice(0, 64);
-    await onConnect(id, name);
+    await onConnect(id);
   }
 
   return (
@@ -62,7 +59,7 @@ export function ConnectParentModal({open, busy, error, onClose, onConnect}: Prop
         onClick={event => event.stopPropagation()}>
         <div className="chat-connect-modal-head">
           <h2 id={titleId} className="confirm-dialog-title">
-            Connect parent
+            Add friend
           </h2>
           <button
             type="button"
@@ -74,8 +71,8 @@ export function ConnectParentModal({open, busy, error, onClose, onConnect}: Prop
           </button>
         </div>
         <p className="muted tiny chat-connect-modal-help">
-          Search by <strong>@family handle</strong> or <strong>email</strong>. We create a private
-          room and send them an invite.
+          Send a friend request by <strong>@family handle</strong> or <strong>email</strong>. When
+          they accept, you both get a direct message.
         </p>
         <form className="chat-connect-form" onSubmit={event => void handleSubmit(event)}>
           <label className="chat-connect-label" htmlFor="connect-parent-id">
@@ -91,29 +88,16 @@ export function ConnectParentModal({open, busy, error, onClose, onConnect}: Prop
             disabled={busy}
             onChange={event => setIdentifier(event.target.value)}
           />
-          <label className="chat-connect-label" htmlFor="connect-room-name">
-            Room name <span className="muted">(optional)</span>
-          </label>
-          <input
-            id="connect-room-name"
-            type="text"
-            maxLength={64}
-            placeholder="e.g. School pickup"
-            value={roomName}
-            disabled={busy}
-            onChange={event => setRoomName(event.target.value)}
-          />
-          {error ? (
-            <p className="chat-connect-error" role="alert">
-              {error}
-            </p>
-          ) : null}
+          {error ? <p className="chat-connect-error">{error}</p> : null}
           <div className="confirm-dialog-actions">
-            <button type="button" className="btn" disabled={busy} onClick={onClose}>
+            <button type="button" className="btn ghost" disabled={busy} onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="btn primary" disabled={busy || !identifier.trim()}>
-              {busy ? 'Connecting…' : 'Connect'}
+            <button
+              type="submit"
+              className="btn primary"
+              disabled={busy || !identifier.trim()}>
+              {busy ? 'Sending…' : 'Send friend request'}
             </button>
           </div>
         </form>

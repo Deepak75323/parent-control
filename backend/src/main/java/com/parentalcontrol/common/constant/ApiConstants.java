@@ -98,6 +98,7 @@ public final class ApiConstants {
   public static final String PARENT_FAMILY_HANDLE = PARENT + "/family-handle";
   public static final String PARENT_READ_RECEIPTS = PARENT + "/read-receipts";
   public static final String PARENT_SHARE_PRESENCE = PARENT + "/share-presence";
+  public static final String PARENT_FRIENDS = PARENT + "/friends";
   public static final String PARENT_ANALYTICS = PARENT + "/analytics";
   public static final String PARENT_ANALYTICS_ANT = PARENT_ANALYTICS + "/**";
 
