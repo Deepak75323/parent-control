@@ -71,6 +71,8 @@ export function MobileNavDrawer({
 }: Props) {
   const navigate = useNavigate();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  // Must run even when closed. Returning null before this hook crashed on hamburger open.
+  const groups = useMemo(() => navGroupsForEnv(), []);
 
   useEffect(() => {
     if (!open) {
@@ -112,8 +114,6 @@ export function MobileNavDrawer({
       });
     }
   };
-
-  const groups = useMemo(() => navGroupsForEnv(), []);
 
   return createPortal(
     <div className="dc-mobile-overlay" role="dialog" aria-modal="true" aria-label="Navigation">
