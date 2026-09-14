@@ -346,138 +346,87 @@ export function ChatRoomsPanel({
 
       <div className="chat-comm-scroll">
         {showRooms ? (
-          <>
-            <CategorySection
-              id="servers"
-              title="Servers"
-              open={serversOpen}
-              onToggle={() => setServersOpen(v => !v)}>
-              {filteredServers.length === 0 ? (
-                <p className="chat-channel-empty">
-                  {servers.length === 0
-                    ? 'Create a server to chat with other parents.'
-                    : 'No servers match your search.'}
-                </p>
-              ) : (
-                filteredServers.map(room => (
-                  <button
-                    key={room.id}
-                    type="button"
-                    className={`chat-dm-item${
-                      !viewingDirect && room.id === selectedRoomId ? ' active' : ''
-                    }`}
-                    onClick={() => openServer(room.id)}>
-                    <span className="chat-server-glyph" aria-hidden>
-                      {room.name.slice(0, 1).toUpperCase()}
+          <CategorySection
+            id="servers"
+            title="Servers"
+            open={serversOpen}
+            onToggle={() => setServersOpen(v => !v)}>
+            {filteredServers.length === 0 ? (
+              <p className="chat-channel-empty">
+                {servers.length === 0
+                  ? 'Create a server to chat with other parents.'
+                  : 'No servers match your search.'}
+              </p>
+            ) : (
+              filteredServers.map(room => (
+                <button
+                  key={room.id}
+                  type="button"
+                  className={`chat-dm-item${
+                    !viewingDirect && room.id === selectedRoomId ? ' active' : ''
+                  }`}
+                  onClick={() => openServer(room.id)}>
+                  <span className="chat-server-glyph" aria-hidden>
+                    {room.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="chat-dm-meta">
+                    <span className="chat-dm-name">{room.name}</span>
+                    <span className="muted tiny">
+                      {room.memberCount} member{room.memberCount === 1 ? '' : 's'}
+                      {(room.unreadCount ?? 0) > 0 ? ` · ${room.unreadCount} unread` : ''}
                     </span>
-                    <span className="chat-dm-meta">
-                      <span className="chat-dm-name">{room.name}</span>
-                      <span className="muted tiny">
-                        {room.memberCount} member{room.memberCount === 1 ? '' : 's'}
-                        {(room.unreadCount ?? 0) > 0 ? ` · ${room.unreadCount} unread` : ''}
-                      </span>
-                    </span>
-                  </button>
-                ))
-              )}
-            </CategorySection>
+                  </span>
+                </button>
+              ))
+            )}
+          </CategorySection>
+        ) : null}
 
-            {selectedServer ? (
-              <>
-                {viewingDirect ? (
-                  <p className="chat-channel-empty chat-channel-empty--dm-hint">
-                    Viewing a direct message. Click a server above or a channel below to return.
-                  </p>
-                ) : null}
-                <CategorySection
-                  id="text-channels"
-                  title="Text channels"
-                  open={textOpen}
-                  onToggle={() => setTextOpen(v => !v)}
-                  onAdd={
-                    canCreateChannels
-                      ? () => setAddingType(addingType === 'TEXT' ? null : 'TEXT')
-                      : undefined
-                  }
-                  addLabel="Create text channel">
-                  {filteredTexts.length === 0 ? (
-                    <p className="chat-channel-empty">No text channels</p>
-                  ) : (
-                    filteredTexts.map(channel => (
-                      <ChannelRow
-                        key={channel.id}
-                        channel={channel}
-                        selected={
-                          !viewingDirect &&
-                          selectedServer.id === selectedRoomId &&
-                          channel.id === selectedChannelId
-                        }
-                        unread={
-                          channel.id === selectedChannelId &&
-                          selectedServer.id === selectedRoomId &&
-                          !viewingDirect
-                            ? 0
-                            : (selectedServer.unreadCount ?? 0) > 0 &&
-                                channel.name.toLowerCase() === 'general'
-                              ? selectedServer.unreadCount
-                              : 0
-                        }
-                        onSelect={() => onSelectTextChannel(selectedServer.id, channel.id)}
-                      />
-                    ))
-                  )}
-                </CategorySection>
-
-                <CategorySection
-                  id="voice-channels"
-                  title="Voice channels"
-                  open={voiceOpen}
-                  onToggle={() => setVoiceOpen(v => !v)}
-                  onAdd={
-                    canCreateChannels
-                      ? () => setAddingType(addingType === 'VOICE' ? null : 'VOICE')
-                      : undefined
-                  }
-                  addLabel="Create voice channel">
-                  {filteredVoices.length === 0 ? (
-                    <p className="chat-channel-empty">No voice channels</p>
-                  ) : (
-                    filteredVoices.map(channel => (
-                      <ChannelRow
-                        key={channel.id}
-                        channel={channel}
-                        voice
-                        selected={channel.id === activeVoiceChannelId}
-                        connected={channel.id === activeVoiceChannelId}
-                        occupancy={voiceOccupancy[channel.id] ?? 0}
-                        onSelect={() => onSelectVoiceChannel(selectedServer.id, channel.id)}
-                      />
-                    ))
-                  )}
-                </CategorySection>
-
-                {addingType ? (
-                  <form className="chat-channel-create" onSubmit={submitNewChannel}>
-                    <input
-                      type="text"
-                      placeholder={addingType === 'TEXT' ? 'new-text-channel' : 'New voice channel'}
-                      value={newChannelName}
-                      maxLength={64}
-                      autoFocus
-                      aria-label="New channel name"
-                      onChange={event => setNewChannelName(event.target.value)}
-                    />
-                    <button
-                      type="submit"
-                      className="btn primary"
-                      disabled={busy || !newChannelName.trim()}>
-                      Create
-                    </button>
-                  </form>
-                ) : null}
-              </>
-            ) : null}
-          </>
+        {showDms ? (
+        <CategorySection
+          id="direct-messages"
+          title="Direct messages"
+          open={dmOpen}
+          onToggle={() => setDmOpen(v => !v)}
+          onAdd={onConnectParent}
+          addLabel="Add friend">
+          {filteredDirectRooms.length === 0 ? (
+            <p className="chat-channel-empty">
+              {directRooms.length === 0
+                ? 'Direct chats open after a friend accepts your request.'
+                : 'No direct messages match your search.'}
+            </p>
+          ) : (
+            filteredDirectRooms.map(room => {
+              const defaultText = textChannels(room)[0];
+              const linkedFriend = friendByDmRoomId.get(room.id);
+              const displayName = linkedFriend
+                ? linkedFriend.nickname || linkedFriend.label
+                : room.name;
+              return (
+                <button
+                  key={room.id}
+                  type="button"
+                  className={`chat-dm-item${room.id === selectedRoomId ? ' active' : ''}`}
+                  onClick={() => {
+                    if (defaultText) {
+                      onSelectTextChannel(room.id, defaultText.id);
+                    } else {
+                      onSelectServer(room.id);
+                    }
+                  }}>
+                  <Avatar name={displayName} seed={linkedFriend?.userId ?? room.id} size="sm" />
+                  <span className="chat-dm-meta">
+                    <span className="chat-dm-name">{displayName}</span>
+                    {(room.unreadCount ?? 0) > 0 ? (
+                      <span className="chat-room-unread-badge">{room.unreadCount}</span>
+                    ) : null}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </CategorySection>
         ) : null}
 
         {showFriends ? (
@@ -532,51 +481,100 @@ export function ChatRoomsPanel({
         </CategorySection>
         ) : null}
 
-        {showDms ? (
-        <CategorySection
-          id="direct-messages"
-          title="Direct messages"
-          open={dmOpen}
-          onToggle={() => setDmOpen(v => !v)}
-          onAdd={onConnectParent}
-          addLabel="Add friend">
-          {filteredDirectRooms.length === 0 ? (
-            <p className="chat-channel-empty">
-              {directRooms.length === 0
-                ? 'Direct chats open after a friend accepts your request.'
-                : 'No direct messages match your search.'}
-            </p>
-          ) : (
-            filteredDirectRooms.map(room => {
-              const defaultText = textChannels(room)[0];
-              const linkedFriend = friendByDmRoomId.get(room.id);
-              const displayName = linkedFriend
-                ? linkedFriend.nickname || linkedFriend.label
-                : room.name;
-              return (
-                <button
-                  key={room.id}
-                  type="button"
-                  className={`chat-dm-item${room.id === selectedRoomId ? ' active' : ''}`}
-                  onClick={() => {
-                    if (defaultText) {
-                      onSelectTextChannel(room.id, defaultText.id);
-                    } else {
-                      onSelectServer(room.id);
+        {showRooms && selectedServer ? (
+          <>
+            {viewingDirect ? (
+              <p className="chat-channel-empty chat-channel-empty--dm-hint">
+                Viewing a direct message. Click a server or channel above to return.
+              </p>
+            ) : null}
+            <CategorySection
+              id="text-channels"
+              title="Text channels"
+              open={textOpen}
+              onToggle={() => setTextOpen(v => !v)}
+              onAdd={
+                canCreateChannels
+                  ? () => setAddingType(addingType === 'TEXT' ? null : 'TEXT')
+                  : undefined
+              }
+              addLabel="Create text channel">
+              {filteredTexts.length === 0 ? (
+                <p className="chat-channel-empty">No text channels</p>
+              ) : (
+                filteredTexts.map(channel => (
+                  <ChannelRow
+                    key={channel.id}
+                    channel={channel}
+                    selected={
+                      !viewingDirect &&
+                      selectedServer.id === selectedRoomId &&
+                      channel.id === selectedChannelId
                     }
-                  }}>
-                  <Avatar name={displayName} seed={linkedFriend?.userId ?? room.id} size="sm" />
-                  <span className="chat-dm-meta">
-                    <span className="chat-dm-name">{displayName}</span>
-                    {(room.unreadCount ?? 0) > 0 ? (
-                      <span className="chat-room-unread-badge">{room.unreadCount}</span>
-                    ) : null}
-                  </span>
+                    unread={
+                      channel.id === selectedChannelId &&
+                      selectedServer.id === selectedRoomId &&
+                      !viewingDirect
+                        ? 0
+                        : (selectedServer.unreadCount ?? 0) > 0 &&
+                            channel.name.toLowerCase() === 'general'
+                          ? selectedServer.unreadCount
+                          : 0
+                    }
+                    onSelect={() => onSelectTextChannel(selectedServer.id, channel.id)}
+                  />
+                ))
+              )}
+            </CategorySection>
+
+            <CategorySection
+              id="voice-channels"
+              title="Voice channels"
+              open={voiceOpen}
+              onToggle={() => setVoiceOpen(v => !v)}
+              onAdd={
+                canCreateChannels
+                  ? () => setAddingType(addingType === 'VOICE' ? null : 'VOICE')
+                  : undefined
+              }
+              addLabel="Create voice channel">
+              {filteredVoices.length === 0 ? (
+                <p className="chat-channel-empty">No voice channels</p>
+              ) : (
+                filteredVoices.map(channel => (
+                  <ChannelRow
+                    key={channel.id}
+                    channel={channel}
+                    voice
+                    selected={channel.id === activeVoiceChannelId}
+                    connected={channel.id === activeVoiceChannelId}
+                    occupancy={voiceOccupancy[channel.id] ?? 0}
+                    onSelect={() => onSelectVoiceChannel(selectedServer.id, channel.id)}
+                  />
+                ))
+              )}
+            </CategorySection>
+
+            {addingType ? (
+              <form className="chat-channel-create" onSubmit={submitNewChannel}>
+                <input
+                  type="text"
+                  placeholder={addingType === 'TEXT' ? 'new-text-channel' : 'New voice channel'}
+                  value={newChannelName}
+                  maxLength={64}
+                  autoFocus
+                  aria-label="New channel name"
+                  onChange={event => setNewChannelName(event.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="btn primary"
+                  disabled={busy || !newChannelName.trim()}>
+                  Create
                 </button>
-              );
-            })
-          )}
-        </CategorySection>
+              </form>
+            ) : null}
+          </>
         ) : null}
       </div>
 
