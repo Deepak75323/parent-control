@@ -28,6 +28,7 @@ class ParentPresenceFanoutServiceTest {
   @Mock private ChatRoomMemberRepository memberRepository;
   @Mock private ChatRealtimeService realtimeService;
   @Mock private SharePresenceSettingsService sharePresenceSettingsService;
+  @Mock private org.springframework.messaging.simp.user.SimpUserRegistry simpUserRegistry;
 
   @InjectMocks private ParentPresenceFanoutService fanout;
 

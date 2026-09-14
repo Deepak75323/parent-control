@@ -51,4 +51,25 @@ class ParentPresenceTrackerTest {
     assertFalse(tracker.snapshot(userId).online());
     assertEquals(last.lastSeenAt(), tracker.snapshot(userId).lastSeenAt());
   }
+
+  @Test
+  void disconnectBySessionIdAloneClearsGhostWhenPrincipalMissing() {
+    UUID userId = UUID.randomUUID();
+    tracker.onSessionConnected(userId, "ghost-session");
+    assertTrue(tracker.snapshot(userId).online());
+
+    ParentPresenceTracker.Transition t = tracker.onSessionDisconnectedBySessionId("ghost-session");
+    assertTrue(t.onlineChanged());
+    assertFalse(t.nowOnline());
+    assertFalse(tracker.snapshot(userId).online());
+  }
+
+  @Test
+  void forceOfflineClearsTrackedSessions() {
+    UUID userId = UUID.randomUUID();
+    tracker.onSessionConnected(userId, "s1");
+    ParentPresenceTracker.Transition t = tracker.forceOffline(userId);
+    assertTrue(t.onlineChanged());
+    assertFalse(tracker.snapshot(userId).online());
+  }
 }

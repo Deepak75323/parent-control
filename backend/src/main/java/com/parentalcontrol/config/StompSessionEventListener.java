@@ -52,9 +52,14 @@ public class StompSessionEventListener {
     meterRegistry.counter("stomp.sessions.disconnected").increment();
     UUID userId = resolveUserId(accessor);
     String sessionId = accessor.getSessionId();
-    if (userId != null && sessionId != null) {
+    if (sessionId != null) {
       try {
-        parentPresenceFanoutService.onSessionDisconnected(userId, sessionId);
+        if (userId != null) {
+          parentPresenceFanoutService.onSessionDisconnected(userId, sessionId);
+        } else {
+          // Principal is often already cleared on abrupt close — free the session by id.
+          parentPresenceFanoutService.onSessionDisconnectedBySessionId(sessionId);
+        }
       } catch (Exception e) {
         log.warn("Parent presence disconnect failed userId={} sessionId={}", userId, sessionId, e);
       }

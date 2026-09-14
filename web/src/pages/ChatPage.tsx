@@ -238,6 +238,15 @@ export function ChatPage() {
       setSelectedChannelId(fallback);
     }
   }, [selectedRoomId, selectedRoom, selectedChannelId]);
+
+  useEffect(() => {
+    if (!notice) {
+      return;
+    }
+    const timer = window.setTimeout(() => setNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
   const myRole: ChatMemberRole =
     selectedRoom?.myRole ?? (selectedRoom?.owner ? 'OWNER' : 'MEMBER');
   const canDecryptSelected = Boolean(selectedRoom?.canDecrypt || selectedRoom?.owner);

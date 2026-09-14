@@ -16,8 +16,9 @@ import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.simp.user.SimpUser;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +29,7 @@ public class ParentPresenceFanoutService {
   private final ChatRoomMemberRepository memberRepository;
   private final ChatRealtimeService realtimeService;
   private final SharePresenceSettingsService sharePresenceSettingsService;
+  private final SimpUserRegistry simpUserRegistry;
 
   public void onSessionConnected(UUID userId, String sessionId) {
     ParentPresenceTracker.Transition transition =
@@ -44,13 +46,16 @@ public class ParentPresenceFanoutService {
   public void onSessionDisconnected(UUID userId, String sessionId) {
     ParentPresenceTracker.Transition transition =
         presenceTracker.onSessionDisconnected(userId, sessionId);
-    if (!transition.onlineChanged()) {
+    publishOfflineIfNeeded(userId, transition);
+  }
+
+  /** Prefer when disconnect has a session id but the principal was already cleared. */
+  public void onSessionDisconnectedBySessionId(String sessionId) {
+    UUID userId = presenceTracker.peekSessionOwner(sessionId);
+    if (userId == null) {
       return;
     }
-    if (!sharePresenceSettingsService.isEnabled(userId)) {
-      return;
-    }
-    publishToDirectPartners(userId, false, transition.lastSeenAt(), false);
+    onSessionDisconnected(userId, sessionId);
   }
 
   /** Called when the parent toggles share-presence in Settings. */
@@ -60,10 +65,10 @@ public class ParentPresenceFanoutService {
       return;
     }
     ParentPresenceTracker.Snapshot snap = presenceTracker.snapshot(userId);
-    publishToDirectPartners(userId, snap.online(), snap.lastSeenAt(), false);
+    boolean online = isConnectedInRegistry(userId);
+    publishToDirectPartners(userId, online, snap.lastSeenAt(), false);
   }
 
-  @Transactional(readOnly = true)
   public ChatPartnerPresenceResponse partnerPresenceForRoom(UUID roomId) {
     UUID viewerId = SecurityUtils.requireUserId();
     List<ChatRoomMember> members = memberRepository.findByRoomId(roomId);
@@ -96,12 +101,37 @@ public class ParentPresenceFanoutService {
           .build();
     }
     ParentPresenceTracker.Snapshot snap = presenceTracker.snapshot(partnerId);
+    // Live STOMP registry wins over Redis session sets (ghosts after missed disconnect / deploy).
+    boolean online = isConnectedInRegistry(partnerId);
+    if (snap.online() && !online) {
+      ParentPresenceTracker.Transition cleared = presenceTracker.forceOffline(partnerId);
+      snap = new ParentPresenceTracker.Snapshot(false, cleared.lastSeenAt());
+      if (sharePresenceSettingsService.isEnabled(partnerId)) {
+        publishToDirectPartners(partnerId, false, cleared.lastSeenAt(), false);
+      }
+    }
+    Instant lastSeenAt = snap.lastSeenAt();
     return ChatPartnerPresenceResponse.builder()
         .userId(partnerId)
-        .online(snap.online())
-        .lastSeenAt(snap.lastSeenAt())
+        .online(online)
+        .lastSeenAt(lastSeenAt)
         .hidden(false)
         .build();
+  }
+
+  private void publishOfflineIfNeeded(UUID userId, ParentPresenceTracker.Transition transition) {
+    if (!transition.onlineChanged() || transition.nowOnline()) {
+      return;
+    }
+    if (!sharePresenceSettingsService.isEnabled(userId)) {
+      return;
+    }
+    publishToDirectPartners(userId, false, transition.lastSeenAt(), false);
+  }
+
+  private boolean isConnectedInRegistry(UUID userId) {
+    SimpUser user = simpUserRegistry.getUser(userId.toString());
+    return user != null && !user.getSessions().isEmpty();
   }
 
   private void publishToDirectPartners(
