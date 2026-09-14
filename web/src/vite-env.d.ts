@@ -12,6 +12,8 @@ interface ImportMetaEnv {
   readonly VITE_ENABLE_CHAT_FRIENDS?: string;
   /** Set to "true" to show Direct messages in chat. Default off (servers only). */
   readonly VITE_ENABLE_CHAT_DMS?: string;
+  /** Set to "true" to show Parents tab in the sidebar. Default off. */
+  readonly VITE_ENABLE_PARENTS_TAB?: string;
 }
 
 interface ImportMeta {

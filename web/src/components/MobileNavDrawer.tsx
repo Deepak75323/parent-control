@@ -1,6 +1,7 @@
-import {useEffect, useRef} from 'react';
+import {useEffect, useMemo, useRef} from 'react';
 import {createPortal} from 'react-dom';
 import {useNavigate} from 'react-router-dom';
+import {isParentsTabEnabled} from '../lib/chatFriendsFeature';
 import {lockBodyScroll} from '../lib/scrollLock';
 import {NavIcon} from './NavIcon';
 
@@ -35,6 +36,14 @@ const NAV_GROUPS = [
     ],
   },
 ] as const;
+
+function navGroupsForEnv() {
+  const parentsEnabled = isParentsTabEnabled();
+  return NAV_GROUPS.map(group => ({
+    ...group,
+    items: group.items.filter(item => parentsEnabled || item.to !== '/parents'),
+  })).filter(group => group.items.length > 0);
+}
 
 type Props = {
   open: boolean;
@@ -104,6 +113,8 @@ export function MobileNavDrawer({
     }
   };
 
+  const groups = useMemo(() => navGroupsForEnv(), []);
+
   return createPortal(
     <div className="dc-mobile-overlay" role="dialog" aria-modal="true" aria-label="Navigation">
       <aside className="dc-mobile-overlay-drawer">
@@ -128,7 +139,7 @@ export function MobileNavDrawer({
           FC
         </div>
         <nav className="dc-channels">
-          {NAV_GROUPS.map(group => (
+          {groups.map(group => (
             <div key={group.label} className="dc-channel-group">
               <div className="dc-channel-cat">{group.label}</div>
               {group.items.map(item => (

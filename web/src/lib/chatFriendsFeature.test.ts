@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {isChatDmsEnabled, isChatFriendsEnabled} from './chatFriendsFeature';
+import {isChatDmsEnabled, isChatFriendsEnabled, isParentsTabEnabled} from './chatFriendsFeature';
 
 describe('isChatFriendsEnabled', () => {
   it('is off by default', () => {
@@ -24,5 +24,18 @@ describe('isChatDmsEnabled', () => {
 
   it('turns on only for true', () => {
     expect(isChatDmsEnabled('true')).toBe(true);
+  });
+});
+
+describe('isParentsTabEnabled', () => {
+  it('is off by default', () => {
+    expect(isParentsTabEnabled(undefined)).toBe(false);
+    expect(isParentsTabEnabled('')).toBe(false);
+    expect(isParentsTabEnabled('false')).toBe(false);
+  });
+
+  it('turns on only for true', () => {
+    expect(isParentsTabEnabled('true')).toBe(true);
+    expect(isParentsTabEnabled('TRUE')).toBe(true);
   });
 });

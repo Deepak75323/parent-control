@@ -3,6 +3,7 @@ import {Link, NavLink, Outlet, useLocation, useNavigate} from 'react-router-dom'
 import {authApi, deviceApi} from '../api/services';
 import {useAuthStore} from '../auth/authStore';
 import {deviceInitials, isDevicePresentOnline} from '../lib/devicePresence';
+import {isParentsTabEnabled} from '../lib/chatFriendsFeature';
 import {useMediaQuery} from '../hooks/useMediaQuery';
 import {MobileNavDrawer} from './MobileNavDrawer';
 import {NavIcon} from './NavIcon';
@@ -49,6 +50,14 @@ const NAV_GROUPS = [
     ],
   },
 ] as const;
+
+function navGroupsForEnv() {
+  const parentsEnabled = isParentsTabEnabled();
+  return NAV_GROUPS.map(group => ({
+    ...group,
+    items: group.items.filter(item => parentsEnabled || item.to !== '/parents'),
+  })).filter(group => group.items.length > 0);
+}
 
 const TITLES: Record<string, {title: string; subtitle: string}> = {
   '/devices': {
@@ -126,9 +135,10 @@ type NavChannelsProps = {
 };
 
 function NavChannels({pathname, onNavigate}: NavChannelsProps) {
+  const groups = useMemo(() => navGroupsForEnv(), []);
   return (
     <nav className="dc-channels">
-      {NAV_GROUPS.map(group => (
+      {groups.map(group => (
         <div key={group.label} className="dc-channel-group">
           <div className="dc-channel-cat">{group.label}</div>
           {group.items.map(item => {

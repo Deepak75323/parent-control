@@ -12,3 +12,10 @@ export function isChatDmsEnabled(
 ): boolean {
   return raw?.trim().toLowerCase() === 'true';
 }
+
+/** Parents sidebar tab (notebook partners). Off by default. */
+export function isParentsTabEnabled(
+  raw: string | undefined = import.meta.env.VITE_ENABLE_PARENTS_TAB as string | undefined,
+): boolean {
+  return raw?.trim().toLowerCase() === 'true';
+}
