@@ -50,3 +50,34 @@ export function formatPartnerPresenceLabel(
   }
   return 'Offline';
 }
+
+/** Absolute clock chip for offline members, e.g. "Today, 10:45 PM". */
+export function formatLastSeenClockLabel(
+  lastSeenAt?: string | null,
+  nowMs: number = Date.now(),
+): string | null {
+  if (!lastSeenAt) {
+    return null;
+  }
+  const lastSeenMs = Date.parse(lastSeenAt);
+  if (Number.isNaN(lastSeenMs)) {
+    return null;
+  }
+  const seen = new Date(lastSeenMs);
+  const now = new Date(nowMs);
+  const time = seen.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfSeen = new Date(seen.getFullYear(), seen.getMonth(), seen.getDate()).getTime();
+  const dayDiff = Math.round((startOfToday - startOfSeen) / 86_400_000);
+  if (dayDiff === 0) {
+    return `Today, ${time}`;
+  }
+  if (dayDiff === 1) {
+    return `Yesterday, ${time}`;
+  }
+  const date = seen.toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+  return `${date}, ${time}`;
+}

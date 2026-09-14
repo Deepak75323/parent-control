@@ -1,10 +1,14 @@
 import {useMemo, useState, type ReactNode} from 'react';
+import {Link} from 'react-router-dom';
 import {Avatar} from '../Avatar';
 import {
   buildMemberRoster,
   type MemberPresenceView,
+  type MemberRosterEntry,
 } from '../../lib/chatMemberRoster';
+import {formatLastSeenClockLabel} from '../../lib/parentPresence';
 import type {ChatCallParticipant, ChatMemberItem, ChatRoomSummary} from '../../types/api';
+import {isNotesServerName, NotesServerIcon, ServerGlyph} from './NotesServerIcon';
 
 type Props = {
   open: boolean;
@@ -76,6 +80,10 @@ export function ParentChatInfoPanel({
 
   const inCall = Boolean(callParticipants && callParticipants.length > 0);
   const memberCount = members.length;
+  const roomMemberLabel = `${room?.memberCount ?? memberCount} member${
+    (room?.memberCount ?? memberCount) === 1 ? '' : 's'
+  }`;
+  const roomKindLabel = room?.directMessage ? 'Direct message' : 'Private room';
 
   return (
     <aside
@@ -158,8 +166,8 @@ export function ParentChatInfoPanel({
                   type="button"
                   className="chat-members-invite-btn"
                   disabled={busy}
-                  title="Invite parents"
-                  aria-label="Invite parents"
+                  title="Invite members"
+                  aria-label="Invite members"
                   onClick={onInvite}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
                     <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -171,65 +179,81 @@ export function ParentChatInfoPanel({
             </div>
 
             {room ? (
-              <p className="chat-members-room-hint muted tiny">
-                {room.name}
+              <div className="chat-members-room-card">
+                <div className="chat-members-room-card-main">
+                  {isNotesServerName(room.name) ? (
+                    <NotesServerIcon size={28} />
+                  ) : (
+                    <ServerGlyph name={room.name} size="md" />
+                  )}
+                  <div className="chat-members-room-card-copy">
+                    <span className="chat-members-room-card-name">{room.name}</span>
+                    <span className="chat-members-room-card-meta">
+                      {roomMemberLabel} · {roomKindLabel}
+                    </span>
+                  </div>
+                </div>
                 {canManageMembers && onManageMembers ? (
-                  <>
-                    {' · '}
-                    <button
-                      type="button"
-                      className="chat-members-manage-link"
-                      disabled={busy}
-                      onClick={onManageMembers}>
-                      Manage
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    className="chat-members-manage-btn"
+                    disabled={busy}
+                    onClick={onManageMembers}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                    Manage
+                  </button>
                 ) : null}
-              </p>
+              </div>
             ) : null}
 
             {filteredMembers.length === 0 ? (
               <p className="muted tiny chat-members-empty">No members match your search.</p>
             ) : (
               <>
-                <MemberSection
-                  title="Online"
-                  count={roster.online.length}
-                  online
-                  sortHint="Online first">
+                <MemberSection title="Online" count={roster.online.length} online sortHint="Online first">
                   {roster.online.map(entry => (
                     <MemberRow
                       key={entry.member.userId}
+                      entry={entry}
                       name={memberDisplayName(entry.member, myUserId)}
-                      seed={entry.member.userId}
-                      statusLabel={entry.statusLabel}
                       online
-                      role={entry.member.role}
+                      nowMs={nowMs}
+                      onManage={onManageMembers}
+                      busy={busy}
                     />
                   ))}
                 </MemberSection>
-                <MemberSection
-                  title="Offline"
-                  count={roster.offline.length}
-                  sortHint="Last seen">
+                <MemberSection title="Offline" count={roster.offline.length} sortHint="Last seen">
                   {roster.offline.map(entry => (
                     <MemberRow
                       key={entry.member.userId}
+                      entry={entry}
                       name={memberDisplayName(entry.member, myUserId)}
-                      seed={entry.member.userId}
-                      statusLabel={entry.statusLabel}
                       online={false}
-                      role={entry.member.role}
+                      nowMs={nowMs}
+                      onManage={onManageMembers}
+                      busy={busy}
                     />
                   ))}
                 </MemberSection>
               </>
             )}
 
-            <p className="muted tiny chat-members-privacy-note">
-              Status shows only when Share presence is On in Settings. Otherwise parents appear
-              Offline.
-            </p>
+            <div className="chat-members-privacy-note">
+              <span className="chat-members-privacy-icon" aria-hidden>
+                i
+              </span>
+              <p>
+                Status shows only when Share presence is On in Settings. Otherwise parents appear
+                Offline.{' '}
+                <Link to="/settings" className="chat-members-privacy-link">
+                  Learn more
+                </Link>
+              </p>
+            </div>
           </div>
         )}
       </div>
@@ -262,11 +286,17 @@ function MemberSection({
             className={`chat-members-section-dot${online ? ' online' : ''}`}
             aria-hidden
           />
-          <span className="chat-members-section-label">
-            {title} — {count}
-          </span>
+          <span className="chat-members-section-label">{title}</span>
+          <span className="chat-members-section-count">{count}</span>
         </h3>
-        {sortHint ? <span className="chat-members-section-hint">{sortHint}</span> : null}
+        {sortHint ? (
+          <span className="chat-members-section-hint">
+            {sortHint}
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </span>
+        ) : null}
       </div>
       <ul className="chat-members-roster-list">{children}</ul>
     </section>
@@ -274,46 +304,83 @@ function MemberSection({
 }
 
 function MemberRow({
+  entry,
   name,
-  seed,
-  statusLabel,
   online,
-  role,
+  nowMs,
+  onManage,
+  busy,
 }: {
+  entry: MemberRosterEntry;
   name: string;
-  seed: string;
-  statusLabel: string;
   online: boolean;
-  role: string;
+  nowMs: number;
+  onManage?: () => void;
+  busy?: boolean;
 }) {
-  const isOwner = role === 'OWNER';
+  const isOwner = entry.member.role === 'OWNER';
+  const clockLabel =
+    !online && !entry.presence.hidden
+      ? formatLastSeenClockLabel(entry.presence.lastSeenAt, nowMs)
+      : null;
+
   return (
-    <li className="chat-members-roster-row">
+    <li className={`chat-members-roster-row${online ? ' online' : ' offline'}`}>
       <div className="chat-members-roster-avatar">
-        <Avatar name={name} seed={seed} size="lg" />
+        <Avatar name={name} seed={entry.member.userId} size="lg" />
         <span
           className={`chat-members-presence-dot${online ? ' online' : ''}`}
           aria-hidden
         />
       </div>
       <div className="chat-members-roster-copy">
-        <span className="chat-members-roster-name">{name}</span>
-        <div className="chat-members-roster-meta">
-          {online ? (
-            <span className="chat-members-roster-status online">
-              <span className="chat-members-roster-status-dot" aria-hidden />
-              {statusLabel}
-            </span>
-          ) : (
-            <span className="chat-members-roster-status">{statusLabel}</span>
-          )}
+        <div className="chat-members-roster-name-row">
+          <span className="chat-members-roster-name">{name}</span>
           {isOwner ? (
             <span className="chat-members-roster-role" title="Owner">
+              <span aria-hidden>♛</span>
               Owner
             </span>
           ) : null}
         </div>
+        {online ? (
+          <div className="chat-members-roster-meta">
+            <span className="chat-members-roster-status online">
+              <span className="chat-members-roster-status-dot" aria-hidden />
+              {entry.statusLabel}
+            </span>
+            <span className="chat-members-roster-active">Active now</span>
+          </div>
+        ) : (
+          <div className="chat-members-roster-meta chat-members-roster-meta--offline">
+            <span className="chat-members-roster-status">{entry.statusLabel}</span>
+            {clockLabel ? (
+              <span className="chat-members-roster-clock">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+                {clockLabel}
+              </span>
+            ) : null}
+          </div>
+        )}
       </div>
+      {onManage ? (
+        <button
+          type="button"
+          className="chat-members-roster-menu"
+          disabled={busy}
+          aria-label={`Manage ${name}`}
+          title="Manage"
+          onClick={onManage}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+            <circle cx="12" cy="5" r="1.6" />
+            <circle cx="12" cy="12" r="1.6" />
+            <circle cx="12" cy="19" r="1.6" />
+          </svg>
+        </button>
+      ) : null}
     </li>
   );
 }

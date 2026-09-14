@@ -1,5 +1,9 @@
 import {describe, expect, it} from 'vitest';
-import {formatLastSeenAgo, formatPartnerPresenceLabel} from './parentPresence';
+import {
+  formatLastSeenAgo,
+  formatLastSeenClockLabel,
+  formatPartnerPresenceLabel,
+} from './parentPresence';
 
 describe('formatLastSeenAgo', () => {
   const now = Date.parse('2026-09-14T12:00:00Z');
@@ -33,5 +37,21 @@ describe('formatPartnerPresenceLabel', () => {
     expect(
       formatPartnerPresenceLabel({online: true, hidden: true}, now),
     ).toBeNull();
+  });
+});
+
+describe('formatLastSeenClockLabel', () => {
+  const now = Date.parse('2026-09-14T12:00:00');
+
+  it('formats today', () => {
+    expect(formatLastSeenClockLabel('2026-09-14T10:45:00', now)).toMatch(/^Today,/);
+  });
+
+  it('formats yesterday', () => {
+    expect(formatLastSeenClockLabel('2026-09-13T22:10:00', now)).toMatch(/^Yesterday,/);
+  });
+
+  it('returns null without timestamp', () => {
+    expect(formatLastSeenClockLabel(null, now)).toBeNull();
   });
 });
