@@ -12,6 +12,16 @@ export function isDirectStyleRoom(room: ChatRoomSummary): boolean {
   return room.memberCount === 2;
 }
 
+export type ChatListFilter = 'all' | 'rooms' | 'friends' | 'dms';
+
+/** Which sidebar sections appear for All / Rooms / Friends / DMs tabs. */
+export function chatListSectionVisible(
+  filter: ChatListFilter,
+  section: 'rooms' | 'friends' | 'dms',
+): boolean {
+  return filter === 'all' || filter === section;
+}
+
 type Props = {
   rooms: ChatRoomSummary[];
   selectedRoomId: string | null;
@@ -126,6 +136,8 @@ export function ChatRoomsPanel({
   const [voiceOpen, setVoiceOpen] = useState(true);
   const [dmOpen, setDmOpen] = useState(true);
   const [friendsOpen, setFriendsOpen] = useState(true);
+  const [listFilter, setListFilter] = useState<ChatListFilter>('all');
+  const [listQuery, setListQuery] = useState('');
   const [addingType, setAddingType] = useState<'TEXT' | 'VOICE' | null>(null);
   const [newChannelName, setNewChannelName] = useState('');
 
@@ -134,6 +146,21 @@ export function ChatRoomsPanel({
   const canCreateChannels =
     Boolean(selectedServer) &&
     (selectedServer!.owner || selectedServer!.myRole === 'ADMIN');
+
+  const query = listQuery.trim().toLowerCase();
+  const matchesQuery = (value: string) => !query || value.toLowerCase().includes(query);
+  const showRooms = chatListSectionVisible(listFilter, 'rooms');
+  const showFriends = chatListSectionVisible(listFilter, 'friends');
+  const showDms = chatListSectionVisible(listFilter, 'dms');
+  const filteredFriends = friends.filter(friend =>
+    matchesQuery(`${friend.nickname} ${friend.label}`),
+  );
+  const filteredDirectRooms = directRooms.filter(room => {
+    const linked = friendByDmRoomId.get(room.id);
+    return matchesQuery(linked ? `${linked.nickname} ${linked.label}` : room.name);
+  });
+  const filteredTexts = texts.filter(channel => matchesQuery(channel.name));
+  const filteredVoices = voices.filter(channel => matchesQuery(channel.name));
 
   function submitNewChannel(event: FormEvent) {
     event.preventDefault();
@@ -275,8 +302,45 @@ export function ChatRoomsPanel({
         </div>
       ) : null}
 
+      <div className="chat-list-toolbar">
+        <label className="chat-list-search">
+          <span className="visually-hidden">Search chats</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-3-3" />
+          </svg>
+          <input
+            type="search"
+            value={listQuery}
+            placeholder="Search chats, rooms or parents…"
+            onChange={event => setListQuery(event.target.value)}
+          />
+        </label>
+        <div className="chat-list-filters" role="tablist" aria-label="Chat list filter">
+          {(
+            [
+              ['all', 'All'],
+              ['rooms', 'Rooms'],
+              ['friends', 'Friends'],
+              ['dms', 'DMs'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={listFilter === id}
+              className={`chat-list-filter${listFilter === id ? ' active' : ''}`}
+              onClick={() => setListFilter(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="chat-comm-scroll">
-        {selectedServer ? (
+        {showRooms ? (
+          selectedServer ? (
           <>
             {viewingDirect ? (
               <p className="chat-channel-empty chat-channel-empty--dm-hint">
@@ -294,10 +358,10 @@ export function ChatRoomsPanel({
                   : undefined
               }
               addLabel="Create text channel">
-              {texts.length === 0 ? (
+              {filteredTexts.length === 0 ? (
                 <p className="chat-channel-empty">No text channels</p>
               ) : (
-                texts.map(channel => (
+                filteredTexts.map(channel => (
                   <ChannelRow
                     key={channel.id}
                     channel={channel}
@@ -333,10 +397,10 @@ export function ChatRoomsPanel({
                   : undefined
               }
               addLabel="Create voice channel">
-              {voices.length === 0 ? (
+              {filteredVoices.length === 0 ? (
                 <p className="chat-channel-empty">No voice channels</p>
               ) : (
-                voices.map(channel => (
+                filteredVoices.map(channel => (
                   <ChannelRow
                     key={channel.id}
                     channel={channel}
@@ -370,10 +434,12 @@ export function ChatRoomsPanel({
               </form>
             ) : null}
           </>
-        ) : (
-          <p className="chat-room-empty">Create a server to add channels</p>
-        )}
+          ) : (
+            <p className="chat-room-empty">Create a server to add channels</p>
+          )
+        ) : null}
 
+        {showFriends ? (
         <CategorySection
           id="friends"
           title="Friends"
@@ -381,12 +447,14 @@ export function ChatRoomsPanel({
           onToggle={() => setFriendsOpen(v => !v)}
           onAdd={onConnectParent}
           addLabel="Add friend">
-          {friends.length === 0 ? (
+          {filteredFriends.length === 0 ? (
             <p className="chat-channel-empty">
-              Add a parent by @handle or email. After they accept, they appear here.
+              {friends.length === 0
+                ? 'Add a parent by @handle or email. After they accept, they appear here.'
+                : 'No friends match your search.'}
             </p>
           ) : (
-            friends.map(friend => (
+            filteredFriends.map(friend => (
               <div
                 key={friend.userId}
                 className={`chat-dm-row${
@@ -421,7 +489,9 @@ export function ChatRoomsPanel({
             ))
           )}
         </CategorySection>
+        ) : null}
 
+        {showDms ? (
         <CategorySection
           id="direct-messages"
           title="Direct messages"
@@ -429,12 +499,14 @@ export function ChatRoomsPanel({
           onToggle={() => setDmOpen(v => !v)}
           onAdd={onConnectParent}
           addLabel="Add friend">
-          {directRooms.length === 0 ? (
+          {filteredDirectRooms.length === 0 ? (
             <p className="chat-channel-empty">
-              Direct chats open after a friend accepts your request.
+              {directRooms.length === 0
+                ? 'Direct chats open after a friend accepts your request.'
+                : 'No direct messages match your search.'}
             </p>
           ) : (
-            directRooms.map(room => {
+            filteredDirectRooms.map(room => {
               const defaultText = textChannels(room)[0];
               const linkedFriend = friendByDmRoomId.get(room.id);
               const displayName = linkedFriend
@@ -464,6 +536,7 @@ export function ChatRoomsPanel({
             })
           )}
         </CategorySection>
+        ) : null}
       </div>
 
       <div className="chat-comm-footer">

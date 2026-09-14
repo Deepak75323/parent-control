@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {isDirectStyleRoom} from './ChatRoomsPanel';
+import {chatListSectionVisible, isDirectStyleRoom} from './ChatRoomsPanel';
 import type {ChatRoomSummary} from '../../types/api';
 
 function room(memberCount: number): ChatRoomSummary {
@@ -31,5 +31,20 @@ describe('isDirectStyleRoom', () => {
   it('prefers directMessage flag over member count', () => {
     expect(isDirectStyleRoom({...room(2), directMessage: false, name: 'Notes'})).toBe(false);
     expect(isDirectStyleRoom({...room(2), directMessage: true, name: 'Friend'})).toBe(true);
+  });
+});
+
+describe('chatListSectionVisible', () => {
+  it('shows servers and personal lists together on All', () => {
+    expect(chatListSectionVisible('all', 'rooms')).toBe(true);
+    expect(chatListSectionVisible('all', 'friends')).toBe(true);
+    expect(chatListSectionVisible('all', 'dms')).toBe(true);
+  });
+
+  it('scopes Rooms / Friends / DMs tabs', () => {
+    expect(chatListSectionVisible('rooms', 'rooms')).toBe(true);
+    expect(chatListSectionVisible('rooms', 'friends')).toBe(false);
+    expect(chatListSectionVisible('friends', 'dms')).toBe(false);
+    expect(chatListSectionVisible('dms', 'dms')).toBe(true);
   });
 });
