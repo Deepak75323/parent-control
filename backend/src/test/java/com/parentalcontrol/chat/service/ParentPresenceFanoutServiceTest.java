@@ -88,6 +88,47 @@ class ParentPresenceFanoutServiceTest {
     assertEquals(false, captor.getValue().get("online"));
   }
 
+  @Test
+  void publishesToRoomPartnerInLargerServer() {
+    UUID third = UUID.randomUUID();
+    when(sharePresenceSettingsService.isEnabled(subject)).thenReturn(true);
+    when(presenceTracker.onSessionConnected(subject, "s1"))
+        .thenReturn(new ParentPresenceTracker.Transition(true, true, null));
+    when(memberRepository.findActiveByUserId(subject))
+        .thenReturn(List.of(member(roomId, subject)));
+    when(memberRepository.findByRoomId(roomId))
+        .thenReturn(
+            List.of(member(roomId, subject), member(roomId, partner), member(roomId, third)));
+
+    fanout.onSessionConnected(subject, "s1");
+
+    verify(realtimeService).publishPresenceUpdate(eq(partner), anyMap());
+    verify(realtimeService).publishPresenceUpdate(eq(third), anyMap());
+  }
+
+  @Test
+  void membersPresenceHidesOptedOutPartner() {
+    try (var security = org.mockito.Mockito.mockStatic(com.parentalcontrol.common.security.SecurityUtils.class)) {
+      security.when(com.parentalcontrol.common.security.SecurityUtils::requireUserId).thenReturn(subject);
+      when(memberRepository.findByRoomId(roomId))
+          .thenReturn(List.of(member(roomId, subject), member(roomId, partner)));
+      when(sharePresenceSettingsService.isEnabled(partner)).thenReturn(false);
+      when(presenceTracker.snapshot(subject))
+          .thenReturn(new ParentPresenceTracker.Snapshot(true, null));
+      when(simpUserRegistry.getUser(subject.toString())).thenReturn(null);
+
+      var list = fanout.membersPresenceForRoom(roomId);
+
+      org.junit.jupiter.api.Assertions.assertEquals(2, list.size());
+      var self = list.stream().filter(p -> p.getUserId().equals(subject)).findFirst().orElseThrow();
+      var other = list.stream().filter(p -> p.getUserId().equals(partner)).findFirst().orElseThrow();
+      org.junit.jupiter.api.Assertions.assertFalse(self.isHidden());
+      org.junit.jupiter.api.Assertions.assertTrue(other.isHidden());
+      org.junit.jupiter.api.Assertions.assertFalse(other.isOnline());
+      org.junit.jupiter.api.Assertions.assertNull(other.getLastSeenAt());
+    }
+  }
+
   private static ChatRoomMember member(UUID roomId, UUID userId) {
     return ChatRoomMember.builder()
         .roomId(roomId)

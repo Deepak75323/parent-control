@@ -257,6 +257,17 @@ export const chatApi = {
         hidden: boolean;
       }>
     >(ApiPaths.chatRoomPresence(roomId)),
+  membersPresence: (roomId: string) =>
+    api.get<
+      ApiResponse<
+        Array<{
+          userId: string;
+          online: boolean;
+          lastSeenAt?: string | null;
+          hidden: boolean;
+        }>
+      >
+    >(ApiPaths.chatRoomMembersPresence(roomId)),
   removeMember: (roomId: string, userId: string) =>
     api.delete<ApiResponse<void>>(ApiPaths.chatRoomMember(roomId, userId)),
   updateMember: (

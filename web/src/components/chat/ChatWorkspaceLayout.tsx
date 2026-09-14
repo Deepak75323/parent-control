@@ -1,5 +1,6 @@
 import {useEffect, useRef, type ReactNode, type CSSProperties} from 'react';
 import type {useChatWorkspaceLayout} from '../../hooks/useChatWorkspaceLayout';
+import type {MemberPresenceView} from '../../lib/chatMemberRoster';
 import type {ChatCallParticipant, ChatMemberItem, ChatRoomSummary} from '../../types/api';
 import {ChatRoomsDrawer} from './ChatRoomsDrawer';
 import {ParentChatInfoPanel} from './ParentChatInfoPanel';
@@ -10,6 +11,7 @@ export type ChatWorkspaceLayoutState = ReturnType<typeof useChatWorkspaceLayout>
 export type ChatInfoPanelContext = {
   room: ChatRoomSummary | null;
   members: ChatMemberItem[];
+  memberPresenceByUserId?: Record<string, MemberPresenceView>;
   myUserId?: string;
   canManageMembers?: boolean;
   busy?: boolean;
@@ -117,6 +119,7 @@ export function ChatWorkspaceLayout({
           onClose={layout.closeInfoPanel}
           room={infoContext?.room ?? null}
           members={infoContext?.members ?? []}
+          memberPresenceByUserId={infoContext?.memberPresenceByUserId}
           myUserId={infoContext?.myUserId}
           canManageMembers={infoContext?.canManageMembers}
           busy={infoContext?.busy}

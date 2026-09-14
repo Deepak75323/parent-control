@@ -1,6 +1,7 @@
 package com.parentalcontrol.chat.service;
 
 import com.parentalcontrol.chat.domain.ChatRoomMember;
+import com.parentalcontrol.chat.dto.ChatMemberPresenceResponse;
 import com.parentalcontrol.chat.dto.ChatPartnerPresenceResponse;
 import com.parentalcontrol.chat.repository.ChatRoomMemberRepository;
 import com.parentalcontrol.common.constant.MessageConstants;
@@ -92,6 +93,48 @@ public class ParentPresenceFanoutService {
     if (partnerId == null) {
       return ChatPartnerPresenceResponse.builder().hidden(true).build();
     }
+    return presenceForUser(partnerId);
+  }
+
+  /**
+   * Discord-style roster: every room member with Online / Last seen when they share presence;
+   * otherwise hidden (UI should show Offline with no last seen).
+   */
+  public List<ChatMemberPresenceResponse> membersPresenceForRoom(UUID roomId) {
+    UUID viewerId = SecurityUtils.requireUserId();
+    List<ChatRoomMember> members = memberRepository.findByRoomId(roomId);
+    if (members.stream().noneMatch(m -> m.getUserId().equals(viewerId))) {
+      throw new BusinessException(ErrorCode.FORBIDDEN, MessageConstants.CHAT_NOT_A_MEMBER);
+    }
+    List<ChatMemberPresenceResponse> out = new ArrayList<>();
+    for (ChatRoomMember member : members) {
+      UUID memberId = member.getUserId();
+      if (memberId.equals(viewerId)) {
+        // Self: always show live connection status (Settings toggle does not hide you from yourself).
+        ParentPresenceTracker.Snapshot snap = presenceTracker.snapshot(memberId);
+        boolean online = isConnectedInRegistry(memberId);
+        out.add(
+            ChatMemberPresenceResponse.builder()
+                .userId(memberId)
+                .online(online)
+                .lastSeenAt(snap.lastSeenAt())
+                .hidden(false)
+                .build());
+        continue;
+      }
+      ChatPartnerPresenceResponse presence = presenceForUser(memberId);
+      out.add(
+          ChatMemberPresenceResponse.builder()
+              .userId(memberId)
+              .online(presence.isOnline())
+              .lastSeenAt(presence.getLastSeenAt())
+              .hidden(presence.isHidden())
+              .build());
+    }
+    return out;
+  }
+
+  private ChatPartnerPresenceResponse presenceForUser(UUID partnerId) {
     if (!sharePresenceSettingsService.isEnabled(partnerId)) {
       return ChatPartnerPresenceResponse.builder()
           .userId(partnerId)
@@ -107,7 +150,7 @@ public class ParentPresenceFanoutService {
       ParentPresenceTracker.Transition cleared = presenceTracker.forceOffline(partnerId);
       snap = new ParentPresenceTracker.Snapshot(false, cleared.lastSeenAt());
       if (sharePresenceSettingsService.isEnabled(partnerId)) {
-        publishToDirectPartners(partnerId, false, cleared.lastSeenAt(), false);
+        publishToRoomPartners(partnerId, false, cleared.lastSeenAt(), false);
       }
     }
     Instant lastSeenAt = snap.lastSeenAt();
@@ -126,7 +169,7 @@ public class ParentPresenceFanoutService {
     if (!sharePresenceSettingsService.isEnabled(userId)) {
       return;
     }
-    publishToDirectPartners(userId, false, transition.lastSeenAt(), false);
+    publishToRoomPartners(userId, false, transition.lastSeenAt(), false);
   }
 
   private boolean isConnectedInRegistry(UUID userId) {
@@ -136,8 +179,14 @@ public class ParentPresenceFanoutService {
 
   private void publishToDirectPartners(
       UUID subjectUserId, boolean online, Instant lastSeenAt, boolean hidden) {
-    List<DirectPartner> partners = findDirectPartners(subjectUserId);
-    for (DirectPartner partner : partners) {
+    publishToRoomPartners(subjectUserId, online, lastSeenAt, hidden);
+  }
+
+  /** Fan out to every co-member in shared rooms (Discord-style live roster). */
+  private void publishToRoomPartners(
+      UUID subjectUserId, boolean online, Instant lastSeenAt, boolean hidden) {
+    List<RoomPartner> partners = findRoomPartners(subjectUserId);
+    for (RoomPartner partner : partners) {
       Map<String, Object> event = new HashMap<>();
       event.put("eventType", "PRESENCE_UPDATE");
       event.put("roomId", partner.roomId().toString());
@@ -160,22 +209,19 @@ public class ParentPresenceFanoutService {
     }
   }
 
-  private List<DirectPartner> findDirectPartners(UUID userId) {
+  private List<RoomPartner> findRoomPartners(UUID userId) {
     List<ChatRoomMember> myMemberships = memberRepository.findActiveByUserId(userId);
-    List<DirectPartner> partners = new ArrayList<>();
+    List<RoomPartner> partners = new ArrayList<>();
     for (ChatRoomMember membership : myMemberships) {
       List<ChatRoomMember> roomMembers = memberRepository.findByRoomId(membership.getRoomId());
-      if (roomMembers.size() != 2) {
-        continue;
-      }
       for (ChatRoomMember other : roomMembers) {
         if (!other.getUserId().equals(userId)) {
-          partners.add(new DirectPartner(membership.getRoomId(), other.getUserId()));
+          partners.add(new RoomPartner(membership.getRoomId(), other.getUserId()));
         }
       }
     }
     return partners;
   }
 
-  private record DirectPartner(UUID roomId, UUID partnerUserId) {}
+  private record RoomPartner(UUID roomId, UUID partnerUserId) {}
 }

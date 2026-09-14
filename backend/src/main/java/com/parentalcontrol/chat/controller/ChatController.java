@@ -15,6 +15,7 @@ import com.parentalcontrol.chat.dto.SendChatMessageRequest;
 import com.parentalcontrol.chat.dto.SetChatMessageReactionRequest;
 import com.parentalcontrol.chat.dto.ChatTypingRequest;
 import com.parentalcontrol.chat.dto.ChatPartnerPresenceResponse;
+import com.parentalcontrol.chat.dto.ChatMemberPresenceResponse;
 import com.parentalcontrol.chat.dto.ChatCallResponse;
 import com.parentalcontrol.chat.dto.ChatCallSignalRequest;
 import com.parentalcontrol.chat.dto.ChatChannelResponse;
@@ -88,6 +89,14 @@ public class ChatController {
   @Operation(summary = "Partner Online / Last seen for a 2-person chat (hidden if they opted out)")
   public ApiResponse<ChatPartnerPresenceResponse> partnerPresence(@PathVariable UUID roomId) {
     return ApiResponse.ok(parentPresenceFanoutService.partnerPresenceForRoom(roomId));
+  }
+
+  @GetMapping("/rooms/{roomId}/members/presence")
+  @Operation(
+      summary =
+          "Online / Last seen for every room member (hidden members appear offline with no last seen)")
+  public ApiResponse<List<ChatMemberPresenceResponse>> membersPresence(@PathVariable UUID roomId) {
+    return ApiResponse.ok(parentPresenceFanoutService.membersPresenceForRoom(roomId));
   }
 
   @GetMapping("/rooms/{roomId}/channels")

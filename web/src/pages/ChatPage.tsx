@@ -176,6 +176,7 @@ export function ChatPage() {
   const reactionPatches = useRealtimeStore(s => s.reactionPatches);
   const chatTypingByRoom = useRealtimeStore(s => s.chatTypingByRoom);
   const partnerPresenceByRoom = useRealtimeStore(s => s.partnerPresenceByRoom);
+  const memberPresenceByRoom = useRealtimeStore(s => s.memberPresenceByRoom);
   const pruneExpiredChatTyping = useRealtimeStore(s => s.pruneExpiredChatTyping);
   const clearChatTypingForRoom = useRealtimeStore(s => s.clearChatTypingForRoom);
   const [presenceNowMs, setPresenceNowMs] = useState(() => Date.now());
@@ -1066,6 +1067,21 @@ export function ChatPage() {
     }
   }, []);
 
+  const loadMembersPresence = useCallback(async (roomId: string) => {
+    try {
+      const {data} = await chatApi.membersPresence(roomId);
+      const entries = (data.data ?? []).map(entry => ({
+        userId: entry.userId,
+        online: Boolean(entry.online),
+        lastSeenAt: entry.lastSeenAt ?? null,
+        hidden: Boolean(entry.hidden),
+      }));
+      useRealtimeStore.getState().setMemberPresenceForRoom(roomId, entries);
+    } catch {
+      // Roster presence is best-effort.
+    }
+  }, []);
+
   async function handleRemoveMember(userId: string) {
     if (!selectedRoomId) {
       return;
@@ -1314,11 +1330,19 @@ export function ChatPage() {
       return;
     }
     void loadRoomMembers(selectedRoomId);
+    void loadMembersPresence(selectedRoomId);
     const room = rooms.find(entry => entry.id === selectedRoomId);
     if (room && isDirectStyleRoom(room)) {
       void loadPartnerPresence(selectedRoomId);
     }
-  }, [selectedRoomId, loadRoomMembers, loadPartnerPresence, chatRoomsEpoch, rooms]);
+  }, [
+    selectedRoomId,
+    loadRoomMembers,
+    loadMembersPresence,
+    loadPartnerPresence,
+    chatRoomsEpoch,
+    rooms,
+  ]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setPresenceNowMs(Date.now()), 60_000);
@@ -2677,6 +2701,9 @@ export function ChatPage() {
         infoContext={{
           room: selectedRoom,
           members: roomMembers,
+          memberPresenceByUserId: selectedRoomId
+            ? memberPresenceByRoom[selectedRoomId] ?? {}
+            : {},
           myUserId,
           canManageMembers: canManageMembers(myRole),
           busy,

@@ -64,6 +64,8 @@ interface RealtimeState {
   chatTypingByRoom: Record<string, ChatTypingPeer[]>;
   /** Partner presence for 2-person rooms (STOMP + cold GET). */
   partnerPresenceByRoom: Record<string, PartnerPresenceLive>;
+  /** Discord-style roster keyed by room then user. */
+  memberPresenceByRoom: Record<string, Record<string, PartnerPresenceLive>>;
   chatClearedEpoch: Record<string, number>;
   /** Wall-clock ms when history was cleared for everyone (owner) — stale WS cache is ignored before this. */
   chatClearedAt: Record<string, number>;
@@ -95,6 +97,7 @@ interface RealtimeState {
     typing: boolean,
   ) => void;
   upsertPartnerPresence: (roomId: string, presence: PartnerPresenceLive) => void;
+  setMemberPresenceForRoom: (roomId: string, entries: PartnerPresenceLive[]) => void;
   clearChatTypingForRoom: (roomId: string) => void;
   pruneExpiredChatTyping: () => void;
   markRoomIncomingRead: (roomId: string) => void;
@@ -137,6 +140,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   reactionPatches: {},
   chatTypingByRoom: {},
   partnerPresenceByRoom: {},
+  memberPresenceByRoom: {},
   chatClearedEpoch: {},
   chatClearedAt: {},
   personalChatClearedAt: {},
@@ -209,7 +213,27 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
         ...state.partnerPresenceByRoom,
         [roomId]: presence,
       },
+      memberPresenceByRoom: {
+        ...state.memberPresenceByRoom,
+        [roomId]: {
+          ...(state.memberPresenceByRoom[roomId] ?? {}),
+          [presence.userId]: presence,
+        },
+      },
     })),
+  setMemberPresenceForRoom: (roomId, entries) =>
+    set(state => {
+      const byUser: Record<string, PartnerPresenceLive> = {};
+      for (const entry of entries) {
+        byUser[entry.userId] = entry;
+      }
+      return {
+        memberPresenceByRoom: {
+          ...state.memberPresenceByRoom,
+          [roomId]: byUser,
+        },
+      };
+    }),
   clearChatTypingForRoom: roomId =>
     set(state => {
       if (!state.chatTypingByRoom[roomId]) {
@@ -359,6 +383,7 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       reactionPatches: {},
       chatTypingByRoom: {},
       partnerPresenceByRoom: {},
+      memberPresenceByRoom: {},
       chatClearedEpoch: {},
       chatClearedAt: {},
       personalChatClearedAt: {},
