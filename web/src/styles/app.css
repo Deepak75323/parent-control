@@ -9198,25 +9198,59 @@ body.stream-pip-dragging * {
   flex: 1;
   min-width: 0;
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  height: 40px;
+  padding: 0 12px;
   border-radius: 12px;
-  background: #ffffff;
+  background: #f6f7fc;
   border: 1px solid #e6e8f0;
   color: #9698aa;
-  box-shadow: 0 1px 2px rgba(23, 24, 43, 0.04);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: normal;
+  box-shadow: none;
+}
+
+.chat-members-search svg {
+  flex-shrink: 0;
 }
 
 .chat-members-search input {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  height: auto;
+  margin: 0;
+  padding: 0;
   border: none;
+  border-radius: 0;
   background: transparent;
+  box-shadow: none;
   font: inherit;
   font-size: 13px;
+  font-weight: 400;
   color: var(--text-primary, #17182b);
   outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.chat-members-search input:focus {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+.chat-members-search input::placeholder {
+  color: #9698aa;
+}
+
+.chat-members-search:focus-within {
+  border-color: #5b4fef;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(91, 79, 239, 0.12);
 }
 
 .chat-members-invite-btn {
