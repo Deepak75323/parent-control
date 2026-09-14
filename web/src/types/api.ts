@@ -212,6 +212,10 @@ export interface ChatRoomSummary {
   memberCount: number;
   /** True for friend DMs; false/absent for ordinary servers (even with 2 members). */
   directMessage?: boolean;
+  /**
+   * Owner shares the Members roster with other members. Non-owners see older help UI when false.
+   */
+  membersPanelShared?: boolean;
   createdAt: string;
   updatedAt: string;
   /** When set, messages before this time are hidden for this user only. */

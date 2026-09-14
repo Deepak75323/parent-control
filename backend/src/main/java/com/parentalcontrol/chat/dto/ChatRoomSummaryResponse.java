@@ -23,6 +23,10 @@ public class ChatRoomSummaryResponse {
   int memberCount;
   /** Friend DM (not a 2-person server like Notes). */
   boolean directMessage;
+  /**
+   * Owner shares the Members roster with other members. Non-owners see older help UI when false.
+   */
+  boolean membersPanelShared;
   Instant createdAt;
   Instant updatedAt;
   /** Per-member: local clear-chat timestamp (messages before this are hidden for this user). */

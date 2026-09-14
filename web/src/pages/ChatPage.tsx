@@ -1112,6 +1112,27 @@ export function ChatPage() {
     await loadRooms();
   }
 
+  async function handleMembersPanelShareChange(shared: boolean) {
+    if (!selectedRoomId) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const {data} = await chatApi.setMembersPanelShared(selectedRoomId, shared);
+      const updated = data.data;
+      if (updated) {
+        setRooms(prev => prev.map(room => (room.id === updated.id ? {...room, ...updated} : room)));
+      } else {
+        await loadRooms();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update Members panel sharing');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const loadInvites = useCallback(async () => {
     try {
       const {data} = await chatApi.listPendingInvites();
@@ -2709,6 +2730,9 @@ export function ChatPage() {
           busy,
           onInvite: () => setShowInvite(true),
           onManageMembers: () => setMembersDialogOpen(true),
+          onMembersPanelShareChange: selectedRoom?.owner
+            ? handleMembersPanelShareChange
+            : undefined,
           callParticipants:
             callSessionJoined && callSessionRoomId === selectedRoomId
               ? callSessionCall?.participants ?? null

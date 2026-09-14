@@ -277,6 +277,10 @@ export const chatApi = {
   ) => api.patch<ApiResponse<ChatMemberItem>>(ApiPaths.chatRoomMember(roomId, userId), body),
   transferOwnership: (roomId: string, userId: string) =>
     api.post<ApiResponse<void>>(ApiPaths.chatRoomTransferOwnership(roomId), {userId}),
+  setMembersPanelShared: (roomId: string, shared: boolean) =>
+    api.patch<ApiResponse<ChatRoomSummary>>(ApiPaths.chatRoomMembersPanelShare(roomId), {
+      shared,
+    }),
   listChannels: (roomId: string) =>
     api.get<ApiResponse<ChatChannelItem[]>>(ApiPaths.chatRoomChannels(roomId)),
   createChannel: (roomId: string, name: string, channelType: 'TEXT' | 'VOICE') =>

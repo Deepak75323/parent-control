@@ -314,6 +314,9 @@ public final class MessageConstants {
   public static final String CHAT_ONLY_OWNER_CAN_TRANSFER =
       "Only the room owner can transfer ownership";
 
+  public static final String CHAT_ONLY_OWNER_CAN_SHARE_MEMBERS_PANEL =
+      "Only the room owner can show or hide the Members panel for others";
+
   public static final String CHAT_ONLY_OWNER_CAN_CHANGE_ROLE =
       "Only the room owner can change member roles";
 

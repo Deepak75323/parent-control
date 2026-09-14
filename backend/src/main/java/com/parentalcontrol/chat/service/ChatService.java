@@ -269,6 +269,22 @@ public class ChatService {
   }
 
   @Transactional
+  public ChatRoomSummaryResponse setMembersPanelShared(UUID roomId, boolean shared) {
+    UUID actorId = SecurityUtils.requireUserId();
+    ChatRoom room = requireRoom(roomId);
+    if (!room.getOwnerUserId().equals(actorId)) {
+      throw new BusinessException(
+          ErrorCode.FORBIDDEN, MessageConstants.CHAT_ONLY_OWNER_CAN_SHARE_MEMBERS_PANEL);
+    }
+    requireActiveMember(roomId, actorId);
+    room.setMembersPanelShared(shared);
+    room.setUpdatedAt(Instant.now());
+    roomRepository.save(room);
+    notifyRoomListBump(roomId);
+    return toRoomSummary(room, actorId);
+  }
+
+  @Transactional
   public void deleteRoom(UUID roomId) {
     UUID userId = SecurityUtils.requireUserId();
     if (roomRepository.isSoftDeleted(roomId)) {
@@ -1023,6 +1039,7 @@ public class ChatService {
         .canDecrypt(canDecrypt)
         .memberCount(memberCount)
         .directMessage(room.isDirectMessage())
+        .membersPanelShared(room.isMembersPanelShared())
         .createdAt(room.getCreatedAt())
         .updatedAt(room.getUpdatedAt())
         .chatClearedAt(chatClearedAt)

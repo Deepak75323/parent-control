@@ -17,6 +17,7 @@ export type ChatInfoPanelContext = {
   busy?: boolean;
   onInvite?: () => void;
   onManageMembers?: () => void;
+  onMembersPanelShareChange?: (shared: boolean) => void;
   callParticipants?: ChatCallParticipant[] | null;
   callChannelName?: string | null;
   sideChat?: ReactNode;
@@ -125,6 +126,7 @@ export function ChatWorkspaceLayout({
           busy={infoContext?.busy}
           onInvite={infoContext?.onInvite}
           onManageMembers={infoContext?.onManageMembers}
+          onMembersPanelShareChange={infoContext?.onMembersPanelShareChange}
           callParticipants={infoContext?.callParticipants}
           callChannelName={infoContext?.callChannelName}
           sideChat={infoContext?.sideChat}

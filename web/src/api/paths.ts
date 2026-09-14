@@ -73,6 +73,8 @@ export const ApiPaths = {
     `${V1}/chat/rooms/${roomId}/members/${userId}`,
   chatRoomTransferOwnership: (roomId: string) =>
     `${V1}/chat/rooms/${roomId}/transfer-ownership`,
+  chatRoomMembersPanelShare: (roomId: string) =>
+    `${V1}/chat/rooms/${roomId}/members-panel-share`,
   chatRoomChannels: (roomId: string) => `${V1}/chat/rooms/${roomId}/channels`,
   chatRoomCalls: (roomId: string) => `${V1}/chat/rooms/${roomId}/calls`,
   chatRoomActiveCall: (roomId: string) => `${V1}/chat/rooms/${roomId}/calls/active`,

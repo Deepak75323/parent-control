@@ -27,6 +27,7 @@ import com.parentalcontrol.chat.dto.SetChatDecryptPinRequest;
 import com.parentalcontrol.chat.dto.StartChatCallRequest;
 import com.parentalcontrol.chat.dto.TransferChatOwnershipRequest;
 import com.parentalcontrol.chat.dto.UpdateChatMemberRequest;
+import com.parentalcontrol.chat.dto.UpdateMembersPanelShareRequest;
 import com.parentalcontrol.chat.dto.UnlockChatDecryptRequest;
 import com.parentalcontrol.chat.service.ChatCallService;
 import com.parentalcontrol.chat.service.ChatChannelService;
@@ -205,6 +206,13 @@ public class ChatController {
       @PathVariable UUID roomId, @Valid @RequestBody TransferChatOwnershipRequest request) {
     chatService.transferOwnership(roomId, request.getUserId());
     return ApiResponse.ok(null);
+  }
+
+  @PatchMapping("/rooms/{roomId}/members-panel-share")
+  @Operation(summary = "Owner: show or hide the Members panel for other room members")
+  public ApiResponse<ChatRoomSummaryResponse> setMembersPanelShared(
+      @PathVariable UUID roomId, @Valid @RequestBody UpdateMembersPanelShareRequest request) {
+    return ApiResponse.ok(chatService.setMembersPanelShared(roomId, request.getShared()));
   }
 
   @PostMapping("/rooms/{roomId}/calls")

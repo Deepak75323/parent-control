@@ -6,6 +6,7 @@ import {
   type MemberPresenceView,
   type MemberRosterEntry,
 } from '../../lib/chatMemberRoster';
+import {shouldShowMembersRoster} from '../../lib/membersPanelVisibility';
 import {formatLastSeenClockLabel} from '../../lib/parentPresence';
 import type {ChatCallParticipant, ChatMemberItem, ChatRoomSummary} from '../../types/api';
 import {isNotesServerName, NotesServerIcon, ServerGlyph} from './NotesServerIcon';
@@ -25,6 +26,8 @@ type Props = {
   busy?: boolean;
   onInvite?: () => void;
   onManageMembers?: () => void;
+  /** Owner-only: share/hide Members roster for other parents. */
+  onMembersPanelShareChange?: (shared: boolean) => void;
   callParticipants?: ChatCallParticipant[] | null;
   callChannelName?: string | null;
   sideChat?: ReactNode;
@@ -51,12 +54,20 @@ export function ParentChatInfoPanel({
   busy = false,
   onInvite,
   onManageMembers,
+  onMembersPanelShareChange,
   callParticipants = null,
   callChannelName = null,
   sideChat = null,
 }: Props) {
   const [query, setQuery] = useState('');
   const [nowMs] = useState(() => Date.now());
+
+  const isOwner = Boolean(room?.owner);
+  const membersPanelShared = Boolean(room?.membersPanelShared);
+  const showMembersRoster = shouldShowMembersRoster({
+    isOwner,
+    membersPanelShared,
+  });
 
   const filteredMembers = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -96,17 +107,17 @@ export function ParentChatInfoPanel({
         .filter(Boolean)
         .join(' ')}
       style={!isMobile && !isResizable ? {width} : undefined}
-      aria-label={inCall ? 'Call details' : 'Members'}
+      aria-label={inCall ? 'Call details' : showMembersRoster ? 'Members' : 'Parent chat help'}
       aria-hidden={!open}>
       <div className="chat-info-panel-inner">
         <div className="chat-info-panel-head">
           <span className="chat-info-panel-title">
-            {inCall ? 'Participants' : `Members (${memberCount})`}
+            {inCall ? 'Participants' : showMembersRoster ? `Members (${memberCount})` : 'Parent chat'}
           </span>
           <button
             type="button"
             className="chat-info-panel-close"
-            aria-label="Close members panel"
+            aria-label={showMembersRoster ? 'Close members panel' : 'Close parent chat panel'}
             onClick={onClose}>
             ×
           </button>
@@ -145,7 +156,7 @@ export function ParentChatInfoPanel({
             ) : null}
             {sideChat ? <div className="chat-info-side-chat">{sideChat}</div> : null}
           </div>
-        ) : (
+        ) : showMembersRoster ? (
           <div className="chat-members-roster">
             <div className="chat-members-roster-toolbar">
               <label className="chat-members-search">
@@ -209,6 +220,28 @@ export function ParentChatInfoPanel({
               </div>
             ) : null}
 
+            {isOwner && onMembersPanelShareChange ? (
+              <div className="chat-members-share-row">
+                <div className="chat-members-share-copy">
+                  <span className="chat-members-share-title">Show to other parents</span>
+                  <span className="chat-members-share-meta">
+                    {membersPanelShared
+                      ? 'Other parents see this Members panel'
+                      : 'Other parents see the older Parent chat help'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={`chat-members-share-toggle${membersPanelShared ? ' on' : ''}`}
+                  role="switch"
+                  aria-checked={membersPanelShared}
+                  disabled={busy}
+                  onClick={() => onMembersPanelShareChange(!membersPanelShared)}>
+                  <span className="chat-members-share-knob" />
+                </button>
+              </div>
+            ) : null}
+
             {filteredMembers.length === 0 ? (
               <p className="muted tiny chat-members-empty">No members match your search.</p>
             ) : (
@@ -254,6 +287,20 @@ export function ParentChatInfoPanel({
                 </Link>
               </p>
             </div>
+          </div>
+        ) : (
+          <div className="chat-side-help">
+            <p>
+              Create a room, then invite another parent by <strong>@handle</strong> or{' '}
+              <strong>email</strong>.
+            </p>
+            <ol className="chat-side-help-steps">
+              <li>Create a room on the left</li>
+              <li>Invite a parent</li>
+              <li>They accept the invite</li>
+              <li>Chat in real time</li>
+            </ol>
+            <p className="muted tiny">Room owners can delete a room for everyone.</p>
           </div>
         )}
       </div>

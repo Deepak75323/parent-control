@@ -30,4 +30,12 @@ public class ChatRoom extends BaseEntity {
   @Column(name = "direct_message", nullable = false)
   @Builder.Default
   private boolean directMessage = false;
+
+  /**
+   * When true, non-owners see the Members roster panel. When false, only the owner sees it; others
+   * get the older Parent chat help UI.
+   */
+  @Column(name = "members_panel_shared", nullable = false)
+  @Builder.Default
+  private boolean membersPanelShared = false;
 }
