@@ -192,7 +192,11 @@ export function ParentChatInfoPanel({
               <p className="muted tiny chat-members-empty">No members match your search.</p>
             ) : (
               <>
-                <MemberSection title="Online" count={roster.online.length} online>
+                <MemberSection
+                  title="Online"
+                  count={roster.online.length}
+                  online
+                  sortHint="Online first">
                   {roster.online.map(entry => (
                     <MemberRow
                       key={entry.member.userId}
@@ -204,7 +208,10 @@ export function ParentChatInfoPanel({
                     />
                   ))}
                 </MemberSection>
-                <MemberSection title="Offline" count={roster.offline.length}>
+                <MemberSection
+                  title="Offline"
+                  count={roster.offline.length}
+                  sortHint="Last seen">
                   {roster.offline.map(entry => (
                     <MemberRow
                       key={entry.member.userId}
@@ -234,22 +241,34 @@ function MemberSection({
   title,
   count,
   online = false,
+  sortHint,
   children,
 }: {
   title: string;
   count: number;
   online?: boolean;
+  sortHint?: string;
   children: ReactNode;
 }) {
   if (count === 0) {
     return null;
   }
   return (
-    <section className={`chat-members-section${online ? ' chat-members-section--online' : ''}`}>
-      <h3 className="chat-members-section-title">
-        {title} — {count}
-      </h3>
-      <ul className="chat-members-list">{children}</ul>
+    <section
+      className={`chat-members-section${online ? ' chat-members-section--online' : ' chat-members-section--offline'}`}>
+      <div className="chat-members-section-head">
+        <h3 className="chat-members-section-title">
+          <span
+            className={`chat-members-section-dot${online ? ' online' : ''}`}
+            aria-hidden
+          />
+          <span className="chat-members-section-label">
+            {title} — {count}
+          </span>
+        </h3>
+        {sortHint ? <span className="chat-members-section-hint">{sortHint}</span> : null}
+      </div>
+      <ul className="chat-members-roster-list">{children}</ul>
     </section>
   );
 }
@@ -267,25 +286,34 @@ function MemberRow({
   online: boolean;
   role: string;
 }) {
+  const isOwner = role === 'OWNER';
   return (
-    <li className="chat-members-row">
-      <div className="chat-members-row-avatar">
-        <Avatar name={name} seed={seed} size="sm" />
+    <li className="chat-members-roster-row">
+      <div className="chat-members-roster-avatar">
+        <Avatar name={name} seed={seed} size="lg" />
         <span
           className={`chat-members-presence-dot${online ? ' online' : ''}`}
           aria-hidden
         />
       </div>
-      <div className="chat-members-row-copy">
-        <span className="chat-members-row-name">{name}</span>
-        <span className={`chat-members-row-status${online ? ' online' : ''}`}>{statusLabel}</span>
+      <div className="chat-members-roster-copy">
+        <span className="chat-members-roster-name">{name}</span>
+        <div className="chat-members-roster-meta">
+          {online ? (
+            <span className="chat-members-roster-status online">
+              <span className="chat-members-roster-status-dot" aria-hidden />
+              {statusLabel}
+            </span>
+          ) : (
+            <span className="chat-members-roster-status">{statusLabel}</span>
+          )}
+          {isOwner ? (
+            <span className="chat-members-roster-role" title="Owner">
+              Owner
+            </span>
+          ) : null}
+        </div>
       </div>
-      {role === 'OWNER' ? (
-        <span className="chat-members-role" title="Owner">
-          <span aria-hidden>♛</span>
-          Owner
-        </span>
-      ) : null}
     </li>
   );
 }
