@@ -2,6 +2,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type RefObject,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,11 +14,14 @@ import {
   insertMention,
   type MentionCandidate,
 } from '../../lib/chatMentions';
+import {autosizeTextarea} from '../../lib/autosizeTextarea';
 import type {ChatMemberItem} from '../../types/api';
 import {insertTextAtSelection} from '../../lib/insertTextAtSelection';
 import {ComposeAnchorPortal} from './ComposeAnchorPortal';
 import {EmojiPicker} from './EmojiPicker';
 import {MentionAutocomplete} from './MentionAutocomplete';
+
+const COMPOSE_MAX_HEIGHT_PX = 144;
 
 type Props = {
   draft: string;
@@ -74,6 +78,14 @@ export function MessageComposer({
   }, [activeMention, mentionCandidates]);
 
   const mentionOpen = Boolean(activeMention && filteredMentions.length > 0);
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+    autosizeTextarea(textarea, COMPOSE_MAX_HEIGHT_PX);
+  }, [draft, textareaRef]);
 
   function syncCursor() {
     const textarea = textareaRef.current;

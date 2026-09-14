@@ -14,6 +14,10 @@ describe('streamFailureMessage', () => {
     expect(msg).toMatch(/Reconnect/i);
   });
 
+  it('names the occupant when camera-in-use includes a hint', () => {
+    expect(streamFailureMessage('CAMERA_IN_USE_BY_OTHER_APP:WhatsApp')).toContain('WhatsApp');
+  });
+
   it('explains child did not answer (no offer)', () => {
     expect(streamFailureMessage('CHILD_NO_OFFER')).toMatch(/didn.t answer/i);
   });

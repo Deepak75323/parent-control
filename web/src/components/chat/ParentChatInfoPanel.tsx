@@ -57,7 +57,7 @@ export function ParentChatInfoPanel({
       <div className="chat-info-panel-inner">
         <div className="chat-info-panel-head">
           <span className="chat-info-panel-title">
-            {inCall ? 'Participants' : 'Parent chat'}
+            {inCall ? 'Participants' : 'About Notes'}
           </span>
           <button
             type="button"
@@ -104,16 +104,16 @@ export function ParentChatInfoPanel({
         ) : (
           <div className="chat-side-help">
             <p>
-              Create a room, then invite another parent by <strong>@handle</strong> or{' '}
-              <strong>email</strong>.
+              Notes is a shared notebook for parents. Create a notebook, invite another parent by{' '}
+              <strong>@handle</strong> or <strong>email</strong>, then write together in real time.
             </p>
-            <ol>
-              <li>Create a room on the left</li>
+            <ol className="chat-side-help-steps">
+              <li>Create a notebook</li>
               <li>Invite a parent</li>
               <li>They accept the invite</li>
-              <li>Chat in real time</li>
+              <li>Write notes together</li>
             </ol>
-            <p className="muted tiny">Room owners can delete a room for everyone.</p>
+            <p className="muted tiny">Notebook owners can delete a notebook for everyone.</p>
           </div>
         )}
       </div>

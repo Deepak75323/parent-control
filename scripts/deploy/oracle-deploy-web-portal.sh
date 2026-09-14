@@ -62,9 +62,17 @@ set -euo pipefail
 sudo mkdir -p $REMOTE_WWW /var/lib/pcp
 sudo rsync -a --delete /tmp/pcp-web-dist/ $REMOTE_WWW/
 sudo chown -R www-data:www-data $REMOTE_WWW
-sudo cp /tmp/pcp-site.conf /etc/nginx/sites-available/pcp
-sudo ln -sfn /etc/nginx/sites-available/pcp /etc/nginx/sites-enabled/pcp
-sudo rm -f /etc/nginx/sites-enabled/default
+# Do not clobber Certbot HTTPS config — only install the HTTP template when no LE certs exist.
+# live/ is root-only; must use sudo or the glob fails and we wipe HTTPS.
+if sudo test -d /etc/letsencrypt/live && sudo bash -c 'compgen -G "/etc/letsencrypt/live/*/fullchain.pem" >/dev/null'; then
+  echo "Keeping existing nginx site (Let's Encrypt certs present)"
+elif sudo grep -qE 'listen[[:space:]]+443' /etc/nginx/sites-enabled/pcp 2>/dev/null; then
+  echo "Keeping existing nginx site (listen 443 already configured)"
+else
+  sudo cp /tmp/pcp-site.conf /etc/nginx/sites-available/pcp
+  sudo ln -sfn /etc/nginx/sites-available/pcp /etc/nginx/sites-enabled/pcp
+  sudo rm -f /etc/nginx/sites-enabled/default
+fi
 if [[ ! -f /etc/nginx/pcp-backend-upstream.conf ]]; then
   active_port=8080
   if [[ -f /var/lib/pcp/backend-active-port ]]; then
@@ -74,13 +82,14 @@ if [[ ! -f /etc/nginx/pcp-backend-upstream.conf ]]; then
 fi
 sudo nginx -t
 sudo systemctl reload nginx
-curl -sS -o /dev/null -w "portal=%{http_code}\n" http://127.0.0.1/portal/
-curl -sS -o /dev/null -w "health=%{http_code}\n" http://127.0.0.1/actuator/health
+curl -sS -o /dev/null -w "portal=%{http_code}\n" http://127.0.0.1/portal/ || true
+curl -sS -o /dev/null -w "health=%{http_code}\n" http://127.0.0.1/actuator/health || true
+curl -sS -o /dev/null -w "https_portal=%{http_code}\n" https://parentcontrol.duckdns.org/portal/ || true
 EOF
 
 echo ""
-echo "Public URLs (free — no paid domain needed):"
-echo "  http://80.225.196.181/portal/"
-echo "  http://80-225-196-181.sslip.io/portal/"
+echo "Public URLs:"
+echo "  https://parentcontrol.duckdns.org/portal/"
+echo "  http://80.225.196.181/portal/  (HTTP — camera/mic may be blocked)"
 echo ""
 echo "Login with the same parent account as the mobile app."

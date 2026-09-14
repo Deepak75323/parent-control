@@ -1,5 +1,5 @@
 import {Fragment, type FormEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {useLocation, useNavigate} from 'react-router-dom';
+import {useLocation, useNavigate, useSearchParams} from 'react-router-dom';
 import axios from 'axios';
 import {chatApi, friendsApi, type FriendRequestItem, type FriendSummaryItem} from '../api/services';
 import {useAuthStore} from '../auth/authStore';
@@ -31,13 +31,14 @@ import {
 import {resolveChatDisplayNickname} from '../lib/chatDisplayNickname';
 import {formatChatTypingLine} from '../lib/chatTypingLabel';
 import {formatPartnerPresenceLabel} from '../lib/parentPresence';
+import {isChatDmsEnabled, isChatFriendsEnabled} from '../lib/chatFriendsFeature';
 import {validateChatMediaFile} from '../lib/chatMediaUpload';
 import {useRealtimeStore} from '../realtime/realtimeStore';
-import {Avatar} from '../components/Avatar';
 import {ChatMessageMedia} from '../components/ChatMessageMedia';
 import {ChatInviteBar} from '../components/chat/ChatInviteBar';
 import {ChatFileDropZone} from '../components/chat/ChatFileDropZone';
 import {ChatHeader} from '../components/chat/ChatHeader';
+import {NotesServerIcon} from '../components/chat/NotesServerIcon';
 import {ChatRoomsPanel, isDirectStyleRoom} from '../components/chat/ChatRoomsPanel';
 import {
   defaultTextChannel,
@@ -77,6 +78,8 @@ import type {ChatCallItem, ChatInviteItem, ChatMemberItem, ChatMessageItem, Chat
 export function ChatPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const roomFromQuery = searchParams.get('room');
   const workspace = useChatWorkspaceLayout();
   const profile = useAuthStore(s => s.profile);
   const email = useAuthStore(s => s.email);
@@ -87,6 +90,8 @@ export function ChatPage() {
   const [invites, setInvites] = useState<ChatInviteItem[]>([]);
   const [friendRequests, setFriendRequests] = useState<FriendRequestItem[]>([]);
   const [friends, setFriends] = useState<FriendSummaryItem[]>([]);
+  const chatFriendsEnabled = isChatFriendsEnabled();
+  const chatDmsEnabled = isChatDmsEnabled();
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [apiMessages, setApiMessages] = useState<ChatMessageItem[]>([]);
@@ -962,16 +967,32 @@ export function ChatPage() {
       }
       setRooms(next);
       setSelectedRoomId(prev => {
+        const pickPreferred = () => {
+          if (roomFromQuery && next.some(room => room.id === roomFromQuery)) {
+            return roomFromQuery;
+          }
+          if (!chatDmsEnabled) {
+            return next.find(room => !isDirectStyleRoom(room))?.id ?? null;
+          }
+          return next[0]?.id ?? null;
+        };
+        if (roomFromQuery && next.some(room => room.id === roomFromQuery)) {
+          return roomFromQuery;
+        }
         if (prev && next.some(room => room.id === prev)) {
+          const current = next.find(room => room.id === prev);
+          if (!chatDmsEnabled && current && isDirectStyleRoom(current)) {
+            return pickPreferred();
+          }
           return prev;
         }
         if (prev && !next.some(room => room.id === prev)) {
-          return next[0]?.id ?? null;
+          return pickPreferred();
         }
         if (!prev && initialRoomLoadRef.current && next.length > 0) {
           initialRoomLoadRef.current = false;
           if (!window.matchMedia('(max-width: 900px)').matches) {
-            return next[0]?.id ?? null;
+            return pickPreferred();
           }
           return prev;
         }
@@ -990,7 +1011,24 @@ export function ChatPage() {
     } catch {
       setError('Failed to load chat rooms');
     }
-  }, [pruneLiveChatMessages, unmarkChatRoomRemoved, syncPersonalChatClearedAt]);
+  }, [chatDmsEnabled, pruneLiveChatMessages, roomFromQuery, unmarkChatRoomRemoved, syncPersonalChatClearedAt]);
+
+  useEffect(() => {
+    if (chatDmsEnabled || !selectedRoomId) {
+      return;
+    }
+    const current = rooms.find(room => room.id === selectedRoomId);
+    if (!current || !isDirectStyleRoom(current)) {
+      return;
+    }
+    const server = rooms.find(room => !isDirectStyleRoom(room));
+    if (server) {
+      selectRoom(server.id);
+    } else {
+      setSelectedRoomId(null);
+      setSelectedChannelId(null);
+    }
+  }, [chatDmsEnabled, rooms, selectedRoomId, selectRoom]);
 
   const mentionTokens = useMemo(() => collectMentionTokens(roomMembers), [roomMembers]);
 
@@ -1127,9 +1165,14 @@ export function ChatPage() {
   }, [loadInvites, chatInvitesEpoch]);
 
   useEffect(() => {
+    if (!chatFriendsEnabled) {
+      setFriends([]);
+      setFriendRequests([]);
+      return;
+    }
     void loadFriendRequests();
     void loadFriends();
-  }, [loadFriendRequests, loadFriends, friendsEpoch, chatRoomsEpoch]);
+  }, [chatFriendsEnabled, loadFriendRequests, loadFriends, friendsEpoch, chatRoomsEpoch]);
 
   async function respondFriendRequest(requestId: string, accept: boolean) {
     setBusy(true);
@@ -1998,18 +2041,6 @@ export function ChatPage() {
     if (scope === 'FOR_EVERYONE' && !canDeleteForEveryone(message)) {
       return;
     }
-    const confirmed = await confirm({
-      title: scope === 'FOR_EVERYONE' ? 'Delete for everyone' : 'Delete for me',
-      message:
-        scope === 'FOR_EVERYONE'
-          ? 'Delete this message for all members?'
-          : 'Delete this message on your device only? Other members will still see it.',
-      confirmLabel: 'Delete',
-      danger: true,
-    });
-    if (!confirmed) {
-      return;
-    }
     setBusy(true);
     setError(null);
     setApiMessages(prev => prev.filter(entry => entry.id !== message.id));
@@ -2479,13 +2510,23 @@ export function ChatPage() {
       onManageMembers={
         canManageMembers(myRole) ? () => setMembersDialogOpen(true) : undefined
       }
-      onConnectParent={() => {
-        setConnectParentError(null);
-        setConnectParentOpen(true);
-      }}
-      friends={friends}
-      onSelectFriend={friend => void handleSelectFriend(friend)}
-      onRemoveFriend={friend => void handleRemoveFriend(friend)}
+      friendsEnabled={chatFriendsEnabled}
+      dmsEnabled={chatDmsEnabled}
+      onConnectParent={
+        chatFriendsEnabled
+          ? () => {
+              setConnectParentError(null);
+              setConnectParentOpen(true);
+            }
+          : undefined
+      }
+      friends={chatFriendsEnabled ? friends : []}
+      onSelectFriend={
+        chatFriendsEnabled ? friend => void handleSelectFriend(friend) : undefined
+      }
+      onRemoveFriend={
+        chatFriendsEnabled ? friend => void handleRemoveFriend(friend) : undefined
+      }
       selfDisplayName={ownDisplayName}
       selfSeed={ownSeed}
       onOpenSelfSettings={() => navigate('/settings')}
@@ -2528,19 +2569,21 @@ export function ChatPage() {
         onUpdate={handleUpdateMember}
         onTransferOwnership={handleTransferOwnership}
       />
-      <ConnectParentModal
-        open={connectParentOpen}
-        busy={busy}
-        error={connectParentError}
-        onClose={() => {
-          if (!busy) {
-            setConnectParentOpen(false);
-            setConnectParentError(null);
-          }
-        }}
-        onConnect={handleConnectParent}
-      />
-      {friendRequests.length > 0 ? (
+      {chatFriendsEnabled ? (
+        <ConnectParentModal
+          open={connectParentOpen}
+          busy={busy}
+          error={connectParentError}
+          onClose={() => {
+            if (!busy) {
+              setConnectParentOpen(false);
+              setConnectParentError(null);
+            }
+          }}
+          onConnect={handleConnectParent}
+        />
+      ) : null}
+      {chatFriendsEnabled && friendRequests.length > 0 ? (
         <div className="chat-invites-banner">
           <div className="chat-invites-banner-head">
             <strong>
@@ -2692,10 +2735,12 @@ export function ChatPage() {
                     <span>Help</span>
                   </button>
                 ) : null}
-                <Avatar name="Chat" seed="chat-empty" size="lg" />
-                <h2>Select a server</h2>
+                <span className="chat-server-glyph chat-server-glyph--notes chat-server-glyph--lg chat-server-glyph--empty" aria-hidden>
+                  <NotesServerIcon size={36} />
+                </span>
+                <h2>Open a notebook</h2>
                 <p className="muted">
-                  Pick a server from the list, or create one with the + button. Each server has text and voice channels.
+                  Pick a notebook from the list, or create one to start writing notes with another parent.
                 </p>
               </div>
             ) : (
@@ -2845,14 +2890,6 @@ export function ChatPage() {
                       suppressMarkReadRef.current = false;
                     }
                   }}>
-                  {unreadCount > 0 && !searchQuery.trim() ? (
-                    <button
-                      type="button"
-                      className="chat-unread-banner"
-                      onClick={scrollToFirstUnread}>
-                      {unreadCount === 1 ? '1 unread message' : `${unreadCount} unread messages`}
-                    </button>
-                  ) : null}
                   {chatDecrypted ? (
                     <div className="chat-decrypt-banner" role="status">
                       Chat decrypted — closes when you leave this room
@@ -2862,12 +2899,12 @@ export function ChatPage() {
                     <EmptyChatState
                       title={
                         isDirectStyleRoom(selectedRoom)
-                          ? `Start a conversation with ${
+                          ? `Start writing with ${
                               selectedRoomDisplay?.name ?? selectedRoom.name
                             }`
-                          : `Start a conversation in #${selectedChannel?.name ?? 'general'}`
+                          : `Start writing in ${selectedChannel?.name ?? 'general'}`
                       }
-                      subtitle="Send a message in this text channel, or invite another parent to the server."
+                      subtitle="Add the first note on this page, or invite another parent to the notebook."
                       avatarName={selectedRoomDisplay?.name ?? selectedRoom.name}
                       avatarSeed={selectedRoom.id}
                       showInvite={canManageMembers(myRole) || selectedRoom.owner}
@@ -2981,7 +3018,9 @@ export function ChatPage() {
                         ? 'You are muted'
                         : pendingFile
                           ? `Caption for ${pendingFile.name} (optional)`
-                          : 'Write a message… (@ to mention)'
+                          : workspace.isMobile
+                            ? 'Write a note…'
+                            : 'Write a note… (@ to mention)'
                     }
                     busy={busy || isMutedInRoom}
                     canSend={!isMutedInRoom && Boolean(draft.trim() || pendingFile)}

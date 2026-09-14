@@ -5,6 +5,8 @@ import {useAuthStore} from '../auth/authStore';
 import {deviceInitials, isDevicePresentOnline} from '../lib/devicePresence';
 import {useMediaQuery} from '../hooks/useMediaQuery';
 import {MobileNavDrawer} from './MobileNavDrawer';
+import {NavIcon} from './NavIcon';
+import {DeviceDetailsPanel} from './DeviceDetailsPanel';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {disconnectWebSocket} from '../realtime/websocket';
 import {LiveStreamHost} from '../livestream/LiveStreamHost';
@@ -20,77 +22,88 @@ const NAV_GROUPS = [
   {
     label: 'Monitoring',
     items: [
-      {to: '/devices', label: 'devices', icon: '#'},
-      {to: '/alerts', label: 'alerts', icon: '#'},
+      {to: '/devices', label: 'Devices', icon: 'devices'},
+      {to: '/alerts', label: 'Alerts', icon: 'alerts'},
     ],
   },
   {
     label: 'Controls',
     items: [
-      {to: '/policies', label: 'policies', icon: '#'},
-      {to: '/geofences', label: 'geofences', icon: '#'},
+      {to: '/policies', label: 'Policies', icon: 'policies'},
+      {to: '/geofences', label: 'Geofences', icon: 'geofences'},
     ],
   },
   {
     label: 'Community',
-    items: [{to: '/chat', label: 'chat', icon: '💬'}],
+    items: [
+      {to: '/chat', label: 'Notes', icon: 'chat'},
+      {to: '/parents', label: 'Parents', icon: 'parents'},
+    ],
   },
   {
     label: 'Account',
     items: [
-      {to: '/billing', label: 'billing', icon: '#'},
-      {to: '/audit', label: 'audit', icon: '#'},
-      {to: '/settings', label: 'settings', icon: '⚙'},
+      {to: '/billing', label: 'Billing', icon: 'billing'},
+      {to: '/audit', label: 'Audit', icon: 'audit'},
+      {to: '/settings', label: 'Settings', icon: 'settings'},
     ],
   },
 ] as const;
 
 const TITLES: Record<string, {title: string; subtitle: string}> = {
   '/devices': {
-    title: 'devices',
+    title: 'Devices',
     subtitle: 'Paired child phones for this parent account',
   },
   '/alerts': {
-    title: 'alerts',
+    title: 'Alerts',
     subtitle: 'Policy violations, geofence events, and device alerts',
   },
   '/policies': {
-    title: 'policies',
+    title: 'Policies',
     subtitle: 'App limits, schedules, and restrictions',
   },
   '/geofences': {
-    title: 'geofences',
+    title: 'Geofences',
     subtitle: 'Safe zones and location boundaries',
   },
   '/billing': {
-    title: 'billing',
+    title: 'Billing',
     subtitle: 'Plan and subscription for this family',
   },
   '/audit': {
-    title: 'audit',
+    title: 'Audit',
     subtitle: 'Security and account activity log',
   },
   '/settings': {
-    title: 'settings',
+    title: 'Settings',
     subtitle: 'PIN, family handle, and account controls',
   },
   '/chat': {
-    title: 'chat',
-    subtitle: 'Rooms, parent connections, voice & video',
+    title: 'Notes',
+    subtitle: 'Shared notebooks for parents — write together in real time',
   },
-};
-
-const ROUTE_ICONS: Record<string, string> = {
-  '/chat': '💬',
-  '/settings': '⚙',
+  '/parents': {
+    title: 'Parents',
+    subtitle: 'Shared notebooks — who is online and when they were last seen',
+  },
 };
 
 function channelMeta(pathname: string) {
   if (pathname.startsWith('/devices/') && pathname !== '/devices') {
-    return {title: 'device', subtitle: 'Live status, stream, and activity for this phone', icon: '#'};
+    return {title: 'Device', subtitle: 'Live status, stream, and activity for this phone', icon: 'devices'};
   }
-  const base = TITLES[pathname] ?? {title: 'parent-control', subtitle: 'Family monitoring'};
-  return {...base, icon: ROUTE_ICONS[pathname] ?? '#'};
+  const base = TITLES[pathname] ?? {title: 'Parent Control', subtitle: 'Family monitoring'};
+  return {
+    ...base,
+    icon: pathname.startsWith('/chat')
+      ? 'chat'
+      : pathname.startsWith('/parents')
+        ? 'parents'
+        : pathname.startsWith('/settings')
+          ? 'settings'
+          : 'devices',
+  };
 }
 
 function mergeLive(device: DeviceSummary): DeviceSummary {
@@ -130,7 +143,9 @@ function NavChannels({pathname, onNavigate}: NavChannelsProps) {
                   `dc-channel${isActive || nestedActive ? ' active' : ''}`
                 }
                 onClick={onNavigate}>
-                <span className="dc-channel-hash">{item.icon}</span>
+                <span className="dc-channel-hash">
+                  <NavIcon name={item.icon} />
+                </span>
                 <span>{item.label}</span>
               </NavLink>
             );
@@ -181,7 +196,8 @@ export function AppShell() {
   const removedDeviceIds = useRealtimeStore(s => s.removedDeviceIds);
   const navigate = useNavigate();
   const location = useLocation();
-  const isMobile = useMediaQuery('(max-width: 900px)');
+  const isMobile = useMediaQuery('(max-width: 639px)');
+  const isTablet = useMediaQuery('(min-width: 640px) and (max-width: 1023px)');
   const [navDrawerOpen, setNavDrawerOpen] = useState(false);
   const meta = channelMeta(location.pathname);
   const isChatRoute = location.pathname === '/chat';
@@ -194,6 +210,16 @@ export function AppShell() {
   const setCallMinimized = useChatCallSessionStore(s => s.setMinimized);
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [clockLabel, setClockLabel] = useState(() =>
+    new Date().toLocaleString(undefined, {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }),
+  );
 
   useEffect(() => {
     setNavDrawerOpen(false);
@@ -204,6 +230,22 @@ export function AppShell() {
       setNavDrawerOpen(false);
     }
   }, [isMobile]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setClockLabel(
+        new Date().toLocaleString(undefined, {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        }),
+      );
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const loadDevices = useCallback(async () => {
     try {
@@ -238,6 +280,21 @@ export function AppShell() {
     d => !isDevicePresentOnline(d.status, d.lastSeenAt, nowMs),
   );
 
+  const selectedDeviceId = useMemo(() => {
+    const match = location.pathname.match(/^\/devices\/([^/]+)/);
+    return match?.[1] ?? null;
+  }, [location.pathname]);
+
+  const focusDevice = useMemo(() => {
+    if (selectedDeviceId) {
+      return memberDevices.find(d => d.id === selectedDeviceId) ?? null;
+    }
+    if (location.pathname === '/devices' || location.pathname.startsWith('/devices')) {
+      return online[0] ?? memberDevices[0] ?? null;
+    }
+    return online[0] ?? memberDevices[0] ?? null;
+  }, [selectedDeviceId, location.pathname, online, memberDevices]);
+
   const onLogout = useCallback(async () => {
     if (refreshToken) {
       await authApi.logout(refreshToken);
@@ -259,33 +316,28 @@ export function AppShell() {
   return (
     <>
     <MobileNavDrawer
-      open={isMobile && !isChatRoute && navDrawerOpen}
+      open={isMobile && navDrawerOpen}
       pathname={location.pathname}
       email={email}
       wsConnected={wsConnected}
       onClose={closeNavDrawer}
       onLogout={handleLogoutClick}
     />
-    <div className="dc-app">
+    <div className={`dc-app${isMobile ? ' dc-app--mobile' : ''}${isTablet ? ' dc-app--tablet' : ''}`}>
       {!isMobile ? (
-      <>
-      <aside className="dc-rail" aria-label="Workspaces">
-        <Link to="/devices" className="dc-rail-pill active" title="Parent Control">
-          <img src={`${import.meta.env.BASE_URL}app-logo.png`} alt="" width={48} height={48} />
-        </Link>
-        <div className="dc-rail-sep" />
-        <div className="dc-rail-pill muted" title="Family">
-          <span>FC</span>
-        </div>
-      </aside>
-
       <aside className="dc-sidebar">
         <header className="dc-sidebar-header">
-          <span className="dc-sidebar-title">Parent Control</span>
-          <span className="dc-sidebar-chevron" aria-hidden>
-            ▾
-          </span>
+          <div className="dc-sidebar-brand">
+            <img src={`${import.meta.env.BASE_URL}app-logo.png`} alt="" width={40} height={40} />
+            <div className="dc-sidebar-brand-copy">
+              <span className="dc-sidebar-title">Parent Control</span>
+              <span className="dc-sidebar-tagline">Safe. Connected. Together.</span>
+            </div>
+          </div>
         </header>
+        <div className="dc-family-pill" title="Family">
+          FC
+        </div>
 
         <NavChannels pathname={location.pathname} />
         <UserBar
@@ -294,13 +346,12 @@ export function AppShell() {
           onLogout={handleLogoutClick}
         />
       </aside>
-      </>
       ) : null}
 
       <div className="dc-main">
-        <header className="dc-topbar">
-          <div className="dc-topbar-left">
-            {isMobile && !isChatRoute ? (
+        <header className={`dc-topbar${isMobile ? ' dc-topbar--mobile' : ''}`}>
+          {isMobile ? (
+            <>
               <button
                 type="button"
                 className="dc-topbar-menu"
@@ -311,18 +362,48 @@ export function AppShell() {
                   <path d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>
-            ) : null}
-            <span className="dc-topbar-hash">{meta.icon}</span>
-            <h1 className="dc-topbar-title">{meta.title}</h1>
-            <span className="dc-topbar-divider" />
-            <p className="dc-topbar-sub">{meta.subtitle}</p>
-          </div>
-          <div className="dc-topbar-right">
-            <span className={`dc-live-pill ${wsConnected ? 'on' : 'off'}`}>
-              <span className="dc-live-dot" />
-              {wsConnected ? 'Live' : 'Offline'}
-            </span>
-          </div>
+              <div className="dc-topbar-mobile-center">
+                <span className="dc-topbar-hash" aria-hidden>
+                  <NavIcon name={meta.icon} />
+                </span>
+                <h1 className="dc-topbar-title">{meta.title}</h1>
+              </div>
+              <span className={`dc-live-pill ${wsConnected ? 'on' : 'off'}`}>
+                <span className="dc-live-dot" />
+                {wsConnected ? 'Live' : 'Offline'}
+              </span>
+            </>
+          ) : (
+            <>
+              <div className="dc-topbar-left">
+                <span className="dc-topbar-hash" aria-hidden>
+                  <NavIcon name={meta.icon} />
+                </span>
+                <h1 className="dc-topbar-title">{meta.title}</h1>
+                <span className="dc-topbar-divider" />
+                <p className="dc-topbar-sub">{meta.subtitle}</p>
+              </div>
+              <div className="dc-topbar-right">
+                <span className={`dc-live-pill ${wsConnected ? 'on' : 'off'}`}>
+                  <span className="dc-live-dot" />
+                  {wsConnected ? 'Live' : 'Offline'}
+                </span>
+                <span className="dc-topbar-icon" aria-hidden title="Search">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="M20 20l-3-3" />
+                  </svg>
+                </span>
+                <span className="dc-topbar-icon" aria-hidden title="Notifications">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+                    <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+                  </svg>
+                </span>
+                <span className="dc-topbar-clock">{clockLabel}</span>
+              </div>
+            </>
+          )}
         </header>
         <main className={`dc-content${isChatRoute ? ' dc-content--chat' : ''}`}>
           <Outlet />
@@ -330,7 +411,7 @@ export function AppShell() {
         </main>
       </div>
 
-      {!isChatRoute && !isMobile ? (
+      {!isChatRoute && !isMobile && !isTablet ? (
       <aside className="dc-members" aria-label={callJoined ? 'In call' : 'Devices'}>
         {callJoined ? (
           <>
@@ -368,46 +449,33 @@ export function AppShell() {
               Return to call
             </button>
           </>
+        ) : focusDevice ? (
+          <DeviceDetailsPanel
+            device={focusDevice}
+            nowMs={nowMs}
+            onlineCount={online.length}
+          />
         ) : (
           <>
-        <div className="dc-members-cat">Online — {online.length}</div>
-        {online.length === 0 ? (
-          <p className="dc-members-empty">No devices online</p>
-        ) : (
-          online.map(d => (
-            <Link key={d.id} to={`/devices/${d.id}`} className="dc-member">
-              <div className="dc-member-avatar online">
-                <span>{deviceInitials(d.deviceName)}</span>
-                <span className="dc-status-dot online" />
-              </div>
-              <div className="dc-member-meta">
-                <div className="dc-member-name">{d.deviceName}</div>
-                <div className="dc-member-activity">
-                  {d.foregroundApp?.split('.').pop() ??
-                    (d.batteryLevel != null ? `${d.batteryLevel}% battery` : 'Online')}
-                </div>
-              </div>
-            </Link>
-          ))
-        )}
-
-        {offline.length > 0 ? (
-          <>
-            <div className="dc-members-cat spaced">Offline — {offline.length}</div>
-            {offline.map(d => (
-              <Link key={d.id} to={`/devices/${d.id}`} className="dc-member soft">
-                <div className="dc-member-avatar">
-                  <span>{deviceInitials(d.deviceName)}</span>
-                  <span className="dc-status-dot idle" />
-                </div>
-                <div className="dc-member-meta">
-                  <div className="dc-member-name">{d.deviceName}</div>
-                  <div className="dc-member-activity">Offline</div>
-                </div>
-              </Link>
-            ))}
-          </>
-        ) : null}
+            <div className="dc-members-cat">Online — {online.length}</div>
+            <p className="dc-members-empty">No devices connected</p>
+            {offline.length > 0 ? (
+              <>
+                <div className="dc-members-cat spaced">Offline — {offline.length}</div>
+                {offline.map(d => (
+                  <Link key={d.id} to={`/devices/${d.id}`} className="dc-member soft">
+                    <div className="dc-member-avatar">
+                      <span>{deviceInitials(d.deviceName)}</span>
+                      <span className="dc-status-dot idle" />
+                    </div>
+                    <div className="dc-member-meta">
+                      <div className="dc-member-name">{d.deviceName}</div>
+                      <div className="dc-member-activity">Offline</div>
+                    </div>
+                  </Link>
+                ))}
+              </>
+            ) : null}
           </>
         )}
       </aside>

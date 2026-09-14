@@ -15,6 +15,7 @@ import {AuditPage} from './pages/AuditPage';
 import {BillingPage} from './pages/BillingPage';
 import {GeofencesPage} from './pages/GeofencesPage';
 import {ChatPage} from './pages/ChatPage';
+import {ParentsPage} from './pages/ParentsPage';
 import './styles/app.css';
 
 function Bootstrap() {
@@ -70,6 +71,7 @@ function Bootstrap() {
           <Route path="/billing" element={<BillingPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/chat" element={<ChatPage />} />
+          <Route path="/parents" element={<ParentsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>

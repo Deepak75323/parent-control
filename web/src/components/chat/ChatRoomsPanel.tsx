@@ -3,6 +3,7 @@ import {Avatar} from '../Avatar';
 import {textChannels, voiceChannels} from '../../lib/chatChannelNav';
 import type {ChatChannelItem, ChatRoomSummary} from '../../types/api';
 import {ChatVoiceSelfBar} from './ChatVoiceSelfBar';
+import {ServerGlyph} from './NotesServerIcon';
 
 /** Friend DMs use directMessage; fall back to 2-member heuristic for older API payloads. */
 export function isDirectStyleRoom(room: ChatRoomSummary): boolean {
@@ -43,6 +44,10 @@ type Props = {
   onConnectParent?: () => void;
   onInviteParents?: () => void;
   onManageMembers?: () => void;
+  /** When false, hide Friends tab/section and Add Friend. Default true for callers that omit it. */
+  friendsEnabled?: boolean;
+  /** When false, hide Direct messages tab/section. Default true for callers that omit it. */
+  dmsEnabled?: boolean;
   /** Accepted friends (graph); click opens dmRoomId when present. */
   friends?: Array<{
     friendshipId?: string;
@@ -91,6 +96,8 @@ export function ChatRoomsPanel({
   onConnectParent,
   onInviteParents,
   onManageMembers,
+  friendsEnabled = true,
+  dmsEnabled = true,
   friends = [],
   onSelectFriend,
   onRemoveFriend,
@@ -111,7 +118,8 @@ export function ChatRoomsPanel({
   }, [friends]);
 
   const selectedRoom = rooms.find(room => room.id === selectedRoomId) ?? null;
-  const viewingDirect = Boolean(selectedRoom && isDirectStyleRoom(selectedRoom));
+  const viewingDirect =
+    dmsEnabled && Boolean(selectedRoom && isDirectStyleRoom(selectedRoom));
 
   /** Keep last server for channels/header while a DM is open — otherwise you can't switch back. */
   const [serverContextId, setServerContextId] = useState<string | null>(null);
@@ -131,6 +139,7 @@ export function ChatRoomsPanel({
   const selectedServer =
     servers.find(room => room.id === serverContextId) ?? servers[0] ?? null;
 
+  /** Server actions (invite / manage / delete) — collapsed by default. */
   const [serverMenuOpen, setServerMenuOpen] = useState(false);
   const [serversOpen, setServersOpen] = useState(true);
   const [textOpen, setTextOpen] = useState(true);
@@ -138,9 +147,34 @@ export function ChatRoomsPanel({
   const [dmOpen, setDmOpen] = useState(true);
   const [friendsOpen, setFriendsOpen] = useState(true);
   const [listFilter, setListFilter] = useState<ChatListFilter>('all');
+  useEffect(() => {
+    if (!friendsEnabled && listFilter === 'friends') {
+      setListFilter('all');
+    }
+    if (!dmsEnabled && listFilter === 'dms') {
+      setListFilter('all');
+    }
+  }, [friendsEnabled, dmsEnabled, listFilter]);
   const [listQuery, setListQuery] = useState('');
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [addingType, setAddingType] = useState<'TEXT' | 'VOICE' | null>(null);
   const [newChannelName, setNewChannelName] = useState('');
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k') {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+      event.preventDefault();
+      setToolsOpen(true);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const texts = textChannels(selectedServer);
   const voices = voiceChannels(selectedServer);
@@ -151,8 +185,9 @@ export function ChatRoomsPanel({
   const query = listQuery.trim().toLowerCase();
   const matchesQuery = (value: string) => !query || value.toLowerCase().includes(query);
   const showRooms = chatListSectionVisible(listFilter, 'rooms');
-  const showFriends = chatListSectionVisible(listFilter, 'friends');
-  const showDms = chatListSectionVisible(listFilter, 'dms');
+  const showFriends = friendsEnabled && chatListSectionVisible(listFilter, 'friends');
+  const showDms = dmsEnabled && chatListSectionVisible(listFilter, 'dms');
+  const connectParentAction = friendsEnabled ? onConnectParent : undefined;
   const filteredFriends = friends.filter(friend =>
     matchesQuery(`${friend.nickname} ${friend.label}`),
   );
@@ -180,195 +215,170 @@ export function ChatRoomsPanel({
     setAddingType(null);
   }
 
+  const serverCreatedLabel = formatServerCreatedAt(selectedServer?.createdAt);
+  const filterTabs = (
+    [
+      ['all', 'All'],
+      ['rooms', 'Rooms'],
+      ...(friendsEnabled ? ([['friends', 'Friends']] as Array<['friends', 'Friends']>) : []),
+      ...(dmsEnabled ? ([['dms', 'Direct']] as Array<['dms', 'Direct']>) : []),
+    ] as Array<[ChatListFilter, string]>
+  );
+
   return (
-    <aside className="chat-rooms-panel chat-rooms-panel--community" aria-label="Servers and channels">
-      <div className="chat-server-header">
-        <button
-          type="button"
-          className="chat-server-header-btn"
-          aria-expanded={serverMenuOpen}
-          aria-haspopup="menu"
-          onClick={() => setServerMenuOpen(open => !open)}>
-          <div className="chat-server-header-copy">
-            <strong className="chat-server-header-name">
-              {selectedServer?.name ?? 'Parent Community'}
-            </strong>
-            <span className="chat-server-header-meta">
-              {viewingDirect
-                ? 'Direct message open — pick a server to return'
-                : selectedServer
-                  ? `${selectedServer.memberCount} member${selectedServer.memberCount === 1 ? '' : 's'}`
-                  : 'Select or create a server'}
-            </span>
-          </div>
-          <span className="chat-server-header-caret" aria-hidden>
-            ▾
-          </span>
-        </button>
-        {showClose && onClose ? (
+    <aside className="chat-rooms-panel chat-rooms-panel--community chat-rooms-panel--notes" aria-label="Notebooks and pages">
+      <div className="chat-comm-card chat-server-hero">
+        <div className="chat-server-hero-top">
           <button
             type="button"
-            className="chat-panel-close"
-            aria-label="Hide channels panel"
-            title="Hide channels"
-            onClick={onClose}>
-            ×
+            className="chat-server-hero-main"
+            aria-expanded={serverMenuOpen}
+            aria-haspopup="menu"
+            onClick={() => setServerMenuOpen(open => !open)}>
+            <ServerGlyph name={selectedServer?.name ?? 'P'} size="lg" />
+            <span className="chat-server-hero-copy">
+              <strong className="chat-server-header-name">
+                {selectedServer?.name ?? 'Parent Community'}
+              </strong>
+              <span className="chat-server-header-meta" title={serverCreatedLabel ? `Created ${serverCreatedLabel}` : undefined}>
+                {viewingDirect
+                  ? 'Direct message open — pick a server to return'
+                  : selectedServer
+                    ? `${selectedServer.memberCount} member${selectedServer.memberCount === 1 ? '' : 's'}`
+                    : 'Select or create a server'}
+              </span>
+            </span>
+            <span className="chat-server-header-caret" aria-hidden>
+              {serverMenuOpen ? '▾' : '▸'}
+            </span>
           </button>
+          <div className="chat-server-hero-tools">
+            <button
+              type="button"
+              className="chat-icon-chip"
+              aria-label={serverMenuOpen ? 'Collapse server menu' : 'Expand server menu'}
+              title={serverMenuOpen ? 'Collapse server menu' : 'Expand server menu'}
+              aria-expanded={serverMenuOpen}
+              onClick={() => setServerMenuOpen(open => !open)}>
+              ⚙
+            </button>
+            {showClose && onClose ? (
+              <button
+                type="button"
+                className="chat-icon-chip"
+                aria-label="Hide channels panel"
+                title="Hide channels"
+                onClick={onClose}>
+                ×
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {serverMenuOpen && selectedServer && !viewingDirect ? (
+          <div className="chat-server-badges">
+            <span className="chat-server-badge chat-server-badge--active">
+              <span className="chat-server-badge-dot" aria-hidden />
+              Active
+            </span>
+            <span className="chat-server-badge">
+              {selectedServer.memberCount} member{selectedServer.memberCount === 1 ? '' : 's'}
+            </span>
+          </div>
+        ) : null}
+
+        {serverMenuOpen && selectedServer && !viewingDirect ? (
+          <div className="chat-server-actions" role="menu">
+            {onInviteParents ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="chat-server-action-row"
+                onClick={() => {
+                  setServerMenuOpen(false);
+                  onInviteParents();
+                }}>
+                <span>Invite parents</span>
+                <span aria-hidden>›</span>
+              </button>
+            ) : null}
+            {onManageMembers ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="chat-server-action-row"
+                onClick={() => {
+                  setServerMenuOpen(false);
+                  onManageMembers();
+                }}>
+                <span>Manage members</span>
+                <span aria-hidden>›</span>
+              </button>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              className="chat-server-action-row chat-server-action-row--danger"
+              disabled={busy}
+              onClick={() => {
+                setServerMenuOpen(false);
+                onRemoveRoom(selectedServer.id);
+              }}>
+              <span>{selectedServer.owner ? 'Delete server' : 'Leave server'}</span>
+              <span aria-hidden>›</span>
+            </button>
+          </div>
+        ) : null}
+
+        {serverMenuOpen && servers.length > 1 ? (
+          <div className="chat-server-switcher" role="menu">
+            {servers.map(room => (
+              <button
+                key={room.id}
+                type="button"
+                role="menuitem"
+                className={`chat-server-menu-item${
+                  room.id === selectedServer?.id && !viewingDirect ? ' active' : ''
+                }`}
+                onClick={() => openServer(room.id)}>
+                <ServerGlyph name={room.name} />
+                <span>
+                  <span className="chat-room-name">{room.name}</span>
+                  <span className="chat-room-sub">
+                    {room.memberCount} members
+                    {(room.unreadCount ?? 0) > 0 ? ` · ${room.unreadCount} unread` : ''}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
         ) : null}
       </div>
 
-      {serverMenuOpen ? (
-        <div className="chat-server-menu" role="menu">
-          {servers.length === 0 ? (
-            <p className="chat-room-empty">No servers yet</p>
-          ) : (
-            <>
-              {servers.map(room => (
-                <button
-                  key={room.id}
-                  type="button"
-                  role="menuitem"
-                  className={`chat-server-menu-item${
-                    room.id === selectedServer?.id && !viewingDirect ? ' active' : ''
-                  }`}
-                  onClick={() => {
-                    openServer(room.id);
-                  }}>
-                  <span className="chat-server-glyph" aria-hidden>
-                    {room.name.slice(0, 1).toUpperCase()}
-                  </span>
-                  <span>
-                    <span className="chat-room-name">{room.name}</span>
-                    <span className="chat-room-sub">
-                      {room.memberCount} members
-                      {(room.unreadCount ?? 0) > 0 ? ` · ${room.unreadCount} unread` : ''}
-                    </span>
-                  </span>
-                </button>
-              ))}
-              {selectedServer && !viewingDirect ? (
-                <>
-                  <div className="chat-server-menu-divider" />
-                  {onInviteParents ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="chat-server-menu-action"
-                      onClick={() => {
-                        setServerMenuOpen(false);
-                        onInviteParents();
-                      }}>
-                      Invite parents
-                    </button>
-                  ) : null}
-                  {onManageMembers ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="chat-server-menu-action"
-                      onClick={() => {
-                        setServerMenuOpen(false);
-                        onManageMembers();
-                      }}>
-                      Manage members
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="chat-server-menu-action chat-server-menu-action--danger"
-                    disabled={busy}
-                    onClick={() => {
-                      setServerMenuOpen(false);
-                      onRemoveRoom(selectedServer.id);
-                    }}>
-                    {selectedServer.owner ? 'Delete server' : 'Leave server'}
-                  </button>
-                </>
-              ) : null}
-            </>
-          )}
-          <form className="chat-create chat-create--menu" onSubmit={onCreateRoom}>
-            <input
-              type="text"
-              placeholder="New server name"
-              value={newRoomName}
-              maxLength={64}
-              aria-label="New server name"
-              onChange={event => onNewRoomNameChange(event.target.value)}
-            />
-            <button
-              type="submit"
-              className="btn primary"
-              disabled={busy || !newRoomName.trim()}
-              aria-label="Create server">
-              +
-            </button>
-          </form>
-        </div>
-      ) : null}
-
-      <div className="chat-list-toolbar">
-        <label className="chat-list-search">
-          <span className="visually-hidden">Search chats</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-            <circle cx="11" cy="11" r="7" />
-            <path d="M20 20l-3-3" />
-          </svg>
-          <input
-            type="search"
-            value={listQuery}
-            placeholder="Search chats, rooms or parents…"
-            onChange={event => setListQuery(event.target.value)}
-          />
-        </label>
-        <div className="chat-list-filters" role="tablist" aria-label="Chat list filter">
-          {(
-            [
-              ['all', 'All'],
-              ['rooms', 'Rooms'],
-              ['friends', 'Friends'],
-              ['dms', 'DMs'],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={listFilter === id}
-              className={`chat-list-filter${listFilter === id ? ' active' : ''}`}
-              onClick={() => setListFilter(id)}>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="chat-comm-scroll">
+      <div className="chat-comm-scroll chat-comm-scroll--cards">
+        <div className="chat-comm-card chat-channels-card">
         {showRooms ? (
           <CategorySection
             id="servers"
-            title="Servers"
+            title="Notebooks"
             open={serversOpen}
             onToggle={() => setServersOpen(v => !v)}>
             {filteredServers.length === 0 ? (
               <p className="chat-channel-empty">
                 {servers.length === 0
-                  ? 'Create a server to chat with other parents.'
-                  : 'No servers match your search.'}
+                  ? 'Create a notebook to share notes with other parents.'
+                  : 'No notebooks match your search.'}
               </p>
             ) : (
               filteredServers.map(room => (
                 <button
                   key={room.id}
                   type="button"
-                  className={`chat-dm-item${
-                    !viewingDirect && room.id === selectedRoomId ? ' active' : ''
+                  className={`chat-dm-item chat-server-row${
+                    !viewingDirect && room.id === selectedServer?.id ? ' active' : ''
                   }`}
                   onClick={() => openServer(room.id)}>
-                  <span className="chat-server-glyph" aria-hidden>
-                    {room.name.slice(0, 1).toUpperCase()}
-                  </span>
+                  <ServerGlyph name={room.name} />
                   <span className="chat-dm-meta">
                     <span className="chat-dm-name">{room.name}</span>
                     <span className="muted tiny">
@@ -388,12 +398,14 @@ export function ChatRoomsPanel({
           title="Direct messages"
           open={dmOpen}
           onToggle={() => setDmOpen(v => !v)}
-          onAdd={onConnectParent}
+          onAdd={connectParentAction}
           addLabel="Add friend">
           {filteredDirectRooms.length === 0 ? (
             <p className="chat-channel-empty">
               {directRooms.length === 0
-                ? 'Direct chats open after a friend accepts your request.'
+                ? friendsEnabled
+                  ? 'Direct chats open after a friend accepts your request.'
+                  : 'No direct messages yet.'
                 : 'No direct messages match your search.'}
             </p>
           ) : (
@@ -435,7 +447,7 @@ export function ChatRoomsPanel({
           title="Friends"
           open={friendsOpen}
           onToggle={() => setFriendsOpen(v => !v)}
-          onAdd={onConnectParent}
+          onAdd={connectParentAction}
           addLabel="Add friend">
           {filteredFriends.length === 0 ? (
             <p className="chat-channel-empty">
@@ -490,7 +502,7 @@ export function ChatRoomsPanel({
             ) : null}
             <CategorySection
               id="text-channels"
-              title="Text channels"
+              title="Pages"
               open={textOpen}
               onToggle={() => setTextOpen(v => !v)}
               onAdd={
@@ -529,7 +541,7 @@ export function ChatRoomsPanel({
 
             <CategorySection
               id="voice-channels"
-              title="Voice channels"
+              title="Voice rooms"
               open={voiceOpen}
               onToggle={() => setVoiceOpen(v => !v)}
               onAdd={
@@ -576,6 +588,89 @@ export function ChatRoomsPanel({
             ) : null}
           </>
         ) : null}
+        </div>
+      </div>
+
+      <div className={`chat-tools-dock${toolsOpen ? ' chat-tools-dock--open' : ''}`}>
+        <button
+          type="button"
+          className="chat-tools-dock-toggle"
+          aria-expanded={toolsOpen}
+          onClick={() => setToolsOpen(open => !open)}>
+          <span className="chat-tools-dock-toggle-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3-3" />
+            </svg>
+            Search &amp; new notebook
+            {(listQuery || listFilter !== 'all') && !toolsOpen ? (
+              <span className="chat-tools-dock-hint">Active</span>
+            ) : null}
+          </span>
+          <span className="chat-tools-dock-caret" aria-hidden>
+            {toolsOpen ? '▾' : '▸'}
+          </span>
+        </button>
+
+        {toolsOpen ? (
+          <div className="chat-tools-dock-body">
+            <div className="chat-list-toolbar chat-list-toolbar--dock">
+              <label className="chat-list-search">
+                <span className="visually-hidden">Search notes</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M20 20l-3-3" />
+                </svg>
+                <input
+                  type="search"
+                  value={listQuery}
+                  placeholder="Search notes, rooms or members…"
+                  autoFocus
+                  onChange={event => setListQuery(event.target.value)}
+                />
+                <kbd className="chat-list-search-kbd" aria-hidden>
+                  ⌘K
+                </kbd>
+              </label>
+              <div className="chat-list-filters" role="tablist" aria-label="Notes list filter">
+                {filterTabs.map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={listFilter === id}
+                    className={`chat-list-filter${listFilter === id ? ' active' : ''}`}
+                    onClick={() => setListFilter(id)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <form className="chat-create-card chat-create-card--dock" onSubmit={onCreateRoom}>
+              <label className="chat-create-card-label" htmlFor="chat-new-server-name">
+                New notebook name
+              </label>
+              <div className="chat-create-card-row">
+                <input
+                  id="chat-new-server-name"
+                  type="text"
+                  placeholder="Enter notebook name..."
+                  value={newRoomName}
+                  maxLength={64}
+                  aria-label="New notebook name"
+                  onChange={event => onNewRoomNameChange(event.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="btn primary chat-create-card-btn"
+                  disabled={busy || !newRoomName.trim()}>
+                  + Create
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
       </div>
 
       <div className="chat-comm-footer">
@@ -584,18 +679,33 @@ export function ChatRoomsPanel({
           seed={selfSeed}
           onOpenSettings={onOpenSelfSettings}
         />
-        {onConnectParent ? (
+        {connectParentAction ? (
           <button
             type="button"
             className="btn chat-connect-parent-btn"
             disabled={busy}
-            onClick={onConnectParent}>
+            onClick={connectParentAction}>
             + Add Friend
           </button>
         ) : null}
       </div>
     </aside>
   );
+}
+
+function formatServerCreatedAt(iso?: string | null): string | null {
+  if (!iso) {
+    return null;
+  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 function CategorySection({
@@ -675,7 +785,11 @@ function ChannelRow({
             <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
           </svg>
         ) : (
-          '#'
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M6 3h9l3 3v15H6z" />
+            <path d="M15 3v3h3" />
+            <path d="M9 11h6M9 15h6" />
+          </svg>
         )}
       </span>
       <span className="chat-channel-name">{channel.name}</span>

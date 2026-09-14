@@ -3,13 +3,13 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 const STORAGE_KEY = 'parentChat.layout';
 
 export const CHAT_LAYOUT_LIMITS = {
-  roomsMin: 240,
-  roomsMax: 420,
-  roomsDefault: 280,
-  infoMin: 240,
-  infoMax: 420,
-  infoDefault: 280,
-  chatMin: 420,
+  roomsMin: 280,
+  roomsMax: 400,
+  roomsDefault: 320,
+  infoMin: 260,
+  infoMax: 340,
+  infoDefault: 300,
+  chatMin: 480,
   handleWidth: 7,
 } as const;
 
@@ -68,8 +68,8 @@ function readViewportMode() {
   if (typeof window === 'undefined') {
     return {isMobile: false, isTablet: false, isResizable: true};
   }
-  const isMobile = window.matchMedia('(max-width: 900px)').matches;
-  const isTablet = window.matchMedia('(max-width: 1280px)').matches;
+  const isMobile = window.matchMedia('(max-width: 767px)').matches;
+  const isTablet = window.matchMedia('(min-width: 768px) and (max-width: 1279px)').matches;
   return {isMobile, isTablet, isResizable: !isMobile};
 }
 
@@ -106,13 +106,8 @@ export function useChatWorkspaceLayout() {
     if (hasAppliedTabletDefault.current || !viewport.isTablet || viewport.isMobile) {
       return;
     }
-    try {
-      if (!localStorage.getItem(STORAGE_KEY)) {
-        setInfoOpen(false);
-      }
-    } catch {
-      setInfoOpen(false);
-    }
+    // On tablet widths, keep Parent Chat closed so the conversation stays wide.
+    setInfoOpen(false);
     hasAppliedTabletDefault.current = true;
   }, [viewport.isMobile, viewport.isTablet]);
 

@@ -2,32 +2,36 @@ import {useEffect, useRef} from 'react';
 import {createPortal} from 'react-dom';
 import {useNavigate} from 'react-router-dom';
 import {lockBodyScroll} from '../lib/scrollLock';
+import {NavIcon} from './NavIcon';
 
 const NAV_GROUPS = [
   {
     label: 'Monitoring',
     items: [
-      {to: '/devices', label: 'devices', icon: '#'},
-      {to: '/alerts', label: 'alerts', icon: '#'},
+      {to: '/devices', label: 'Devices', icon: 'devices'},
+      {to: '/alerts', label: 'Alerts', icon: 'alerts'},
     ],
   },
   {
     label: 'Controls',
     items: [
-      {to: '/policies', label: 'policies', icon: '#'},
-      {to: '/geofences', label: 'geofences', icon: '#'},
+      {to: '/policies', label: 'Policies', icon: 'policies'},
+      {to: '/geofences', label: 'Geofences', icon: 'geofences'},
     ],
   },
   {
     label: 'Community',
-    items: [{to: '/chat', label: 'chat', icon: '💬'}],
+    items: [
+      {to: '/chat', label: 'Notes', icon: 'chat'},
+      {to: '/parents', label: 'Parents', icon: 'parents'},
+    ],
   },
   {
     label: 'Account',
     items: [
-      {to: '/billing', label: 'billing', icon: '#'},
-      {to: '/audit', label: 'audit', icon: '#'},
-      {to: '/settings', label: 'settings', icon: '⚙'},
+      {to: '/billing', label: 'Billing', icon: 'billing'},
+      {to: '/audit', label: 'Audit', icon: 'audit'},
+      {to: '/settings', label: 'Settings', icon: 'settings'},
     ],
   },
 ] as const;
@@ -104,7 +108,13 @@ export function MobileNavDrawer({
     <div className="dc-mobile-overlay" role="dialog" aria-modal="true" aria-label="Navigation">
       <aside className="dc-mobile-overlay-drawer">
         <header className="dc-sidebar-header">
-          <span className="dc-sidebar-title">Parent Control</span>
+          <div className="dc-sidebar-brand">
+            <img src={`${import.meta.env.BASE_URL}app-logo.png`} alt="" width={36} height={36} />
+            <div className="dc-sidebar-brand-copy">
+              <span className="dc-sidebar-title">Parent Control</span>
+              <span className="dc-sidebar-tagline">Safe. Connected. Together.</span>
+            </div>
+          </div>
           <button
             ref={closeButtonRef}
             type="button"
@@ -114,6 +124,9 @@ export function MobileNavDrawer({
             ×
           </button>
         </header>
+        <div className="dc-family-pill" title="Family">
+          FC
+        </div>
         <nav className="dc-channels">
           {NAV_GROUPS.map(group => (
             <div key={group.label} className="dc-channel-group">
@@ -126,7 +139,9 @@ export function MobileNavDrawer({
                     isItemActive(pathname, item.to) ? ' active' : ''
                   }`}
                   onClick={() => goTo(item.to)}>
-                  <span className="dc-channel-hash">{item.icon}</span>
+                  <span className="dc-channel-hash">
+                    <NavIcon name={item.icon} />
+                  </span>
                   <span>{item.label}</span>
                 </button>
               ))}
@@ -151,7 +166,7 @@ export function MobileNavDrawer({
               onClick={() => goTo('/settings')}>
               ⚙
             </button>
-            <button type="button" className="dc-icon-btn" title="Log out" aria-label="Log out" onClick={onLogout}>
+            <button type="button" className="dc-icon-btn" title="Log out" onClick={onLogout}>
               ⎋
             </button>
           </div>

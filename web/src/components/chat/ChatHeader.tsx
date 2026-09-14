@@ -1,6 +1,7 @@
 import {useEffect, useId, useRef, useState} from 'react';
 import {Avatar} from '../Avatar';
 import type {ChatRoomSummary} from '../../types/api';
+import {isNotesServerName, NotesServerIcon} from './NotesServerIcon';
 
 type HeaderAction = {
   id: string;
@@ -117,10 +118,20 @@ export function ChatHeader({
             </svg>
           </button>
         ) : null}
-        <Avatar name={room.name} seed={room.id} size={compact ? 'md' : 'lg'} />
+        {isNotesServerName(room.name) ? (
+          <span
+            className={`chat-server-glyph chat-server-glyph--notes chat-server-glyph--header${
+              compact ? '' : ' chat-server-glyph--lg'
+            }`}
+            aria-hidden>
+            <NotesServerIcon size={compact ? 28 : 32} />
+          </span>
+        ) : (
+          <Avatar name={room.name} seed={room.id} size={compact ? 'md' : 'lg'} />
+        )}
         <div className="chat-thread-title-text">
           <h2>
-            {channelLabel ? `# ${channelLabel}` : room.name}
+            {channelLabel ? channelLabel : room.name}
           </h2>
           <div className="chat-thread-subtitle">
             <span className="chat-role-badge">Parent</span>
