@@ -1254,11 +1254,8 @@ export function ChatPage() {
     setApiMessages(prev => prev.filter(message => message.roomId !== selectedRoomId));
     void loadMessages(selectedRoomId, selectedChannelId);
     void loadRoomMembers(selectedRoomId);
-    const room = rooms.find(entry => entry.id === selectedRoomId);
-    if (room && isDirectStyleRoom(room)) {
-      void loadPartnerPresence(selectedRoomId);
-    }
-  }, [selectedRoomId, selectedChannelId, loadMessages, loadRoomMembers, loadPartnerPresence, rooms]);
+    // Do not depend on `rooms` — room-list bumps after send would clear/reload the thread.
+  }, [selectedRoomId, selectedChannelId, loadMessages, loadRoomMembers]);
 
   useEffect(() => {
     if (!selectedRoomId) {
