@@ -309,3 +309,52 @@ export interface ChatMessageItem {
   reactions?: ChatMessageReactionSummary[];
 }
 
+export type LibraryVisibility = 'PRIVATE' | 'SHARED';
+export type LibraryBookStatus = 'READY' | 'ARCHIVED';
+export type HighlightColor = 'YELLOW' | 'BLUE' | 'GREEN' | 'RED';
+
+export interface LibraryProgress {
+  lastPage: number;
+  scrollOffset?: number | null;
+  zoomLevel?: number | null;
+  progressPercent: number;
+  lastViewedAt?: string | null;
+  completedAt?: string | null;
+}
+
+export interface LibraryBook {
+  id: string;
+  title: string;
+  originalFileName: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  pageCount?: number | null;
+  visibility: LibraryVisibility;
+  status: LibraryBookStatus;
+  uploadedBy: string;
+  ownedByMe: boolean;
+  createdAt: string;
+  updatedAt: string;
+  progress?: LibraryProgress | null;
+}
+
+export interface LibraryHighlight {
+  id: string;
+  bookId: string;
+  pageNumber: number;
+  selectedText: string;
+  color: HighlightColor;
+  positionData: string;
+  visibility: LibraryVisibility;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LibraryBookmark {
+  id: string;
+  bookId: string;
+  pageNumber: number;
+  label?: string | null;
+  createdAt: string;
+}
+

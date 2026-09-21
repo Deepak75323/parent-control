@@ -109,6 +109,10 @@ public final class ApiConstants {
   public static final String CHAT = API_V1 + "/chat";
   public static final String CHAT_ANT = CHAT + "/**";
 
+  public static final String LIBRARY = API_V1 + "/library";
+  public static final String LIBRARY_ANT = LIBRARY + "/**";
+  public static final String LIBRARY_BOOKS = LIBRARY + "/books";
+
   public static final String ADMIN = API_V1 + "/admin";
   public static final String ADMIN_ANT = ADMIN + "/**";
   public static final String ADMIN_CERTIFICATION = ADMIN + "/certification";

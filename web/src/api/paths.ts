@@ -109,4 +109,15 @@ export const ApiPaths = {
     `${V1}/chat/rooms/${roomId}/messages/${messageId}/attachment/view`,
   CHAT_INVITES_PENDING: `${V1}/chat/invites/pending`,
   chatInviteRespond: (inviteId: string) => `${V1}/chat/invites/${inviteId}/respond`,
+
+  LIBRARY_BOOKS: `${V1}/library/books`,
+  libraryBook: (bookId: string) => `${V1}/library/books/${bookId}`,
+  libraryBookFile: (bookId: string) => `${V1}/library/books/${bookId}/file`,
+  libraryBookProgress: (bookId: string) => `${V1}/library/books/${bookId}/progress`,
+  libraryBookHighlights: (bookId: string) => `${V1}/library/books/${bookId}/highlights`,
+  libraryBookHighlight: (bookId: string, highlightId: string) =>
+    `${V1}/library/books/${bookId}/highlights/${highlightId}`,
+  libraryBookBookmarks: (bookId: string) => `${V1}/library/books/${bookId}/bookmarks`,
+  libraryBookBookmark: (bookId: string, bookmarkId: string) =>
+    `${V1}/library/books/${bookId}/bookmarks/${bookmarkId}`,
 } as const;
