@@ -15,8 +15,6 @@ import {AuditPage} from './pages/AuditPage';
 import {BillingPage} from './pages/BillingPage';
 import {GeofencesPage} from './pages/GeofencesPage';
 import {ChatPage} from './pages/ChatPage';
-import {LibraryPage} from './pages/LibraryPage';
-import {LibraryReaderPage} from './pages/LibraryReaderPage';
 import {ParentsPage} from './pages/ParentsPage';
 import {isParentsTabEnabled} from './lib/chatFriendsFeature';
 import './styles/app.css';
@@ -74,8 +72,6 @@ function Bootstrap() {
           <Route path="/billing" element={<BillingPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/chat" element={<ChatPage />} />
-          <Route path="/library" element={<LibraryPage />} />
-          <Route path="/library/:bookId" element={<LibraryReaderPage />} />
           {isParentsTabEnabled() ? (
             <Route path="/parents" element={<ParentsPage />} />
           ) : (

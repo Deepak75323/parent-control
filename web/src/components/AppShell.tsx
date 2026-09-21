@@ -38,7 +38,6 @@ const NAV_GROUPS = [
     label: 'Community',
     items: [
       {to: '/chat', label: 'Notes', icon: 'chat'},
-      {to: '/library', label: 'Library', icon: 'library'},
       {to: '/parents', label: 'Parents', icon: 'parents'},
     ],
   },
@@ -93,10 +92,6 @@ const TITLES: Record<string, {title: string; subtitle: string}> = {
     title: 'Notes',
     subtitle: 'Shared notebooks for parents — write together in real time',
   },
-  '/library': {
-    title: 'Library',
-    subtitle: 'Your books and shared reading',
-  },
   '/parents': {
     title: 'Parents',
     subtitle: 'Shared notebooks — who is online and when they were last seen',
@@ -107,16 +102,11 @@ function channelMeta(pathname: string) {
   if (pathname.startsWith('/devices/') && pathname !== '/devices') {
     return {title: 'Device', subtitle: 'Live status, stream, and activity for this phone', icon: 'devices'};
   }
-  if (pathname.startsWith('/library/')) {
-    return {title: 'Reader', subtitle: 'Continue where you left off', icon: 'library'};
-  }
   const base = TITLES[pathname] ?? {title: 'Parent Control', subtitle: 'Family monitoring'};
   return {
     ...base,
     icon: pathname.startsWith('/chat')
       ? 'chat'
-      : pathname.startsWith('/library')
-        ? 'library'
       : pathname.startsWith('/parents')
         ? 'parents'
         : pathname.startsWith('/settings')
@@ -153,13 +143,12 @@ function NavChannels({pathname, onNavigate}: NavChannelsProps) {
           <div className="dc-channel-cat">{group.label}</div>
           {group.items.map(item => {
             const nestedActive =
-              (item.to === '/devices' && pathname.startsWith('/devices/')) ||
-              (item.to === '/library' && pathname.startsWith('/library/'));
+              item.to === '/devices' && pathname.startsWith('/devices/');
             return (
               <NavLink
                 key={item.to}
                 to={item.to}
-                end={item.to === '/devices' || item.to === '/library'}
+                end={item.to === '/devices'}
                 className={({isActive}) =>
                   `dc-channel${isActive || nestedActive ? ' active' : ''}`
                 }

@@ -25,15 +25,7 @@ import type {
   ChatChannelItem,
   ChatMessageItem,
   ChatMessageReactionSummary,
-  LibraryBook,
-  LibraryBookmark,
-  LibraryHighlight,
-  LibraryProgress,
-  HighlightColor,
-  LibraryVisibility,
 } from '../types/api';
-import {getApiBaseUrl} from './client';
-import {useAuthStore} from '../auth/authStore';
 
 export const authApi = {
   login: (email: string, password: string) =>
@@ -390,94 +382,4 @@ export const chatApi = {
       ApiPaths.chatMessageReactions(roomId, messageId),
       {emoji},
     ),
-};
-
-export const libraryApi = {
-  list: (q?: string) =>
-    api.get<ApiResponse<LibraryBook[]>>(ApiPaths.LIBRARY_BOOKS, {
-      params: q ? {q} : undefined,
-    }),
-  get: (bookId: string) =>
-    api.get<ApiResponse<LibraryBook>>(ApiPaths.libraryBook(bookId)),
-  upload: (file: File, title?: string) =>
-    postMultipart<ApiResponse<LibraryBook>>(ApiPaths.LIBRARY_BOOKS, () => {
-      const form = new FormData();
-      form.append('file', file);
-      if (title) {
-        form.append('title', title);
-      }
-      return form;
-    }),
-  update: (
-    bookId: string,
-    body: {title?: string; visibility?: LibraryVisibility; pageCount?: number},
-  ) => api.put<ApiResponse<LibraryBook>>(ApiPaths.libraryBook(bookId), body),
-  delete: (bookId: string) =>
-    api.delete<ApiResponse<void>>(ApiPaths.libraryBook(bookId)),
-  getProgress: (bookId: string) =>
-    api.get<ApiResponse<LibraryProgress>>(ApiPaths.libraryBookProgress(bookId)),
-  saveProgress: (
-    bookId: string,
-    body: {
-      lastPage: number;
-      pageCount?: number;
-      scrollOffset?: number;
-      zoomLevel?: number;
-    },
-  ) => api.put<ApiResponse<LibraryProgress>>(ApiPaths.libraryBookProgress(bookId), body),
-  listHighlights: (bookId: string) =>
-    api.get<ApiResponse<LibraryHighlight[]>>(ApiPaths.libraryBookHighlights(bookId)),
-  createHighlight: (
-    bookId: string,
-    body: {
-      pageNumber: number;
-      selectedText: string;
-      color?: HighlightColor;
-      positionData: string;
-      visibility?: LibraryVisibility;
-    },
-  ) =>
-    api.post<ApiResponse<LibraryHighlight>>(ApiPaths.libraryBookHighlights(bookId), body),
-  deleteHighlight: (bookId: string, highlightId: string) =>
-    api.delete<ApiResponse<void>>(ApiPaths.libraryBookHighlight(bookId, highlightId)),
-  listBookmarks: (bookId: string) =>
-    api.get<ApiResponse<LibraryBookmark[]>>(ApiPaths.libraryBookBookmarks(bookId)),
-  createBookmark: (bookId: string, body: {pageNumber: number; label?: string}) =>
-    api.post<ApiResponse<LibraryBookmark>>(ApiPaths.libraryBookBookmarks(bookId), body),
-  deleteBookmark: (bookId: string, bookmarkId: string) =>
-    api.delete<ApiResponse<void>>(ApiPaths.libraryBookBookmark(bookId, bookmarkId)),
-  /** Authenticated PDF blob URL — caller must revokeObjectURL when done. */
-  async fetchPdfObjectUrl(
-    bookId: string,
-    onProgress?: (loadedBytes: number, totalBytes: number | null) => void,
-  ): Promise<string> {
-    const token = useAuthStore.getState().accessToken;
-    const res = await fetch(`${getApiBaseUrl()}${ApiPaths.libraryBookFile(bookId)}`, {
-      headers: token ? {Authorization: `Bearer ${token}`} : {},
-    });
-    if (!res.ok) {
-      throw new Error('Failed to load PDF');
-    }
-    const totalHeader = res.headers.get('content-length');
-    const totalBytes = totalHeader ? Number(totalHeader) : null;
-    if (!res.body || !onProgress) {
-      const blob = await res.blob();
-      onProgress?.(blob.size, totalBytes ?? blob.size);
-      return URL.createObjectURL(blob);
-    }
-    const reader = res.body.getReader();
-    const chunks: BlobPart[] = [];
-    let loaded = 0;
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) {
-        break;
-      }
-      chunks.push(value);
-      loaded += value.byteLength;
-      onProgress(loaded, totalBytes);
-    }
-    const blob = new Blob(chunks, {type: 'application/pdf'});
-    return URL.createObjectURL(blob);
-  },
 };

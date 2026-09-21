@@ -425,30 +425,6 @@ public final class MessageConstants {
   public static final String CHAT_ATTACHMENT_USE_VIEW_ENDPOINT =
       "Use the view endpoint to open this attachment";
 
-  public static final String LIBRARY_PDF_REQUIRED = "A PDF file is required";
-
-  public static final String LIBRARY_PDF_TYPE_NOT_ALLOWED = "Only PDF files are allowed";
-
-  public static final String LIBRARY_PDF_TOO_LARGE = "PDF exceeds the size limit";
-
-  public static final String LIBRARY_PDF_NOT_FOUND = "Book file not found";
-
-  public static final String LIBRARY_PDF_STORE_FAILED = "Could not store PDF";
-
-  public static final String LIBRARY_PDF_READ_FAILED = "Could not read PDF";
-
-  public static final String LIBRARY_PDF_CORRUPT = "File is not a valid PDF";
-
-  public static final String LIBRARY_BOOK_NOT_FOUND = "Book not found";
-
-  public static final String LIBRARY_BOOK_DUPLICATE = "This PDF is already in your library";
-
-  public static final String LIBRARY_BOOK_FORBIDDEN = "You do not have access to this book";
-
-  public static final String LIBRARY_HIGHLIGHT_NOT_FOUND = "Highlight not found";
-
-  public static final String LIBRARY_BOOKMARK_NOT_FOUND = "Bookmark not found";
-
   public static final String CHAT_CAPTION_TOO_LONG = "Caption is too long (max 2000 characters)";
 
   public static final String CHAT_REPLY_MESSAGE_NOT_FOUND =

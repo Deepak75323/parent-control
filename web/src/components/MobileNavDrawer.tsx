@@ -24,7 +24,6 @@ const NAV_GROUPS = [
     label: 'Community',
     items: [
       {to: '/chat', label: 'Notes', icon: 'chat'},
-      {to: '/library', label: 'Library', icon: 'library'},
       {to: '/parents', label: 'Parents', icon: 'parents'},
     ],
   },
@@ -58,9 +57,6 @@ type Props = {
 function isItemActive(pathname: string, to: string): boolean {
   if (to === '/devices') {
     return pathname === '/devices' || pathname.startsWith('/devices/');
-  }
-  if (to === '/library') {
-    return pathname === '/library' || pathname.startsWith('/library/');
   }
   return pathname === to;
 }
