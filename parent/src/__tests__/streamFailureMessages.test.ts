@@ -39,6 +39,12 @@ describe('streamFailureMessage', () => {
     expect(msg).toMatch(/Reconnect/i);
   });
 
+  it('names the foreground app when camera-in-use includes a hint', () => {
+    expect(streamFailureMessage('CAMERA_IN_USE_BY_OTHER_APP:WhatsApp')).toContain('WhatsApp');
+    expect(streamFailureMessage('CAMERA_IN_USE_BY_OTHER_APP:Google_Meet')).toContain('Google Meet');
+    expect(streamFailureMessage('CAMERA_IN_USE_BY_OTHER_APP:com.whatsapp')).toMatch(/Whatsapp/i);
+  });
+
   it('explains screen start failure without capture-service jargon', () => {
     const msg = streamFailureMessage('FGS_GATE_CLOSED');
     expect(msg).toContain('Screen sharing');

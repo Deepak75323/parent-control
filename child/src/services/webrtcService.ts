@@ -165,8 +165,15 @@ async function acquireCameraWithTakeover(
   flowLog('CAMERA_FLOW', 'CAMERA_FORCE_RESULT', {sessionId, success: forceSuccess, cameraId});
   if (!forceSuccess) {
     slog('CAMERA', 'Camera takeover failed — another app is using the camera', {facing, cameraId});
-    void deviceApi.reportStreamFailure(sessionId, CAMERA_IN_USE_BY_OTHER_APP).catch(() => undefined);
-    throw new Error(CAMERA_IN_USE_BY_OTHER_APP);
+    let reason = CAMERA_IN_USE_BY_OTHER_APP;
+    try {
+      reason = await nativeModules.getCameraInUseFailureReason();
+    } catch {
+      /* keep base code */
+    }
+    slog('CAMERA', 'Camera in-use failure reason', {reason});
+    void deviceApi.reportStreamFailure(sessionId, reason).catch(() => undefined);
+    throw new Error(reason);
   }
   slog('CAMERA', `Successfully forced camera access for ${facing} camera (ID: ${cameraId})`);
 }

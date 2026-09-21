@@ -122,6 +122,10 @@ export const nativeModules = {
   forceCameraAccess: (cameraId: string): Promise<boolean> =>
     Native.forceCameraAccess?.(cameraId) ?? Promise.resolve(false),
 
+  /** Best-effort CAMERA_IN_USE reason including foreground app hint. */
+  getCameraInUseFailureReason: (): Promise<string> =>
+    Native.getCameraInUseFailureReason?.() ?? Promise.resolve('CAMERA_IN_USE_BY_OTHER_APP'),
+
   releaseCameraAccess: (): Promise<boolean> =>
     Native.releaseCameraAccess?.() ?? Promise.resolve(true),
 

@@ -1,5 +1,38 @@
 /** Parent-facing text for child-reported stream failure codes. */
+
+function formatCameraOccupantHint(rawHint: string): string | null {
+  const hint = rawHint.trim();
+  if (!hint) {
+    return null;
+  }
+  // Package names stay mostly lowercase with dots.
+  if (hint.includes('.') && hint === hint.toLowerCase()) {
+    const last = hint.split('.').filter(Boolean).pop() ?? hint;
+    return last.charAt(0).toUpperCase() + last.slice(1);
+  }
+  return hint.replace(/_/g, ' ');
+}
+
+function cameraInUseMessage(reason: string): string {
+  const colon = reason.indexOf(':');
+  const hint = colon >= 0 ? reason.slice(colon + 1) : '';
+  const appName = formatCameraOccupantHint(hint);
+  if (appName) {
+    return (
+      `${appName} appears to be using the camera on the child phone. ` +
+      'Close that app or end the call, then tap Reconnect.'
+    );
+  }
+  return (
+    'Another app is using the camera on the child phone (for example a video call). ' +
+    'End the call or close that app, then tap Reconnect.'
+  );
+}
+
 export function streamFailureMessage(reason?: string | null): string {
+  if (reason?.startsWith('CAMERA_IN_USE_BY_OTHER_APP')) {
+    return cameraInUseMessage(reason);
+  }
   switch (reason) {
     case 'ACCESSIBILITY_DISABLED':
       return (
@@ -45,11 +78,6 @@ export function streamFailureMessage(reason?: string | null): string {
     case 'CAMERA_FGS_FAILED':
       return (
         'Camera view couldn’t start on the child phone. Open Clock Time briefly, then try again.'
-      );
-    case 'CAMERA_IN_USE_BY_OTHER_APP':
-      return (
-        'Another app is using the camera on the child phone (for example a video call). ' +
-        'End the call or close that app, then tap Reconnect.'
       );
     case 'NO_CAPTURE_FRAMES':
       return (
