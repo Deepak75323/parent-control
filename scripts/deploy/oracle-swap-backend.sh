@@ -22,6 +22,8 @@ ENV_SNAPSHOT="${ENV_SNAPSHOT:-/tmp/pcp-backend-env.txt}"
 SA_HOST="${SA_HOST_PATH:-$ROOT/backend/secrets/firebase-service-account.json}"
 CHAT_ATTACHMENTS_HOST="${CHAT_ATTACHMENTS_HOST:-/var/lib/pcp/chat-attachments}"
 CHAT_ATTACHMENTS_CONTAINER="${CHAT_ATTACHMENTS_CONTAINER:-/app/data/chat-attachments}"
+LIBRARY_BOOKS_HOST="${LIBRARY_BOOKS_HOST:-/var/lib/pcp/library-books}"
+LIBRARY_BOOKS_CONTAINER="${LIBRARY_BOOKS_CONTAINER:-/app/data/library-books}"
 HEALTH_PATH=/actuator/health
 HEALTH_RETRIES="${HEALTH_RETRIES:-80}"
 HEALTH_SLEEP="${HEALTH_SLEEP:-3}"
@@ -192,14 +194,16 @@ main() {
     chmod 644 "$SA_HOST"
     mount_args=(-v "$SA_HOST:/app/secrets/firebase-service-account.json:ro")
   fi
-  sudo mkdir -p "$CHAT_ATTACHMENTS_HOST"
+  sudo mkdir -p "$CHAT_ATTACHMENTS_HOST" "$LIBRARY_BOOKS_HOST"
   # Rootless podman: host uid must map to container spring (100:101).
   # chown on host to the deploy user first so podman unshare can remap in the namespace.
-  sudo chown -R "${USER}:${USER}" "$CHAT_ATTACHMENTS_HOST"
-  podman unshare chown -R 100:101 "$CHAT_ATTACHMENTS_HOST"
-  podman unshare chmod 755 "$CHAT_ATTACHMENTS_HOST"
+  sudo chown -R "${USER}:${USER}" "$CHAT_ATTACHMENTS_HOST" "$LIBRARY_BOOKS_HOST"
+  podman unshare chown -R 100:101 "$CHAT_ATTACHMENTS_HOST" "$LIBRARY_BOOKS_HOST"
+  podman unshare chmod 755 "$CHAT_ATTACHMENTS_HOST" "$LIBRARY_BOOKS_HOST"
   mount_args+=(-v "${CHAT_ATTACHMENTS_HOST}:${CHAT_ATTACHMENTS_CONTAINER}")
+  mount_args+=(-v "${LIBRARY_BOOKS_HOST}:${LIBRARY_BOOKS_CONTAINER}")
   run_args+=(-e "CHAT_ATTACHMENTS_PATH=${CHAT_ATTACHMENTS_CONTAINER}")
+  run_args+=(-e "LIBRARY_BOOKS_PATH=${LIBRARY_BOOKS_CONTAINER}")
 
   echo "==> Starting $CANDIDATE on host port $candidate_port"
   # shellcheck disable=SC2068
