@@ -10233,26 +10233,8 @@ body.stream-pip-dragging * {
 
 .library-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 14px;
-}
-
-@media (max-width: 1100px) {
-  .library-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 800px) {
-  .library-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 560px) {
-  .library-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .library-card {
@@ -10261,6 +10243,7 @@ body.stream-pip-dragging * {
   gap: 10px;
   padding: 16px;
   position: relative;
+  min-width: 0;
 }
 
 .library-card-top {
@@ -10272,6 +10255,7 @@ body.stream-pip-dragging * {
 .library-card-icon {
   font-size: 28px;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .library-card-meta {
@@ -10285,6 +10269,13 @@ body.stream-pip-dragging * {
   font-weight: 700;
   letter-spacing: -0.02em;
   color: #17182b;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .library-page-line {
@@ -10550,6 +10541,11 @@ body.stream-pip-dragging * {
 
 .library-reader-error {
   margin: 8px 12px 0;
+}
+
+.library-reader-download {
+  margin: 8px 12px;
+  padding: 12px 14px;
 }
 
 .library-page-highlight-hint {

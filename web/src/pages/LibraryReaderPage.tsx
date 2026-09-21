@@ -37,7 +37,9 @@ export function LibraryReaderPage() {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1.1);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingMeta, setLoadingMeta] = useState(true);
+  const [loadingPdf, setLoadingPdf] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState<number | null>(null);
   const [highlights, setHighlights] = useState<LibraryHighlight[]>([]);
   const [bookmarks, setBookmarks] = useState<LibraryBookmark[]>([]);
   const [panel, setPanel] = useState<'highlights' | 'bookmarks' | null>('highlights');
@@ -91,23 +93,23 @@ export function LibraryReaderPage() {
   useEffect(() => {
     let revoked: string | null = null;
     let cancelled = false;
+
     (async () => {
-      setLoading(true);
+      setLoadingMeta(true);
+      setLoadingPdf(false);
+      setPdfProgress(null);
       setError(null);
+      setPdfUrl(null);
       try {
-        const [{data: bookRes}, url, hl, bm] = await Promise.all([
+        const [{data: bookRes}, hl, bm] = await Promise.all([
           libraryApi.get(bookId),
-          libraryApi.fetchPdfObjectUrl(bookId),
           libraryApi.listHighlights(bookId),
           libraryApi.listBookmarks(bookId),
         ]);
         if (cancelled) {
-          URL.revokeObjectURL(url);
           return;
         }
-        revoked = url;
         setBook(bookRes.data);
-        setPdfUrl(url);
         setHighlights(hl.data.data ?? []);
         setBookmarks(bm.data.data ?? []);
         const cached = readCachedLibraryProgress(bookId);
@@ -122,24 +124,50 @@ export function LibraryReaderPage() {
         } else if (bookRes.data?.progress?.zoomLevel) {
           setZoom(bookRes.data.progress.zoomLevel);
         }
-      } catch {
+        setLoadingMeta(false);
+
+        setLoadingPdf(true);
+        const url = await libraryApi.fetchPdfObjectUrl(bookId, (loaded, total) => {
+          if (cancelled) {
+            return;
+          }
+          if (total && total > 0) {
+            setPdfProgress(Math.min(99, Math.round((loaded / total) * 100)));
+          }
+        });
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        revoked = url;
+        setPdfUrl(url);
+        setPdfProgress(100);
+      } catch (e) {
         if (!cancelled) {
-          setError('Could not open this book');
+          const detail = e instanceof Error && e.message ? e.message : '';
+          setError(detail && detail !== 'Failed to load PDF' ? detail : 'Could not open this book');
         }
       } finally {
         if (!cancelled) {
-          setLoading(false);
+          setLoadingMeta(false);
+          setLoadingPdf(false);
         }
       }
     })();
+
     return () => {
       cancelled = true;
       if (revoked) {
         URL.revokeObjectURL(revoked);
       }
+    };
+  }, [bookId]);
+
+  useEffect(() => {
+    return () => {
       void persistProgress(true);
     };
-  }, [bookId, persistProgress]);
+  }, [persistProgress]);
 
   useEffect(() => {
     const onVis = () => {
@@ -303,7 +331,7 @@ export function LibraryReaderPage() {
     goTo(searchMatches[next].page);
   };
 
-  if (loading) {
+  if (loadingMeta) {
     return (
       <div className="page">
         <p className="muted">Opening book…</p>
@@ -311,7 +339,7 @@ export function LibraryReaderPage() {
     );
   }
 
-  if (error && !pdfUrl) {
+  if (error && !book) {
     return (
       <div className="page">
         <div className="error">{error}</div>
@@ -369,11 +397,29 @@ export function LibraryReaderPage() {
       </header>
 
       {error ? <div className="error library-reader-error">{error}</div> : null}
+      {loadingPdf ? (
+        <div className="library-reader-download card">
+          <p className="muted">
+            Downloading PDF{pdfProgress != null ? `… ${pdfProgress}%` : '…'}
+          </p>
+          <div className="library-progress-track">
+            <div
+              className="library-progress-fill"
+              style={{width: `${pdfProgress ?? 8}%`}}
+            />
+          </div>
+          <p className="tiny muted">Large books can take a minute on slower connections.</p>
+        </div>
+      ) : null}
 
       <div className="library-reader-body">
         <main className="library-reader-main" onMouseUp={onTextSelect}>
           {pdfUrl ? (
-            <Document file={pdfUrl} onLoadSuccess={onDocumentLoad} loading={<p className="muted">Rendering…</p>}>
+            <Document
+              file={pdfUrl}
+              onLoadSuccess={onDocumentLoad}
+              onLoadError={() => setError('This PDF could not be rendered')}
+              loading={<p className="muted">Rendering…</p>}>
               <Page
                 pageNumber={pageNumber}
                 scale={zoom}
@@ -382,6 +428,8 @@ export function LibraryReaderPage() {
                 loading={<p className="muted">Loading page…</p>}
               />
             </Document>
+          ) : !loadingPdf ? (
+            <p className="muted">PDF is not available.</p>
           ) : null}
           {pageHighlights.length > 0 ? (
             <div className="library-page-highlight-hint muted tiny">

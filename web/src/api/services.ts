@@ -447,7 +447,10 @@ export const libraryApi = {
   deleteBookmark: (bookId: string, bookmarkId: string) =>
     api.delete<ApiResponse<void>>(ApiPaths.libraryBookBookmark(bookId, bookmarkId)),
   /** Authenticated PDF blob URL — caller must revokeObjectURL when done. */
-  async fetchPdfObjectUrl(bookId: string): Promise<string> {
+  async fetchPdfObjectUrl(
+    bookId: string,
+    onProgress?: (loadedBytes: number, totalBytes: number | null) => void,
+  ): Promise<string> {
     const token = useAuthStore.getState().accessToken;
     const res = await fetch(`${getApiBaseUrl()}${ApiPaths.libraryBookFile(bookId)}`, {
       headers: token ? {Authorization: `Bearer ${token}`} : {},
@@ -455,7 +458,26 @@ export const libraryApi = {
     if (!res.ok) {
       throw new Error('Failed to load PDF');
     }
-    const blob = await res.blob();
+    const totalHeader = res.headers.get('content-length');
+    const totalBytes = totalHeader ? Number(totalHeader) : null;
+    if (!res.body || !onProgress) {
+      const blob = await res.blob();
+      onProgress?.(blob.size, totalBytes ?? blob.size);
+      return URL.createObjectURL(blob);
+    }
+    const reader = res.body.getReader();
+    const chunks: BlobPart[] = [];
+    let loaded = 0;
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) {
+        break;
+      }
+      chunks.push(value);
+      loaded += value.byteLength;
+      onProgress(loaded, totalBytes);
+    }
+    const blob = new Blob(chunks, {type: 'application/pdf'});
     return URL.createObjectURL(blob);
   },
 };

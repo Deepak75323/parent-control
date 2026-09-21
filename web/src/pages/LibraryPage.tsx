@@ -18,6 +18,16 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Turn filename-like titles into readable labels. */
+function displayBookTitle(raw: string): string {
+  return raw
+    .replace(/\.pdf$/i, '')
+    .replace(/\s*\(\d+\)\s*$/, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function formatRelative(iso?: string | null): string {
   if (!iso) {
     return 'Never opened';
@@ -280,7 +290,9 @@ export function LibraryPage() {
                     📘
                   </div>
                   <div className="library-card-meta">
-                    <h2 className="library-card-title">{book.title}</h2>
+                    <h2 className="library-card-title" title={book.title}>
+                      {displayBookTitle(book.title)}
+                    </h2>
                     <div className="tiny muted">
                       {formatBytes(book.fileSizeBytes)}
                       {pages ? ` · ${pages} pages` : ''}
