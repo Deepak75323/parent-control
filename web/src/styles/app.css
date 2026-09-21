@@ -9105,15 +9105,15 @@ body.stream-pip-dragging * {
 }
 
 .chat-message-bubble-body {
-  font-size: 15px;
+  font-size: 13px;
   line-height: calc(var(--notes-line) - 4px);
   color: var(--notes-ink);
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: -0.01em;
 }
 
 .chat-message-bubble-body .chat-message-body {
-  font-weight: 700;
+  font-weight: 500;
   color: var(--notes-ink);
 }
 
@@ -9301,18 +9301,18 @@ body.stream-pip-dragging * {
 
 .chat-learning-inline-question {
   margin: 0;
-  font-size: 11px;
-  font-weight: 450;
+  font-size: 12px;
+  font-weight: 700;
   line-height: 1.4;
-  color: rgba(30, 40, 60, 0.78);
+  color: rgba(30, 40, 60, 0.88);
   white-space: pre-line;
 }
 
 .chat-learning-inline-source {
   margin: 4px 0 0;
-  font-size: 10px;
-  font-weight: 500;
-  color: rgba(40, 45, 70, 0.5);
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(40, 45, 70, 0.65);
 }
 
 .chat-learning-inline--news .chat-learning-inline-label {
