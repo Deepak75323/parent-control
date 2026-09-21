@@ -48,11 +48,25 @@ class DeviceTelemetryReaderTest {
     }
 
     @Test
+    fun resolveBatteryPercent_prefersLiveOverStickyAndStuckCapacity() {
+        val resolved =
+            DeviceTelemetryReader.resolveBatteryPercent(
+                livePercent = 54,
+                stickyPercent = 93,
+                capacityProperty = 93,
+                lastKnown = 93,
+            )
+
+        assertEquals(54, resolved)
+    }
+
+    @Test
     fun resolveBatteryPercent_prefersStickyOverStuckCapacityProperty() {
         // Xiaomi/HyperOS can report a stale BATTERY_PROPERTY_CAPACITY (e.g. 93)
         // while the sticky ACTION_BATTERY_CHANGED intent is correct.
         val resolved =
             DeviceTelemetryReader.resolveBatteryPercent(
+                livePercent = null,
                 stickyPercent = 61,
                 capacityProperty = 93,
                 lastKnown = 93,
@@ -66,6 +80,7 @@ class DeviceTelemetryReaderTest {
         assertEquals(
             72,
             DeviceTelemetryReader.resolveBatteryPercent(
+                livePercent = null,
                 stickyPercent = null,
                 capacityProperty = 72,
                 lastKnown = 40,
@@ -78,6 +93,7 @@ class DeviceTelemetryReaderTest {
         assertEquals(
             55,
             DeviceTelemetryReader.resolveBatteryPercent(
+                livePercent = null,
                 stickyPercent = null,
                 capacityProperty = -1,
                 lastKnown = 55,
@@ -85,6 +101,7 @@ class DeviceTelemetryReaderTest {
         )
         assertNull(
             DeviceTelemetryReader.resolveBatteryPercent(
+                livePercent = null,
                 stickyPercent = null,
                 capacityProperty = Int.MIN_VALUE,
                 lastKnown = null,
