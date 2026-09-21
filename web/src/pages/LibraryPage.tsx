@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState, type DragEvent} from 'react';
 import {Link} from 'react-router-dom';
 import {libraryApi} from '../api/services';
 import type {LibraryBook} from '../types/api';
@@ -66,10 +66,10 @@ export function LibraryPage() {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setError(null);
     try {
       const {data} = await libraryApi.list(query.trim() || undefined);
       setBooks(data.data ?? []);
+      setError(null);
     } catch {
       setError('Failed to load library');
     } finally {
@@ -95,6 +95,7 @@ export function LibraryPage() {
     setError(null);
     setUploading(true);
     setUploadPct(0);
+    let uploaded = 0;
     try {
       const list = Array.from(files);
       for (let i = 0; i < list.length; i++) {
@@ -108,13 +109,22 @@ export function LibraryPage() {
           continue;
         }
         setUploadPct(Math.round(((i + 0.5) / list.length) * 100));
-        await libraryApi.upload(file);
+        const {data} = await libraryApi.upload(file);
+        const created = data.data;
+        if (created) {
+          setBooks(prev => [created, ...prev.filter(b => b.id !== created.id)]);
+          setFilter('all');
+        }
+        uploaded += 1;
         setUploadPct(Math.round(((i + 1) / list.length) * 100));
       }
-      await load();
+      if (uploaded > 0) {
+        await load();
+      }
     } catch (e: unknown) {
       const msg =
         (e as {response?: {data?: {message?: string}}})?.response?.data?.message ||
+        (e instanceof Error ? e.message : '') ||
         'Upload failed';
       setError(msg);
     } finally {
@@ -160,28 +170,37 @@ export function LibraryPage() {
     }
   };
 
+  const onDrop = (event: DragEvent) => {
+    event.preventDefault();
+    void onPickFiles(event.dataTransfer.files);
+  };
+
   return (
-    <div className="page library-page">
+    <div
+      className="page library-page"
+      onDragOver={event => event.preventDefault()}
+      onDrop={onDrop}>
+      <input
+        id="library-pdf-input"
+        ref={fileRef}
+        className="library-file-input"
+        type="file"
+        accept="application/pdf,.pdf"
+        multiple
+        disabled={uploading}
+        onChange={e => {
+          void onPickFiles(e.target.files);
+          e.target.value = '';
+        }}
+      />
       <div className="page-header">
         <div>
           <h1>Library</h1>
           <p className="muted">Your books and shared reading</p>
         </div>
-        <button
-          type="button"
-          className="btn primary"
-          disabled={uploading}
-          onClick={() => fileRef.current?.click()}>
+        <label htmlFor="library-pdf-input" className={`btn primary${uploading ? ' is-disabled' : ''}`}>
           {uploading ? 'Uploading…' : '+ Add PDF'}
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/pdf,.pdf"
-          multiple
-          hidden
-          onChange={e => void onPickFiles(e.target.files)}
-        />
+        </label>
       </div>
 
       {error ? <div className="error">{error}</div> : null}
@@ -235,12 +254,10 @@ export function LibraryPage() {
           <p className="muted">
             Upload PDFs and keep all your important books and study material in one place.
           </p>
-          <button
-            type="button"
-            className="btn primary"
-            onClick={() => fileRef.current?.click()}>
+          <label htmlFor="library-pdf-input" className="btn primary">
             + Add PDF
-          </button>
+          </label>
+          <p className="tiny muted">Or drop a PDF anywhere on this page.</p>
           <p className="tiny muted">
             Your reading position and highlights will be saved automatically.
           </p>
