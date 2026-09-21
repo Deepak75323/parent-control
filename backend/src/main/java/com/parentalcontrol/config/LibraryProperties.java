@@ -12,6 +12,6 @@ public class LibraryProperties {
   /** Local directory for uploaded library PDFs. */
   private String storagePath = "./data/library-books";
 
-  /** Max PDF upload size in bytes (default 50 MiB). */
-  private long maxPdfBytes = 50L * 1024 * 1024;
+  /** Max PDF upload size in bytes (default 100 MiB). */
+  private long maxPdfBytes = 100L * 1024 * 1024;
 }

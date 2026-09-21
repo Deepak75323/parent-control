@@ -6,7 +6,7 @@ import {useConfirmDialog} from '../hooks/useConfirmDialog';
 
 type Filter = 'all' | 'reading' | 'completed' | 'not_started';
 
-const MAX_PDF_BYTES = 50 * 1024 * 1024;
+const MAX_PDF_BYTES = 100 * 1024 * 1024;
 
 function formatBytes(n: number): string {
   if (n < 1024) {
@@ -105,7 +105,7 @@ export function LibraryPage() {
           continue;
         }
         if (file.size > MAX_PDF_BYTES) {
-          setError(`${file.name}: exceeds 50 MB limit`);
+          setError(`${file.name}: exceeds 100 MB limit`);
           continue;
         }
         setUploadPct(Math.round(((i + 0.5) / list.length) * 100));
