@@ -7,7 +7,7 @@ export function UnreadSeparator({count, onClick}: Props) {
   if (count <= 0) {
     return null;
   }
-  const label = count === 1 ? '1 unread message' : `${count} unread messages`;
+  const label = count === 1 ? '1 unread question' : `${count} unread questions`;
   return (
     <div className="chat-unread-separator-wrap">
       <span className="chat-unread-separator-line" />

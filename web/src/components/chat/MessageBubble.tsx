@@ -1,10 +1,11 @@
-import {type ReactNode, useRef, useState} from 'react';
-import {Avatar} from '../Avatar';
+import {type CSSProperties, type ReactNode, useRef, useState} from 'react';
 import {formatChatTime} from '../../lib/formatChatTime';
 import {useLongPress} from '../../hooks/useLongPress';
 import {useMessageSwipeActions} from '../../hooks/useSwipeToReply';
 import type {ChatMessageItem} from '../../types/api';
+import {pickLearningQuestion} from '../../lib/learningQuestions';
 import {ChatMessageReplyQuote} from './ChatMessageReplyQuote';
+import {MessageLearningChallenge} from './MessageLearningChallenge';
 import {MessageActions, type MessageAction} from './MessageActions';
 import {MessageReactionPicker} from './MessageReactionPicker';
 import {MessageReactions} from './MessageReactions';
@@ -16,6 +17,8 @@ type Props = {
   senderSeed: string;
   ownDisplayName: string;
   ownSeed: string;
+  /** Stable notebook highlighter color for this sender in the room. */
+  highlightColor?: string;
   busy?: boolean;
   isEditing?: boolean;
   canEdit?: boolean;
@@ -41,9 +44,7 @@ type Props = {
 export function MessageBubble({
   message,
   displayName,
-  senderSeed,
-  ownDisplayName,
-  ownSeed,
+  highlightColor,
   busy = false,
   isEditing = false,
   canEdit = false,
@@ -65,8 +66,6 @@ export function MessageBubble({
   children,
 }: Props) {
   const isOwn = Boolean(message.ownMessage);
-  const avatarName = isOwn ? ownDisplayName : displayName;
-  const avatarSeed = isOwn ? ownSeed : senderSeed;
   const time = formatChatTime(message.createdAt);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
@@ -149,85 +148,19 @@ export function MessageBubble({
     actions.push({id: 'copy', label: 'Copy', icon: '📋', onSelect: onCopy});
   }
 
-  const bubble = (
-    <div
-      ref={bubbleRef}
-      className={`chat-message-bubble${isOwn ? ' chat-message-bubble--own' : ''}${reactionPickerOpen ? ' chat-message-bubble--reacting' : ''}`}
-      onTouchStart={longPress.onTouchStart}
-      onTouchEnd={longPress.onTouchEnd}
-      onTouchMove={longPress.onTouchMove}
-      onTouchCancel={longPress.onTouchCancel}
-      onMouseDown={longPress.onMouseDown}
-      onMouseUp={longPress.onMouseUp}
-      onMouseLeave={longPress.onMouseLeave}
-      onMouseMove={longPress.onMouseMove}
-      onContextMenu={longPress.onContextMenu}>
-      {isOwn ? (
-        <>
-          {actions.length > 0 ? (
-            <div className="chat-message-bubble-head chat-message-bubble-head--own">
-              <MessageActions actions={actions} disabled={busy} />
-            </div>
-          ) : null}
-          {message.replyTo ? (
-            <ChatMessageReplyQuote
-              preview={message.replyTo}
-              onClick={
-                onQuoteClick && message.replyTo.messageId
-                  ? () => onQuoteClick(message.replyTo!.messageId)
-                  : undefined
-              }
-            />
-          ) : null}
-          <div className="chat-message-bubble-body">{children}</div>
-          <div className="chat-message-bubble-foot chat-message-bubble-foot--own">
-            <time className="chat-message-bubble-time" dateTime={message.createdAt}>
-              {time}
-            </time>
-            <ReadReceipt status={message.receiptStatus} compact />
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="chat-message-bubble-head">
-            <span className="chat-message-bubble-name">{displayName}</span>
-            <time className="chat-message-bubble-time" dateTime={message.createdAt}>
-              {time}
-            </time>
-            <MessageActions actions={actions} disabled={busy} />
-          </div>
-          {message.replyTo ? (
-            <ChatMessageReplyQuote
-              preview={message.replyTo}
-              onClick={
-                onQuoteClick && message.replyTo.messageId
-                  ? () => onQuoteClick(message.replyTo!.messageId)
-                  : undefined
-              }
-            />
-          ) : null}
-          <div className="chat-message-bubble-body">{children}</div>
-        </>
-      )}
-      {onToggleReaction ? (
-        <MessageReactionPicker
-          open={reactionPickerOpen}
-          anchorRef={bubbleRef}
-          onClose={() => setReactionPickerOpen(false)}
-          onSelect={onToggleReaction}
-        />
-      ) : null}
-    </div>
-  );
+  const noteClass = isOwn
+    ? 'chat-message-bubble--parent-a'
+    : 'chat-message-bubble--parent-b';
+  const learning = pickLearningQuestion(message.id);
+  const bubbleStyle = highlightColor
+    ? ({['--notes-highlight']: highlightColor} as CSSProperties)
+    : undefined;
 
   return (
     <article
       id={`chat-message-${message.id}`}
-      className={`chat-message-row${isOwn ? ' chat-message-row--own' : ' chat-message-row--incoming'}${isEditing ? ' chat-message-row--editing' : ''}${swipe.swipingReply || swipe.swipingEdit ? ' chat-message-row--swiping' : ''}${reactionPickerOpen ? ' chat-message-row--reacting' : ''}`}
-      aria-label={isOwn ? `Your message at ${time}` : `${displayName}, ${time}`}>
-      {!isOwn ? (
-        <Avatar name={avatarName} seed={avatarSeed} size="sm" className="chat-message-avatar" />
-      ) : null}
+      className={`chat-message-row chat-message-row--notebook${isOwn ? ' chat-message-row--own' : ' chat-message-row--incoming'}${isEditing ? ' chat-message-row--editing' : ''}${swipe.swipingReply || swipe.swipingEdit ? ' chat-message-row--swiping' : ''}${reactionPickerOpen ? ' chat-message-row--reacting' : ''}`}
+      aria-label={isOwn ? `Your note at ${time}` : `Note from ${displayName} at ${time}`}>
       <div className="chat-message-stack">
         <div
           className="chat-message-swipe-wrap"
@@ -254,21 +187,57 @@ export function MessageBubble({
           <div
             className="chat-message-content"
             style={swipe.offset !== 0 ? {transform: `translateX(${swipe.offset}px)`} : undefined}>
-            {bubble}
-            {isOwn && message.receiptStatus === 'READ' ? (
-              <span className="chat-receipt-read-label" aria-label={`Read at ${time}`}>
-                Read {time}
-              </span>
-            ) : null}
+            <div
+              ref={bubbleRef}
+              className={`chat-message-bubble chat-message-bubble--notebook ${noteClass}${isOwn ? ' chat-message-bubble--own' : ''}${reactionPickerOpen ? ' chat-message-bubble--reacting' : ''}`}
+              style={bubbleStyle}
+              onTouchStart={longPress.onTouchStart}
+              onTouchEnd={longPress.onTouchEnd}
+              onTouchMove={longPress.onTouchMove}
+              onTouchCancel={longPress.onTouchCancel}
+              onMouseDown={longPress.onMouseDown}
+              onMouseUp={longPress.onMouseUp}
+              onMouseLeave={longPress.onMouseLeave}
+              onMouseMove={longPress.onMouseMove}
+              onContextMenu={longPress.onContextMenu}>
+              {actions.length > 0 ? (
+                <div className="chat-message-bubble-head chat-message-bubble-head--notebook">
+                  <MessageActions actions={actions} disabled={busy} />
+                </div>
+              ) : null}
+              {message.replyTo ? (
+                <ChatMessageReplyQuote
+                  preview={message.replyTo}
+                  onClick={
+                    onQuoteClick && message.replyTo.messageId
+                      ? () => onQuoteClick(message.replyTo!.messageId)
+                      : undefined
+                  }
+                />
+              ) : null}
+              <div className="chat-message-bubble-body">{children}</div>
+              <MessageLearningChallenge question={learning} />
+              <div className="chat-message-bubble-foot chat-message-bubble-foot--notebook">
+                <time className="chat-message-bubble-time" dateTime={message.createdAt}>
+                  {time}
+                </time>
+                {isOwn ? <ReadReceipt status={message.receiptStatus} compact /> : null}
+              </div>
+              {onToggleReaction ? (
+                <MessageReactionPicker
+                  open={reactionPickerOpen}
+                  anchorRef={bubbleRef}
+                  onClose={() => setReactionPickerOpen(false)}
+                  onSelect={onToggleReaction}
+                />
+              ) : null}
+            </div>
           </div>
         </div>
         {onToggleReaction ? (
           <MessageReactions reactions={message.reactions} onToggle={onToggleReaction} />
         ) : null}
       </div>
-      {isOwn ? (
-        <Avatar name={avatarName} seed={avatarSeed} size="sm" className="chat-message-avatar" />
-      ) : null}
     </article>
   );
 }

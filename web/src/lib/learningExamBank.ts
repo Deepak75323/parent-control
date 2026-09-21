@@ -1,0 +1,305 @@
+/**
+ * Curated practice bank for Indian competitive exams + vocabulary.
+ * Used as the always-available default and merged into the daily pool.
+ */
+
+import type {LearningQuestion} from './learningQuestions';
+
+export const learningExamBank: LearningQuestion[] = [
+  // ─── UPSC CSAT ───
+  {
+    id: 'csat-ratio-walk',
+    kind: 'question',
+    category: 'CSAT',
+    label: '🧠 CSAT (UPSC):',
+    question:
+      'A person walks 5 km north and then 3 km east. What is the shortest distance from the starting point?',
+    answer: '√34 km ≈ 5.83 km',
+  },
+  {
+    id: 'csat-apples',
+    kind: 'question',
+    category: 'CSAT',
+    label: '🧠 CSAT (UPSC):',
+    question:
+      'A person has 5 apples and gives 2 apples to each of 2 children. How many apples are left?',
+    answer: '1 apple',
+  },
+  {
+    id: 'csat-series',
+    kind: 'question',
+    category: 'CSAT',
+    label: '🧠 CSAT (UPSC):',
+    question: 'Find the next number: 2, 6, 12, 20, 30, ?',
+    answer: '42 (differences increase by +2 each time)',
+  },
+  {
+    id: 'csat-percent',
+    kind: 'question',
+    category: 'CSAT',
+    label: '🧠 CSAT (UPSC):',
+    question: 'If 40% of a number is 240, what is 15% of that number?',
+    answer: '90',
+  },
+  {
+    id: 'csat-clock',
+    kind: 'question',
+    category: 'CSAT',
+    label: '🧠 CSAT (UPSC):',
+    question: 'At what time between 3 and 4 o’clock are the hands of a clock together?',
+    answer: '3 : 16²⁄₁₁ (approx 3:16)',
+  },
+  {
+    id: 'csat-pi',
+    kind: 'question',
+    category: 'CSAT',
+    label: '🧠 CSAT (UPSC):',
+    question:
+      'Statement: All squares are rectangles. Conclusion: All rectangles are squares. Is the conclusion valid?',
+    answer: 'No — rectangles need not be squares',
+  },
+
+  // ─── BPSC ───
+  {
+    id: 'bpsc-bihar-capital',
+    kind: 'question',
+    category: 'BPSC',
+    label: '🏛 BPSC:',
+    question: 'What is the capital of Bihar?',
+    answer: 'Patna',
+  },
+  {
+    id: 'bpsc-ganga',
+    kind: 'question',
+    category: 'BPSC',
+    label: '🏛 BPSC:',
+    question: 'Which river is most closely associated with the geography of Bihar?',
+    answer: 'The Ganga (Ganges)',
+  },
+  {
+    id: 'bpsc-constitution',
+    kind: 'question',
+    category: 'BPSC',
+    label: '🏛 BPSC:',
+    question: 'Who is known as the Father of the Indian Constitution?',
+    answer: 'Dr. B. R. Ambedkar',
+  },
+  {
+    id: 'bpsc-fundamental',
+    kind: 'question',
+    category: 'BPSC',
+    label: '🏛 BPSC:',
+    question: 'Fundamental Rights are listed in which part of the Indian Constitution?',
+    answer: 'Part III',
+  },
+  {
+    id: 'bpsc-dpdp',
+    kind: 'question',
+    category: 'BPSC',
+    label: '🏛 BPSC:',
+    question: 'NITI Aayog replaced which earlier planning body in India?',
+    answer: 'Planning Commission',
+  },
+
+  // ─── Gov exam English ───
+  {
+    id: 'eng-synonym-benevolent',
+    kind: 'question',
+    category: 'Gov Exam English',
+    label: '📘 English (Gov exam):',
+    question: 'Choose the nearest meaning of BENEVOLENT.',
+    answer: 'Kind / generous',
+  },
+  {
+    id: 'eng-antonym-scarce',
+    kind: 'question',
+    category: 'Gov Exam English',
+    label: '📘 English (Gov exam):',
+    question: 'Antonym of SCARCE is?',
+    answer: 'Abundant / plentiful',
+  },
+  {
+    id: 'eng-idiom-spill',
+    kind: 'question',
+    category: 'Gov Exam English',
+    label: '📘 English (Gov exam):',
+    question: 'Idiom: “Spill the beans” means?',
+    answer: 'Reveal a secret',
+  },
+  {
+    id: 'eng-oneword',
+    kind: 'question',
+    category: 'Gov Exam English',
+    label: '📘 English (Gov exam):',
+    question: 'One-word substitution: A person who loves books.',
+    answer: 'Bibliophile',
+  },
+  {
+    id: 'eng-error',
+    kind: 'question',
+    category: 'Gov Exam English',
+    label: '📘 English (Gov exam):',
+    question: 'Correct form: Neither of the boys ___ present. (is / are)',
+    answer: 'is',
+  },
+  {
+    id: 'eng-vocab-pragmatic',
+    kind: 'question',
+    category: 'Gov Exam English',
+    label: '📘 English (Gov exam):',
+    question: 'PRAGMATIC means closest to?',
+    answer: 'Practical / realistic',
+  },
+
+  // ─── Gov exam maths ───
+  {
+    id: 'gov-si',
+    kind: 'question',
+    category: 'Gov Exam Maths',
+    label: '🧮 Maths (Gov exam):',
+    question: 'Simple interest on ₹1000 at 10% per year for 2 years is?',
+    answer: '₹200',
+  },
+  {
+    id: 'gov-avg',
+    kind: 'question',
+    category: 'Gov Exam Maths',
+    label: '🧮 Maths (Gov exam):',
+    question: 'Average of 10, 20 and 30 is?',
+    answer: '20',
+  },
+  {
+    id: 'gov-ratio',
+    kind: 'question',
+    category: 'Gov Exam Maths',
+    label: '🧮 Maths (Gov exam):',
+    question: 'If A:B = 2:3 and B:C = 4:5, find A:C.',
+    answer: '8:15',
+  },
+  {
+    id: 'gov-percent-profit',
+    kind: 'question',
+    category: 'Gov Exam Maths',
+    label: '🧮 Maths (Gov exam):',
+    question: 'CP = ₹200, SP = ₹250. Profit % is?',
+    answer: '25%',
+  },
+  {
+    id: 'gov-time-work',
+    kind: 'question',
+    category: 'Gov Exam Maths',
+    label: '🧮 Maths (Gov exam):',
+    question: 'A finishes a work in 10 days, B in 15 days. Together they finish in?',
+    answer: '6 days',
+  },
+  {
+    id: 'gov-speed',
+    kind: 'question',
+    category: 'Gov Exam Maths',
+    label: '🧮 Maths (Gov exam):',
+    question: 'A train travels 120 km in 2 hours. Average speed?',
+    answer: '60 km/h',
+  },
+
+  // ─── JEE Advanced Maths ───
+  {
+    id: 'jee-m-limit',
+    kind: 'question',
+    category: 'JEE Maths',
+    label: '📐 JEE Advanced Maths:',
+    question: 'lim(x→0) (sin x)/x equals?',
+    answer: '1',
+  },
+  {
+    id: 'jee-m-derivative',
+    kind: 'question',
+    category: 'JEE Maths',
+    label: '📐 JEE Advanced Maths:',
+    question: 'd/dx (e^x) equals?',
+    answer: 'e^x',
+  },
+  {
+    id: 'jee-m-integral',
+    kind: 'question',
+    category: 'JEE Maths',
+    label: '📐 JEE Advanced Maths:',
+    question: '∫ 1/x dx (x > 0) equals?',
+    answer: 'ln x + C',
+  },
+  {
+    id: 'jee-m-matrix',
+    kind: 'question',
+    category: 'JEE Maths',
+    label: '📐 JEE Advanced Maths:',
+    question: 'If A is a 2×2 identity matrix, det(A) is?',
+    answer: '1',
+  },
+  {
+    id: 'jee-m-complex',
+    kind: 'question',
+    category: 'JEE Maths',
+    label: '📐 JEE Advanced Maths:',
+    question: 'i² equals? (i = √−1)',
+    answer: '−1',
+  },
+
+  // ─── JEE Advanced Physics ───
+  {
+    id: 'jee-p-newton',
+    kind: 'question',
+    category: 'JEE Physics',
+    label: '⚛️ JEE Advanced Physics:',
+    question: 'Newton’s second law in magnitude form is?',
+    answer: 'F = ma',
+  },
+  {
+    id: 'jee-p-ohm',
+    kind: 'question',
+    category: 'JEE Physics',
+    label: '⚛️ JEE Advanced Physics:',
+    question: 'Ohm’s law relates V, I and R as?',
+    answer: 'V = IR',
+  },
+  {
+    id: 'jee-p-energy',
+    kind: 'question',
+    category: 'JEE Physics',
+    label: '⚛️ JEE Advanced Physics:',
+    question: 'Kinetic energy of mass m with speed v is?',
+    answer: '½ mv²',
+  },
+  {
+    id: 'jee-p-photon',
+    kind: 'question',
+    category: 'JEE Physics',
+    label: '⚛️ JEE Advanced Physics:',
+    question: 'Energy of a photon with frequency ν is?',
+    answer: 'E = hν',
+  },
+  {
+    id: 'jee-p-snell',
+    kind: 'question',
+    category: 'JEE Physics',
+    label: '⚛️ JEE Advanced Physics:',
+    question: 'Snell’s law for refraction is?',
+    answer: 'n₁ sin θ₁ = n₂ sin θ₂',
+  },
+
+  // ─── Current affairs style (static fallbacks; live news overlays daily) ───
+  {
+    id: 'ca-parliament',
+    kind: 'question',
+    category: 'Current Affairs',
+    label: '🗞 Current Affairs:',
+    question: 'The Parliament of India consists of which two houses?',
+    answer: 'Lok Sabha and Rajya Sabha',
+  },
+  {
+    id: 'ca-rbi',
+    kind: 'question',
+    category: 'Current Affairs',
+    label: '🗞 Current Affairs:',
+    question: 'Who issues currency notes in India (except ₹1)?',
+    answer: 'Reserve Bank of India (RBI)',
+  },
+];

@@ -63,9 +63,19 @@ import {DateSeparator} from '../components/chat/DateSeparator';
 import {UnreadSeparator} from '../components/chat/UnreadSeparator';
 import {EmptyChatState} from '../components/chat/EmptyChatState';
 import {MessageBubble} from '../components/chat/MessageBubble';
+import {LearningChallengeCard} from '../components/chat/LearningChallengeCard';
 import {ComposerReplyBar} from '../components/chat/ChatMessageReplyQuote';
 import {EditMessageComposer, MessageComposer} from '../components/chat/MessageComposer';
 import {collectMentionTokens} from '../lib/chatMentions';
+import {
+  learningChallengeSeed,
+  pickLearningQuestion,
+} from '../lib/learningQuestions';
+import {ensureDailyLearningPool} from '../lib/learningQuestionPool';
+import {
+  assignNotebookParentColors,
+  notebookParentColorForUser,
+} from '../lib/notebookParentColors';
 import {replyPreviewFromMessage} from '../lib/chatReplyPreview';
 import {
   flashChatMessageHighlight,
@@ -131,6 +141,8 @@ export function ChatPage() {
   const [showInvite, setShowInvite] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  /** Bumps when the daily open-API learning pool loads so bubbles refresh. */
+  const [learningPoolVersion, setLearningPoolVersion] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const pendingScrollMessageIdRef = useRef<string | null>(null);
@@ -279,6 +291,20 @@ export function ChatPage() {
       }
     })();
   }, [selectedRoomId]);
+
+  // Daily learning pool: show defaults/cache instantly, refresh in background.
+  useEffect(() => {
+    let cancelled = false;
+    const bump = () => {
+      if (!cancelled) {
+        setLearningPoolVersion(v => v + 1);
+      }
+    };
+    void ensureDailyLearningPool(new Date(), {onPoolUpdated: bump});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Auto-prompt only for first-time decrypt code setup — never for unlock on every visit.
   // Restore encrypt key from remembered passphrase so send works while view stays locked.
@@ -826,6 +852,24 @@ export function ChatPage() {
   const messageGroups = useMemo(
     () => groupMessagesByDate(visibleMessages),
     [visibleMessages],
+  );
+
+  const footerLearningChallenge = useMemo(() => {
+    if (!selectedRoomId || visibleMessages.length === 0) {
+      return null;
+    }
+    const latest = visibleMessages[visibleMessages.length - 1];
+    const avoidId = pickLearningQuestion(latest.id).id;
+    return pickLearningQuestion(
+      learningChallengeSeed(selectedRoomId, latest.id),
+      avoidId,
+      {preferExamPractice: true},
+    );
+  }, [selectedRoomId, visibleMessages, learningPoolVersion]);
+
+  const notebookColorsByUserId = useMemo(
+    () => assignNotebookParentColors(roomMembers),
+    [roomMembers],
   );
 
   const editingMessage = useMemo(
@@ -2345,6 +2389,10 @@ export function ChatPage() {
         senderSeed={message.senderUserId}
         ownDisplayName={ownDisplayName}
         ownSeed={ownSeed}
+        highlightColor={notebookParentColorForUser(
+          message.senderUserId,
+          notebookColorsByUserId,
+        )}
         busy={busy}
         isEditing={editingMessageId === message.id}
         canEdit={canEditMessage(message)}
@@ -2984,6 +3032,12 @@ export function ChatPage() {
                       </Fragment>
                     ))
                   )}
+                  {footerLearningChallenge ? (
+                    <LearningChallengeCard
+                      key={footerLearningChallenge.id}
+                      question={footerLearningChallenge}
+                    />
+                  ) : null}
                   <div ref={messagesEndRef} />
                 </div>
 
