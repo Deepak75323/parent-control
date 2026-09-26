@@ -171,7 +171,6 @@ export function FloatingStreamPip() {
   const deviceName = useLiveStreamStore(s => s.deviceName);
   const status = useLiveStreamStore(s => s.status);
   const pipMinimized = useLiveStreamStore(s => s.pipMinimized);
-  const browserPipActive = useLiveStreamStore(s => s.browserPipActive);
   const pipPosition = useLiveStreamStore(s => s.pipPosition);
   const pipSize = useLiveStreamStore(s => s.pipSize);
   const videoFrame = useLiveStreamStore(s => s.videoFrame);
@@ -290,7 +289,7 @@ export function FloatingStreamPip() {
     };
   }, [resizing, setPipPosition, setPipSize]);
 
-  if (!sessionId || onActiveDevicePage || browserPipActive) {
+  if (!sessionId || onActiveDevicePage) {
     return null;
   }
 
