@@ -12,6 +12,7 @@ import {
   cameraUnlockCanEnterDecryptCode,
   cameraUnlockNeedsFingerprintFirst,
 } from '../lib/cameraUnlockPolicy';
+import {startLivePipCue, stopLivePipCue} from '../livestream/pipAudible';
 
 type Props = {
   open: boolean;
@@ -130,12 +131,14 @@ export function CameraUnlockDialog({
       setError('Enter your 6-digit decrypt code');
       return;
     }
+    startLivePipCue();
     setBusy(true);
     setError(null);
     try {
       await chatApi.verifyDecryptPin(pin.trim());
       onUnlocked();
     } catch {
+      stopLivePipCue();
       setError('Invalid decrypt code');
     } finally {
       setBusy(false);

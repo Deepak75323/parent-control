@@ -397,15 +397,27 @@ export function StreamControls({
 }
 
 export function StreamPipToolbar() {
+  const streamType = useLiveStreamStore(s => s.streamType);
+  const viewRotate = useLiveStreamStore(s => s.viewRotate);
+  const setViewRotate = useLiveStreamStore(s => s.setViewRotate);
   const resetView = useLiveStreamStore(s => s.resetView);
   const expandPip = useLiveStreamStore(s => s.expandPip);
   const resetPipLayout = useLiveStreamStore(s => s.resetPipLayout);
+  const showRotate = streamType !== 'AUDIO' && ENABLE_VIEWER_ROTATE;
 
   return (
     <div className="stream-pip-toolbar">
       <button type="button" className="btn ghost sm" onClick={expandPip}>
         Large
       </button>
+      {showRotate ? (
+        <button
+          type="button"
+          className="btn ghost sm"
+          onClick={() => setViewRotate(deg => nextViewerRotateDeg(deg))}>
+          Rotate {viewRotate}°
+        </button>
+      ) : null}
       <button type="button" className="btn ghost sm" onClick={resetView}>
         Reset view
       </button>

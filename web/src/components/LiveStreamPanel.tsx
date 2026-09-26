@@ -9,6 +9,7 @@ import {
   StreamVideoView,
 } from '../livestream/StreamVideoView';
 import {userIdFromAccessToken} from '../lib/jwtSubject';
+import {startLivePipCue} from '../livestream/pipAudible';
 import {
   assertParentWebAuthn,
   describeWebAuthnError,
@@ -63,6 +64,7 @@ export function LiveStreamPanel({deviceId, deviceName}: Props) {
 
   async function requestStart() {
     if (streamType !== 'CAMERA') {
+      startLivePipCue();
       void start(deviceId, deviceName);
       return;
     }
@@ -162,7 +164,7 @@ export function LiveStreamPanel({deviceId, deviceName}: Props) {
 
           {sessionId && streamOnThisDevice ? (
             <p className="muted tiny">
-              Navigate to chat or other pages — the stream stays live in a floating window.
+              The small floating video stays on this site. Switching to another tab opens the Meet window. Chrome may show the microphone dot while the live view is on. That sound is not recorded or sent.
             </p>
           ) : null}
         </>

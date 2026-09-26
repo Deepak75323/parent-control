@@ -17,6 +17,7 @@ import {
   openChatDecryptSession,
   outgoingBodyLeaksDecryptCode,
 } from '../lib/chatDecryptSession';
+import {setChatViewUnlocked} from '../lib/chatViewUnlock';
 import {groupMessagesByDate} from '../lib/chatMessageGrouping';
 import {resolveOwnSenderUserId, withResolvedOwnership} from '../lib/chatMessageOwnership';
 import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
@@ -211,6 +212,18 @@ export function ChatPage() {
   } | null>(null);
   /** Owner-only view: decode obfuscated bodies while this room stays open. */
   const [chatDecrypted, setChatDecrypted] = useState(false);
+  useEffect(() => {
+    setChatViewUnlocked(chatDecrypted);
+  }, [chatDecrypted]);
+  useEffect(() => () => setChatViewUnlocked(false), []);
+  useEffect(() => {
+    const onLock = (event: Event) => {
+      const next = Boolean((event as CustomEvent<boolean>).detail);
+      setChatDecrypted(next);
+    };
+    window.addEventListener('pcp-chat-view-lock', onLock);
+    return () => window.removeEventListener('pcp-chat-view-lock', onLock);
+  }, []);
   const [revealedBodies, setRevealedBodies] = useState<Record<string, string>>({});
   const [decryptPinOpen, setDecryptPinOpen] = useState(false);
   const [decryptPinError, setDecryptPinError] = useState<string | null>(null);

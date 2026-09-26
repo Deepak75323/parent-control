@@ -6863,6 +6863,17 @@ body.chat-resizing * {
   }
 }
 
+.stream-browser-pip-source {
+  position: fixed;
+  width: 160px;
+  height: 90px;
+  left: 0;
+  bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
 .stream-persistent-sink {
   position: fixed;
   width: 1px;

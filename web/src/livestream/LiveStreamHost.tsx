@@ -1,6 +1,7 @@
 import {useEffect} from 'react';
 import {streamFailureMessage} from '../lib/streamFailureMessages';
 import {shouldReleaseViewerOnStreamingEnded} from '../lib/streamTakeover';
+import {AutoBrowserPictureInPicture} from './AutoBrowserPictureInPicture';
 import {FloatingStreamPip} from './FloatingStreamPip';
 import {getLiveStreamRoomId, useLiveStreamStore} from './liveStreamStore';
 import {useRealtimeStore} from '../realtime/realtimeStore';
@@ -52,5 +53,10 @@ export function LiveStreamHost() {
     });
   }, [streamingState, deviceId, busy]);
 
-  return <FloatingStreamPip />;
+  return (
+    <>
+      <AutoBrowserPictureInPicture />
+      <FloatingStreamPip />
+    </>
+  );
 }

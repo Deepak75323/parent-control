@@ -39,6 +39,8 @@ interface LiveStreamState {
   pipMinimized: boolean;
   pipPosition: {x: number; y: number} | null;
   pipSize: {width: number; bodyHeight: number};
+  /** Browser picture-in-picture window is showing the child live view. */
+  browserPipActive: boolean;
   hydratePinStatus: () => Promise<void>;
   setStreamType: (streamType: StreamType) => void;
   setPin: (pin: string) => void;
@@ -49,6 +51,7 @@ interface LiveStreamState {
   setPipMinimized: (minimized: boolean) => void;
   setPipPosition: (pos: {x: number; y: number} | null) => void;
   setPipSize: (size: {width: number; bodyHeight: number}) => void;
+  setBrowserPipActive: (active: boolean) => void;
   resetView: () => void;
   expandPip: () => void;
   resetPipLayout: () => void;
@@ -84,6 +87,7 @@ const initialState = {
   pipMinimized: false,
   pipPosition: null as {x: number; y: number} | null,
   pipSize: {width: 320, bodyHeight: 180},
+  browserPipActive: false,
 };
 
 export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
@@ -118,6 +122,7 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
   setPipMinimized: pipMinimized => set({pipMinimized}),
   setPipPosition: pipPosition => set({pipPosition}),
   setPipSize: pipSize => set({pipSize}),
+  setBrowserPipActive: browserPipActive => set({browserPipActive}),
   resetView: () => set({viewRotate: 0, viewZoomScale: 1}),
   expandPip: () => {
     const {videoFrame, viewRotate, streamType} = get();
@@ -161,6 +166,7 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
       remoteStream: null,
       cameraFacing: 'user',
       pipMinimized: false,
+      browserPipActive: false,
     });
     useRealtimeStore.getState().setStreamingState(undefined);
     try {
@@ -263,6 +269,7 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
       viewRotate: 0,
       viewZoomScale: 1,
       videoFrame: {w: 0, h: 0},
+      browserPipActive: false,
       status: 'Moved to another client',
       error: 'Live view continued on the parent app or another browser tab.',
     });
