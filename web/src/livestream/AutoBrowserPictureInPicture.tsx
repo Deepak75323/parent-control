@@ -164,8 +164,8 @@ export function AutoBrowserPictureInPicture() {
       if (cancelled) {
         return;
       }
-      if (capturing) {
-        stopLivePipCue();
+      stopLivePipCue();
+      if (capturing || streamType === 'CAMERA') {
         return;
       }
       startLivePipCue();
@@ -173,7 +173,7 @@ export function AutoBrowserPictureInPicture() {
     return () => {
       cancelled = true;
     };
-  }, [videoSession, desktop, setBrowserPipActive]);
+  }, [videoSession, desktop, setBrowserPipActive, streamType]);
 
   if (!active) {
     return null;
