@@ -1,4 +1,4 @@
-import {Fragment, type FormEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {Fragment, type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {useLocation, useNavigate, useSearchParams} from 'react-router-dom';
 import axios from 'axios';
 import {chatApi, friendsApi, type FriendRequestItem, type FriendSummaryItem} from '../api/services';
@@ -18,6 +18,7 @@ import {
   outgoingBodyLeaksDecryptCode,
 } from '../lib/chatDecryptSession';
 import {setChatViewUnlocked} from '../lib/chatViewUnlock';
+import {isChatDarkMode, setChatDarkMode, subscribeChatDarkMode} from '../lib/chatDarkMode';
 import {openChatPip} from '../livestream/meetPipWindow';
 import {isMobilePipViewport} from '../livestream/pipLayout';
 import {
@@ -238,6 +239,7 @@ export function ChatPage() {
   const [decryptDialogMode, setDecryptDialogMode] = useState<ChatDecryptDialogMode>('unlock');
   const [cryptoSalt, setCryptoSalt] = useState<string | null>(null);
   const [showDeletedMessages, setShowDeletedMessages] = useState(isShowDeletedMessagesForOwner);
+  const chatDark = useSyncExternalStore(subscribeChatDarkMode, isChatDarkMode, () => false);
   useEffect(
     () =>
       subscribeShowDeletedMessagesForOwner(() => {
@@ -2734,7 +2736,7 @@ export function ChatPage() {
   );
 
   return (
-    <div className={`chat-page${inCall ? ' chat-page--in-call' : ''}`}>
+    <div className={`chat-page${inCall ? ' chat-page--in-call' : ''}${chatDark ? ' chat-page--dark' : ''}`}>
       {confirmDialog}
       <ChatDecryptPinDialog
         open={decryptPinOpen}
@@ -2997,6 +2999,8 @@ export function ChatPage() {
                           });
                         }
                   }
+                  chatDark={chatDark}
+                  onToggleChatDark={() => setChatDarkMode(!chatDark)}
                   onVoiceCall={() => void handleStartOrJoinCall('voice')}
                   onVideoCall={() => void handleStartOrJoinCall('video')}
                   callDisabled={inCall}
