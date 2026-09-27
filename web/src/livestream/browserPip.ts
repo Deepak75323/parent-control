@@ -48,17 +48,17 @@ export function hrefLeavesLiveDevice(href: string, deviceId: string | null): boo
 }
 
 export const MEET_PIP_OPEN_SIZE = {width: 380, height: 640};
-export const MEET_PIP_MINIMIZED_SIZE = {width: 320, height: 220};
-export const MEET_PIP_CHAT_MINIMIZED_SIZE = {width: 320, height: 64};
+/** Slim bar matching the on-page live dock: device name, LIVE, close. */
+export const MEET_PIP_DOCK_SIZE = {width: 360, height: 72};
 
 export function meetPipWindowSize(
   minimized: boolean,
-  camera = true,
+  _camera = true,
 ): {width: number; height: number} {
   if (!minimized) {
     return MEET_PIP_OPEN_SIZE;
   }
-  return camera ? MEET_PIP_MINIMIZED_SIZE : MEET_PIP_CHAT_MINIMIZED_SIZE;
+  return MEET_PIP_DOCK_SIZE;
 }
 
 /** Close the floating window when the camera ends, unless the parent opened it for chat. */

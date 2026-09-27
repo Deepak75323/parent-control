@@ -145,7 +145,7 @@ export function MeetStylePip({onClose}: Props) {
     el.srcObject = remoteStream;
     el.muted = streamType === 'SCREEN' ? muted : true;
     void el.play().catch(() => undefined);
-  }, [remoteStream, streamType, muted, cameraHidden, sessionId]);
+  }, [remoteStream, streamType, muted, cameraHidden, sessionId, minimized]);
 
   useEffect(() => {
     let cancelled = false;
@@ -503,9 +503,33 @@ export function MeetStylePip({onClose}: Props) {
   const chatChoices = pipChatChoices(rooms);
 
   const liveCamera = Boolean(sessionId) && streamType !== 'AUDIO';
+  const dockTitle = liveCamera ? (deviceName ?? 'Live stream') : (room?.name ?? 'Notes');
+
+  if (minimized) {
+    return (
+      <div className="meet-pip meet-pip--dock" ref={shellRef}>
+        <style>{MEET_PIP_CSS}</style>
+        {liveCamera ? (
+          <video ref={videoRef} autoPlay playsInline muted className="meet-dock-hold" />
+        ) : null}
+        <button
+          type="button"
+          className="meet-dock-main"
+          aria-label={liveCamera ? `Restore live stream for ${deviceName ?? 'device'}` : 'Restore chat'}
+          onClick={toggleMinimized}>
+          <span className="meet-dock-dot" />
+          <span className="meet-dock-title">{dockTitle}</span>
+          {liveCamera ? <span className="meet-dock-live">LIVE</span> : null}
+        </button>
+        <button type="button" className="meet-dock-close" aria-label="Close picture in picture" onClick={onClose}>
+          ×
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className={`meet-pip${minimized ? ' meet-pip--min' : ''}`} ref={shellRef}>
+    <div className="meet-pip" ref={shellRef}>
       <style>{MEET_PIP_CSS}</style>
       {liveCamera ? (
       <div className={`meet-stage${cameraHidden ? ' hidden' : ''}`}>
@@ -513,6 +537,13 @@ export function MeetStylePip({onClose}: Props) {
           <video ref={videoRef} autoPlay playsInline style={videoStyle} />
           <span className="meet-name">{deviceName ?? 'Child'}</span>
           <div className="meet-video-actions">
+            <button
+              type="button"
+              className="meet-rot"
+              aria-label="Minimize picture in picture"
+              onClick={toggleMinimized}>
+              −
+            </button>
             <button
               type="button"
               className="meet-rot"
@@ -1072,17 +1103,13 @@ const MEET_PIP_CSS = `
 .meet-menu-pop button.current { color: #8ab4f8; }
 .meet-menu-pop button.danger { color: #f28b82; }
 .meet-min { width: 32px; height: 32px; border: 0; background: transparent; color: #e8eaed; font-size: 20px; line-height: 1; cursor: pointer; }
-.meet-pip--min .meet-log,
-.meet-pip--min .meet-compose,
-.meet-pip--min .meet-controls,
-.meet-pip--min .meet-notice,
-.meet-pip--min .meet-replying,
-.meet-pip--min .meet-pin,
-.meet-pip--min .meet-confirm,
-.meet-pip--min .meet-lock,
-.meet-pip--min .meet-menu { display: none; }
-.meet-pip--min .meet-stage { padding: 8px 8px 0; }
-.meet-pip--min .meet-titlebar { padding-bottom: 8px; }
+.meet-pip--dock { height: 100%; display: flex; align-items: center; background: #fff; color: #1c2438; }
+.meet-dock-hold { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.meet-dock-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; font: inherit; }
+.meet-dock-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+.meet-dock-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; }
+.meet-dock-live { flex-shrink: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #22c55e; }
+.meet-dock-close { border: 0; background: transparent; color: #5f6368; font-size: 22px; line-height: 1; padding: 0 12px; cursor: pointer; }
 .meet-confirm { margin: 8px 16px 0; padding: 10px; border-radius: 12px; background: #303134; }
 .meet-confirm p { margin: 0 0 8px; font-size: 13px; line-height: 1.35; }
 .meet-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }

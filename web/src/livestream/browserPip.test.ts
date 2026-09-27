@@ -58,13 +58,10 @@ describe('pip chat rooms', () => {
 });
 
 describe('meetPipWindowSize', () => {
-  it('shrinks the window when minimized and restores the full size', () => {
+  it('shrinks the window to the live bar and restores the full size', () => {
     expect(meetPipWindowSize(false)).toEqual({width: 380, height: 640});
-    expect(meetPipWindowSize(true).height).toBeLessThan(meetPipWindowSize(false).height);
-  });
-
-  it('shrinks a chat-only window to a bar', () => {
-    expect(meetPipWindowSize(true, false).height).toBeLessThan(meetPipWindowSize(true, true).height);
+    expect(meetPipWindowSize(true)).toEqual({width: 360, height: 72});
+    expect(meetPipWindowSize(true, false)).toEqual({width: 360, height: 72});
   });
 });
 
