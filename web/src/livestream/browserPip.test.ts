@@ -2,11 +2,13 @@ import {describe, expect, it} from 'vitest';
 import {shouldCuePictureInPicture} from './pipAudible';
 import {isBrowserCaptureActive, startBrowserCaptureForPip} from './pipBrowserCapture';
 import {
+  chatRoomForPip,
   hrefLeavesLiveDevice,
   hrefOpensParentChat,
   isChildVideoSession,
   isPaddedChatBody,
   shouldReleaseMeetPip,
+  shouldReleaseMeetPipForCamera,
   mergeChatMessages,
   pathnameFromAppHref,
   isServerChatRoom,
@@ -59,6 +61,25 @@ describe('meetPipWindowSize', () => {
   it('shrinks the window when minimized and restores the full size', () => {
     expect(meetPipWindowSize(false)).toEqual({width: 380, height: 640});
     expect(meetPipWindowSize(true).height).toBeLessThan(meetPipWindowSize(false).height);
+  });
+
+  it('shrinks a chat-only window to a bar', () => {
+    expect(meetPipWindowSize(true, false).height).toBeLessThan(meetPipWindowSize(true, true).height);
+  });
+});
+
+describe('chat picture in picture without a camera', () => {
+  it('keeps a requested chat window when no child camera is running', () => {
+    expect(shouldReleaseMeetPipForCamera(false, true)).toBe(false);
+    expect(shouldReleaseMeetPipForCamera(false, false)).toBe(true);
+    expect(shouldReleaseMeetPipForCamera(true, false)).toBe(false);
+  });
+
+  it('opens the notebook the parent is already reading', () => {
+    const rooms = [{id: 'server'}, {id: 'friend'}];
+    expect(chatRoomForPip(rooms, 'friend', rooms[0])?.id).toBe('friend');
+    expect(chatRoomForPip(rooms, null, rooms[0])?.id).toBe('server');
+    expect(chatRoomForPip(rooms, 'missing', rooms[0])?.id).toBe('server');
   });
 });
 

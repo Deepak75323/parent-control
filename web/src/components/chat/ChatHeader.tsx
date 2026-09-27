@@ -16,6 +16,7 @@ type Props = {
   showInvite?: boolean;
   onToggleInvite?: () => void;
   onToggleSearch?: () => void;
+  onOpenChatPip?: () => void;
   searchOpen?: boolean;
   menuActions: HeaderAction[];
   busy?: boolean;
@@ -44,6 +45,7 @@ export function ChatHeader({
   showInvite = false,
   onToggleInvite,
   onToggleSearch,
+  onOpenChatPip,
   searchOpen = false,
   menuActions,
   busy = false,
@@ -180,6 +182,20 @@ export function ChatHeader({
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
               <circle cx="12" cy="12" r="9" />
               <path d="M12 10v6M12 7h.01" />
+            </svg>
+          </button>
+        ) : null}
+        {onOpenChatPip ? (
+          <button
+            type="button"
+            className="chat-icon-btn"
+            aria-label="Picture in picture"
+            title="Picture in picture"
+            disabled={busy}
+            onClick={onOpenChatPip}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <rect x="11" y="11" width="8" height="6" rx="1" fill="currentColor" stroke="none" />
             </svg>
           </button>
         ) : null}

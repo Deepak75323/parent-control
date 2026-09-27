@@ -1,7 +1,7 @@
 import {useEffect, useRef} from 'react';
-import {isChildVideoSession} from './browserPip';
+import {isChildVideoSession, shouldReleaseMeetPipForCamera} from './browserPip';
 import {useLiveStreamStore} from './liveStreamStore';
-import {closeMeetStylePip, documentPipApi, isMeetPipOpen, openMeetStylePip} from './meetPipWindow';
+import {closeMeetStylePip, documentPipApi, isChatPipWithoutCamera, isMeetPipOpen, openMeetStylePip} from './meetPipWindow';
 import {isLivePipCueRunning, startLivePipCue, stopLivePipCue} from './pipAudible';
 import {startBrowserCaptureForPip, stopBrowserCaptureForPip} from './pipBrowserCapture';
 import {isMobilePipViewport} from './pipLayout';
@@ -147,6 +147,9 @@ export function AutoBrowserPictureInPicture() {
         stopLivePipCue();
       }
       if (videoSession) {
+        return;
+      }
+      if (!shouldReleaseMeetPipForCamera(false, isChatPipWithoutCamera())) {
         return;
       }
       closeMeetStylePip();

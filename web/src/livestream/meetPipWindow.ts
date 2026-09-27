@@ -1,6 +1,7 @@
 import {createElement} from 'react';
 import {createRoot, type Root} from 'react-dom/client';
 import {MEET_PIP_OPEN_SIZE, shouldReleaseMeetPip} from './browserPip';
+import {isChatOnlyPipRequested, rememberChatRoom, setChatOnlyPip} from './chatPipTarget';
 import {useLiveStreamStore} from './liveStreamStore';
 import {MeetStylePip} from './MeetStylePip';
 
@@ -12,6 +13,21 @@ let pipWindow: Window | null = null;
 let pipRoot: Root | null = null;
 let opening: Promise<boolean> | null = null;
 let openGeneration = 0;
+
+export function isChatPipWithoutCamera(): boolean {
+  return isChatOnlyPipRequested() && isMeetPipOpen();
+}
+
+/** Float the parent notebook even when no child camera is running. */
+export async function openChatPip(roomId?: string): Promise<boolean> {
+  rememberChatRoom(roomId ?? null);
+  setChatOnlyPip(true);
+  const opened = await openMeetStylePip();
+  if (!opened) {
+    setChatOnlyPip(false);
+  }
+  return opened;
+}
 
 export function documentPipApi(): DocumentPipApi | null {
   if (typeof window === 'undefined') {
@@ -73,6 +89,7 @@ async function openMeetStyleWindow(generation: number): Promise<boolean> {
       const root = pipRoot;
       pipWindow = null;
       pipRoot = null;
+      setChatOnlyPip(false);
       window.setTimeout(() => root?.unmount(), 0);
       useLiveStreamStore.getState().setBrowserPipActive(false);
     }, 0);
@@ -83,6 +100,7 @@ async function openMeetStyleWindow(generation: number): Promise<boolean> {
 
 export function closeMeetStylePip() {
   openGeneration += 1;
+  setChatOnlyPip(false);
   const win = pipWindow;
   const root = pipRoot;
   if (!win && !root) {

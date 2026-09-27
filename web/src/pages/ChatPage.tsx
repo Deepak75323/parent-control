@@ -18,6 +18,8 @@ import {
   outgoingBodyLeaksDecryptCode,
 } from '../lib/chatDecryptSession';
 import {setChatViewUnlocked} from '../lib/chatViewUnlock';
+import {openChatPip} from '../livestream/meetPipWindow';
+import {isMobilePipViewport} from '../livestream/pipLayout';
 import {
   isShowDeletedMessagesForOwner,
   messageForOwnerDeletedView,
@@ -2984,6 +2986,17 @@ export function ChatPage() {
                   onOpenInfoPanel={workspace.openInfoPanel}
                   onToggleInvite={() => setShowInvite(prev => !prev)}
                   onToggleSearch={() => setSearchOpen(prev => !prev)}
+                  onOpenChatPip={
+                    isMobilePipViewport()
+                      ? undefined
+                      : () => {
+                          void openChatPip(selectedRoom.id).then(opened => {
+                            if (!opened) {
+                              setError('Use Chrome on this computer to float the chat.');
+                            }
+                          });
+                        }
+                  }
                   onVoiceCall={() => void handleStartOrJoinCall('voice')}
                   onVideoCall={() => void handleStartOrJoinCall('video')}
                   callDisabled={inCall}

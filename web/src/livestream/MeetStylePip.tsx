@@ -8,7 +8,8 @@ import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
 import {receiptStatusForViewer} from '../lib/chatReceiptPrivacy';
 import {decodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
 import {isEncryptedChatBody} from '../lib/chatMessageCrypto';
-import {isPaddedChatBody, isServerChatRoom, meetPipWindowSize, mergeChatMessages, pickLatestChatRoom, pipChatChoices, pipLockedText} from './browserPip';
+import {chatRoomForPip, isPaddedChatBody, isServerChatRoom, meetPipWindowSize, mergeChatMessages, pickLatestChatRoom, pipChatChoices, pipLockedText} from './browserPip';
+import {chatPipRoomId, subscribeChatPipRoom} from './chatPipTarget';
 import {nextViewerRotateDeg, prevViewerRotateDeg, viewerVideoRotateStyle} from '../lib/viewerVideoRotate';
 import {isChatViewUnlocked, setChatViewUnlocked, subscribeChatViewUnlocked} from '../lib/chatViewUnlock';
 import {
@@ -91,6 +92,7 @@ async function visibleChatBody(body: string, unlocked: boolean, id: string): Pro
 
 export function MeetStylePip({onClose}: Props) {
   const deviceName = useLiveStreamStore(s => s.deviceName);
+  const sessionId = useLiveStreamStore(s => s.sessionId);
   const remoteStream = useLiveStreamStore(s => s.remoteStream);
   const streamType = useLiveStreamStore(s => s.streamType);
   const muted = useLiveStreamStore(s => s.muted);
@@ -128,6 +130,7 @@ export function MeetStylePip({onClose}: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
   const sentPlain = useRef<Record<string, string>>({});
   const unlocked = useSyncExternalStore(subscribeChatViewUnlocked, isChatViewUnlocked, () => false);
+  const preferredRoomId = useSyncExternalStore(subscribeChatPipRoom, chatPipRoomId, () => null);
   const showDeletedMessages = useSyncExternalStore(
     subscribeShowDeletedMessagesForOwner,
     isShowDeletedMessagesForOwner,
@@ -142,7 +145,7 @@ export function MeetStylePip({onClose}: Props) {
     el.srcObject = remoteStream;
     el.muted = streamType === 'SCREEN' ? muted : true;
     void el.play().catch(() => undefined);
-  }, [remoteStream, streamType, muted, cameraHidden]);
+  }, [remoteStream, streamType, muted, cameraHidden, sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,7 +155,7 @@ export function MeetStylePip({onClose}: Props) {
         if (!cancelled) {
           const list = data.data ?? [];
           setRooms(list);
-          setRoom(pickLatestChatRoom(list));
+          setRoom(chatRoomForPip(list, chatPipRoomId(), pickLatestChatRoom(list)));
         }
       })
       .catch(() => {
@@ -164,6 +167,19 @@ export function MeetStylePip({onClose}: Props) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!preferredRoomId || rooms.length === 0) {
+      return;
+    }
+    const next = rooms.find(item => item.id === preferredRoomId);
+    if (!next || next.id === room?.id) {
+      return;
+    }
+    setReplyingTo(null);
+    setMessages([]);
+    setRoom(next);
+  }, [preferredRoomId, rooms, room?.id]);
 
   useEffect(() => {
     if (!room) {
@@ -473,7 +489,7 @@ export function MeetStylePip({onClose}: Props) {
 
   function toggleMinimized() {
     const next = !minimized;
-    const size = meetPipWindowSize(next);
+    const size = meetPipWindowSize(next, Boolean(sessionId) && streamType !== 'AUDIO');
     const view = shellRef.current?.ownerDocument.defaultView;
     try {
       view?.resizeTo(size.width, size.height);
@@ -486,9 +502,12 @@ export function MeetStylePip({onClose}: Props) {
   const notebookRole = (room?.myRole ?? (room?.owner ? 'OWNER' : 'MEMBER')) as ChatMemberRole;
   const chatChoices = pipChatChoices(rooms);
 
+  const liveCamera = Boolean(sessionId) && streamType !== 'AUDIO';
+
   return (
     <div className={`meet-pip${minimized ? ' meet-pip--min' : ''}`} ref={shellRef}>
       <style>{MEET_PIP_CSS}</style>
+      {liveCamera ? (
       <div className={`meet-stage${cameraHidden ? ' hidden' : ''}`}>
         <div className={`meet-video-card${turned ? ' turned' : ''}`}>
           <video ref={videoRef} autoPlay playsInline style={videoStyle} />
@@ -511,6 +530,7 @@ export function MeetStylePip({onClose}: Props) {
           </div>
         </div>
       </div>
+      ) : null}
       <div className="meet-titlebar">
         <div className="meet-title">{room?.name ?? 'Notes'}</div>
         {canLock ? (
@@ -794,6 +814,7 @@ export function MeetStylePip({onClose}: Props) {
           <SendIcon />
         </button>
       </form>
+      {liveCamera ? (
       <div className="meet-controls" role="toolbar" aria-label="Live view controls">
         <button
           type="button"
@@ -820,6 +841,7 @@ export function MeetStylePip({onClose}: Props) {
           <EndIcon />
         </button>
       </div>
+      ) : null}
     </div>
   );
 }

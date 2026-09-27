@@ -49,9 +49,35 @@ export function hrefLeavesLiveDevice(href: string, deviceId: string | null): boo
 
 export const MEET_PIP_OPEN_SIZE = {width: 380, height: 640};
 export const MEET_PIP_MINIMIZED_SIZE = {width: 320, height: 220};
+export const MEET_PIP_CHAT_MINIMIZED_SIZE = {width: 320, height: 64};
 
-export function meetPipWindowSize(minimized: boolean): {width: number; height: number} {
-  return minimized ? MEET_PIP_MINIMIZED_SIZE : MEET_PIP_OPEN_SIZE;
+export function meetPipWindowSize(
+  minimized: boolean,
+  camera = true,
+): {width: number; height: number} {
+  if (!minimized) {
+    return MEET_PIP_OPEN_SIZE;
+  }
+  return camera ? MEET_PIP_MINIMIZED_SIZE : MEET_PIP_CHAT_MINIMIZED_SIZE;
+}
+
+/** Close the floating window when the camera ends, unless the parent opened it for chat. */
+export function shouldReleaseMeetPipForCamera(videoSession: boolean, chatOnly: boolean): boolean {
+  return !videoSession && !chatOnly;
+}
+
+export function chatRoomForPip<T extends {id: string}>(
+  rooms: T[],
+  preferredId: string | null,
+  latest: T | null,
+): T | null {
+  if (preferredId) {
+    const match = rooms.find(room => room.id === preferredId);
+    if (match) {
+      return match;
+    }
+  }
+  return latest;
 }
 
 /** A server notebook, not a friend direct message. */
