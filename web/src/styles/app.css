@@ -7118,9 +7118,46 @@ body.stream-pip-dragging * {
 
 .stream-pip-status {
   font-size: 10px;
-  color: var(--gp-text-tertiary);
+  color: #9aa0a6;
   text-transform: uppercase;
   letter-spacing: 0.4px;
+}
+
+.stream-pip,
+.stream-pip-dock,
+.stream-pip-head,
+.stream-pip-toolbar,
+.stream-pip-foot {
+  background: #202124;
+  color: #e8eaed;
+  border-color: #3c4043;
+}
+
+.stream-pip-title,
+.stream-pip-dock-title,
+.stream-pip-head-btn {
+  color: #e8eaed;
+}
+
+.stream-pip-head-btn:hover,
+.stream-pip-dock-main:hover {
+  background: #3c4043;
+  color: #fff;
+}
+
+.stream-pip .btn.ghost,
+.stream-pip .btn.ghost:hover:not(:disabled) {
+  background: #3c4043;
+  color: #e8eaed;
+}
+
+.stream-pip-open {
+  color: #8ab4f8;
+}
+
+.stream-pip-dock .stream-pip-close {
+  border-left-color: #3c4043;
+  color: #e8eaed;
 }
 
 .stream-pip-head-actions {

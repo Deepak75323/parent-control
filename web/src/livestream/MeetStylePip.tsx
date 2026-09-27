@@ -8,7 +8,7 @@ import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
 import {receiptStatusForViewer} from '../lib/chatReceiptPrivacy';
 import {decodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
 import {isEncryptedChatBody} from '../lib/chatMessageCrypto';
-import {isPaddedChatBody, mergeChatMessages, pickLatestChatRoom, pipLockedText} from './browserPip';
+import {isPaddedChatBody, isServerChatRoom, meetPipWindowSize, mergeChatMessages, pickLatestChatRoom, pipChatChoices, pipLockedText} from './browserPip';
 import {nextViewerRotateDeg, prevViewerRotateDeg, viewerVideoRotateStyle} from '../lib/viewerVideoRotate';
 import {isChatViewUnlocked, setChatViewUnlocked, subscribeChatViewUnlocked} from '../lib/chatViewUnlock';
 import {
@@ -104,6 +104,7 @@ export function MeetStylePip({onClose}: Props) {
   const readReceiptsEnabled = useAuthStore(s => s.profile?.readReceiptsEnabled);
   const videoRef = useRef<HTMLVideoElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const [rooms, setRooms] = useState<ChatRoomSummary[]>([]);
   const [room, setRoom] = useState<ChatRoomSummary | null>(null);
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [shown, setShown] = useState<Record<string, string>>({});
@@ -121,6 +122,8 @@ export function MeetStylePip({onClose}: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [replyingTo, setReplyingTo] = useState<ChatMessageItem | null>(null);
+  const [minimized, setMinimized] = useState(false);
+  const shellRef = useRef<HTMLDivElement>(null);
   const composeRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const sentPlain = useRef<Record<string, string>>({});
@@ -147,7 +150,9 @@ export function MeetStylePip({onClose}: Props) {
       .listRooms()
       .then(({data}) => {
         if (!cancelled) {
-          setRoom(pickLatestChatRoom(data.data ?? []));
+          const list = data.data ?? [];
+          setRooms(list);
+          setRoom(pickLatestChatRoom(list));
         }
       })
       .catch(() => {
@@ -450,16 +455,39 @@ export function MeetStylePip({onClose}: Props) {
         } else {
           await chatApi.leaveRoom(roomId);
         }
+        setRooms(current => current.filter(item => item.id !== roomId));
         setRoom(null);
         setMessages([]);
       },
     );
   }
 
+  function openNotebook(next: ChatRoomSummary) {
+    if (next.id === room?.id) {
+      return;
+    }
+    setReplyingTo(null);
+    setMessages([]);
+    setRoom(next);
+  }
+
+  function toggleMinimized() {
+    const next = !minimized;
+    const size = meetPipWindowSize(next);
+    const view = shellRef.current?.ownerDocument.defaultView;
+    try {
+      view?.resizeTo(size.width, size.height);
+    } catch {
+      // The chat still collapses if the window refuses the resize.
+    }
+    setMinimized(next);
+  }
+
   const notebookRole = (room?.myRole ?? (room?.owner ? 'OWNER' : 'MEMBER')) as ChatMemberRole;
+  const chatChoices = pipChatChoices(rooms);
 
   return (
-    <div className="meet-pip">
+    <div className={`meet-pip${minimized ? ' meet-pip--min' : ''}`} ref={shellRef}>
       <style>{MEET_PIP_CSS}</style>
       <div className={`meet-stage${cameraHidden ? ' hidden' : ''}`}>
         <div className={`meet-video-card${turned ? ' turned' : ''}`}>
@@ -513,6 +541,18 @@ export function MeetStylePip({onClose}: Props) {
           </button>
           {menuOpen && room ? (
             <div className="meet-menu-pop" role="menu">
+              {chatChoices.servers.length > 0
+                ? [...chatChoices.servers, ...chatChoices.directs].map(choice => (
+                    <button
+                      key={choice.id}
+                      type="button"
+                      role="menuitem"
+                      className={choice.id === room.id ? 'current' : undefined}
+                      onMouseDown={pressMenu(() => openNotebook(choice))}>
+                      {isServerChatRoom(choice) ? 'Server' : 'Direct'} · {choice.name}
+                    </button>
+                  ))
+                : null}
               {(room.unreadCount ?? 0) > 0 ? (
                 <button type="button" role="menuitem" onMouseDown={pressMenu(() => void markNotebookRead().catch(() => setNotice('Could not mark as read')))}>
                   Mark as read
@@ -573,6 +613,13 @@ export function MeetStylePip({onClose}: Props) {
             </div>
           ) : null}
         </div>
+        <button
+          type="button"
+          className="meet-min"
+          aria-label={minimized ? 'Restore picture in picture' : 'Minimize picture in picture'}
+          onClick={toggleMinimized}>
+          {minimized ? '▢' : '−'}
+        </button>
         <button type="button" className="meet-close" aria-label="Close picture in picture" onClick={onClose}>
           ×
         </button>
@@ -994,10 +1041,23 @@ const MEET_PIP_CSS = `
 .meet-menu { position: relative; }
 .meet-more { width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; color: #e8eaed; cursor: pointer; display: grid; place-items: center; }
 .meet-more:disabled { color: #5f6368; cursor: default; }
-.meet-menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 180px; display: flex; flex-direction: column; padding: 6px; border-radius: 12px; background: #303134; box-shadow: 0 4px 16px rgba(0,0,0,0.45); }
+.meet-menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 220px; max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; padding: 6px; border-radius: 12px; background: #303134; box-shadow: 0 4px 16px rgba(0,0,0,0.45); }
 .meet-menu-pop button { border: 0; background: transparent; color: #e8eaed; text-align: left; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
 .meet-menu-pop button:hover { background: #3c4043; }
+.meet-menu-pop button.current { color: #8ab4f8; }
 .meet-menu-pop button.danger { color: #f28b82; }
+.meet-min { width: 32px; height: 32px; border: 0; background: transparent; color: #e8eaed; font-size: 20px; line-height: 1; cursor: pointer; }
+.meet-pip--min .meet-log,
+.meet-pip--min .meet-compose,
+.meet-pip--min .meet-controls,
+.meet-pip--min .meet-notice,
+.meet-pip--min .meet-replying,
+.meet-pip--min .meet-pin,
+.meet-pip--min .meet-confirm,
+.meet-pip--min .meet-lock,
+.meet-pip--min .meet-menu { display: none; }
+.meet-pip--min .meet-stage { padding: 8px 8px 0; }
+.meet-pip--min .meet-titlebar { padding-bottom: 8px; }
 .meet-confirm { margin: 8px 16px 0; padding: 10px; border-radius: 12px; background: #303134; }
 .meet-confirm p { margin: 0 0 8px; font-size: 13px; line-height: 1.35; }
 .meet-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }

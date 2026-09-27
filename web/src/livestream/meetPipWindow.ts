@@ -1,6 +1,6 @@
 import {createElement} from 'react';
 import {createRoot, type Root} from 'react-dom/client';
-import {shouldReleaseMeetPip} from './browserPip';
+import {MEET_PIP_OPEN_SIZE, shouldReleaseMeetPip} from './browserPip';
 import {useLiveStreamStore} from './liveStreamStore';
 import {MeetStylePip} from './MeetStylePip';
 
@@ -45,7 +45,7 @@ async function openMeetStyleWindow(generation: number): Promise<boolean> {
   if (!api) {
     return false;
   }
-  const pip = await api.requestWindow({width: 380, height: 640});
+  const pip = await api.requestWindow(MEET_PIP_OPEN_SIZE);
   if (generation !== openGeneration || pip.closed) {
     if (!pip.closed) {
       pip.close();

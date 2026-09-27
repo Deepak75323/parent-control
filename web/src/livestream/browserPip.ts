@@ -47,6 +47,36 @@ export function hrefLeavesLiveDevice(href: string, deviceId: string | null): boo
   return path.startsWith('/');
 }
 
+export const MEET_PIP_OPEN_SIZE = {width: 380, height: 640};
+export const MEET_PIP_MINIMIZED_SIZE = {width: 320, height: 220};
+
+export function meetPipWindowSize(minimized: boolean): {width: number; height: number} {
+  return minimized ? MEET_PIP_MINIMIZED_SIZE : MEET_PIP_OPEN_SIZE;
+}
+
+/** A server notebook, not a friend direct message. */
+export function isServerChatRoom(room: {directMessage?: boolean; memberCount?: number}): boolean {
+  if (typeof room.directMessage === 'boolean') {
+    return !room.directMessage;
+  }
+  return room.memberCount !== 2;
+}
+
+export function pipChatChoices<T extends {directMessage?: boolean; memberCount?: number}>(
+  rooms: T[],
+): {servers: T[]; directs: T[]} {
+  const servers: T[] = [];
+  const directs: T[] = [];
+  for (const room of rooms) {
+    if (isServerChatRoom(room)) {
+      servers.push(room);
+    } else {
+      directs.push(room);
+    }
+  }
+  return {servers, directs};
+}
+
 export function pickLatestChatRoom<T extends {updatedAt: string}>(rooms: T[]): T | null {
   if (rooms.length === 0) {
     return null;

@@ -9,7 +9,10 @@ import {
   shouldReleaseMeetPip,
   mergeChatMessages,
   pathnameFromAppHref,
+  isServerChatRoom,
+  meetPipWindowSize,
   pickLatestChatRoom,
+  pipChatChoices,
   pipLockedText,
 } from './browserPip';
 
@@ -33,6 +36,29 @@ describe('pickLatestChatRoom', () => {
     ]);
     expect(latest?.id).toBe('new');
     expect(pickLatestChatRoom([])).toBeNull();
+  });
+});
+
+describe('pip chat rooms', () => {
+  it('treats a named notebook as a server and a friend thread as direct', () => {
+    expect(isServerChatRoom({directMessage: false, memberCount: 2})).toBe(true);
+    expect(isServerChatRoom({directMessage: true, memberCount: 2})).toBe(false);
+  });
+
+  it('splits servers from direct chats so the floating window can open either', () => {
+    const rooms = pipChatChoices([
+      {id: 'server', directMessage: false, memberCount: 3},
+      {id: 'friend', directMessage: true, memberCount: 2},
+    ]);
+    expect(rooms.servers.map(room => room.id)).toEqual(['server']);
+    expect(rooms.directs.map(room => room.id)).toEqual(['friend']);
+  });
+});
+
+describe('meetPipWindowSize', () => {
+  it('shrinks the window when minimized and restores the full size', () => {
+    expect(meetPipWindowSize(false)).toEqual({width: 380, height: 640});
+    expect(meetPipWindowSize(true).height).toBeLessThan(meetPipWindowSize(false).height);
   });
 });
 
