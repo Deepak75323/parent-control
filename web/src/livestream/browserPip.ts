@@ -61,6 +61,15 @@ export function meetPipWindowSize(
   return MEET_PIP_DOCK_SIZE;
 }
 
+/** Camera height when the Notes banner is dragged, leaving room for chat below. */
+export function cameraPaneHeight(pointerY: number, shellTop: number, shellHeight: number): number {
+  const minCamera = 96;
+  const minBelow = 220;
+  const requested = pointerY - shellTop;
+  const maxCamera = Math.max(minCamera, shellHeight - minBelow);
+  return Math.min(maxCamera, Math.max(minCamera, requested));
+}
+
 /** Close the floating window when the camera ends, unless the parent opened it for chat. */
 export function shouldReleaseMeetPipForCamera(videoSession: boolean, chatOnly: boolean): boolean {
   return !videoSession && !chatOnly;
@@ -108,6 +117,37 @@ export function pickLatestChatRoom<T extends {updatedAt: string}>(rooms: T[]): T
     return null;
   }
   return [...rooms].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+}
+
+export type PipMessageActionId =
+  | 'react'
+  | 'reply'
+  | 'mark-unread'
+  | 'edit'
+  | 'delete-me'
+  | 'delete-everyone'
+  | 'copy';
+
+/** Same per-note menu as Notes, without the room-level lock button already on the window bar. */
+export function pipMessageActionIds(
+  message: {deleted?: boolean; ownMessage?: boolean; messageType?: string},
+  options?: {allowEdit?: boolean},
+): PipMessageActionId[] {
+  if (message.deleted) {
+    return [];
+  }
+  const text = !message.messageType || message.messageType === 'TEXT';
+  const actions: PipMessageActionId[] = ['react', 'reply', 'mark-unread'];
+  if (message.ownMessage && text && options?.allowEdit !== false) {
+    actions.push('edit');
+  }
+  actions.push('delete-me');
+  if (message.ownMessage) {
+    actions.push('delete-everyone');
+  } else {
+    actions.push('copy');
+  }
+  return actions;
 }
 
 export function mergeChatMessages<T extends {id: string; createdAt: string}>(

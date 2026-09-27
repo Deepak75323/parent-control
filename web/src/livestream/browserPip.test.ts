@@ -12,7 +12,9 @@ import {
   mergeChatMessages,
   pathnameFromAppHref,
   isServerChatRoom,
+  cameraPaneHeight,
   meetPipWindowSize,
+  pipMessageActionIds,
   pickLatestChatRoom,
   pipChatChoices,
   pipLockedText,
@@ -63,6 +65,13 @@ describe('meetPipWindowSize', () => {
     expect(meetPipWindowSize(true)).toEqual({width: 360, height: 72});
     expect(meetPipWindowSize(true, false)).toEqual({width: 360, height: 72});
   });
+
+  it('follows the Notes banner and keeps room for the chat', () => {
+    expect(cameraPaneHeight(400, 100, 640)).toBe(300);
+    expect(cameraPaneHeight(0, 0, 640)).toBe(96);
+    expect(cameraPaneHeight(900, 0, 640)).toBe(420);
+    expect(cameraPaneHeight(50, 0, 180)).toBe(96);
+  });
 });
 
 describe('chat picture in picture without a camera', () => {
@@ -77,6 +86,33 @@ describe('chat picture in picture without a camera', () => {
     expect(chatRoomForPip(rooms, 'friend', rooms[0])?.id).toBe('friend');
     expect(chatRoomForPip(rooms, null, rooms[0])?.id).toBe('server');
     expect(chatRoomForPip(rooms, 'missing', rooms[0])?.id).toBe('server');
+  });
+});
+
+describe('pipMessageActionIds', () => {
+  it('offers the same note actions as Notes for someone else', () => {
+    expect(pipMessageActionIds({ownMessage: false, messageType: 'TEXT'})).toEqual([
+      'react',
+      'reply',
+      'mark-unread',
+      'delete-me',
+      'copy',
+    ]);
+  });
+
+  it('offers edit and delete for everyone on your own note', () => {
+    expect(pipMessageActionIds({ownMessage: true, messageType: 'TEXT'})).toEqual([
+      'react',
+      'reply',
+      'mark-unread',
+      'edit',
+      'delete-me',
+      'delete-everyone',
+    ]);
+  });
+
+  it('hides actions on a deleted note', () => {
+    expect(pipMessageActionIds({deleted: true, ownMessage: true})).toEqual([]);
   });
 });
 
