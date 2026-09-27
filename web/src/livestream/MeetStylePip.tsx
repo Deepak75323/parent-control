@@ -6,10 +6,17 @@ import {resolveChatDisplayNickname} from '../lib/chatDisplayNickname';
 import {canClearHistoryForEveryone, type ChatMemberRole} from '../lib/chatMemberPermissions';
 import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
 import {receiptStatusForViewer} from '../lib/chatReceiptPrivacy';
+import {decodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
 import {isEncryptedChatBody} from '../lib/chatMessageCrypto';
 import {isPaddedChatBody, mergeChatMessages, pickLatestChatRoom, pipLockedText} from './browserPip';
 import {nextViewerRotateDeg, prevViewerRotateDeg, viewerVideoRotateStyle} from '../lib/viewerVideoRotate';
 import {isChatViewUnlocked, setChatViewUnlocked, subscribeChatViewUnlocked} from '../lib/chatViewUnlock';
+import {
+  isShowDeletedMessagesForOwner,
+  messageForOwnerDeletedView,
+  setShowDeletedMessagesForOwner,
+  subscribeShowDeletedMessagesForOwner,
+} from '../lib/ownerDeletedMessages';
 import {
   buildMentionCandidates,
   collectMentionTokens,
@@ -18,13 +25,55 @@ import {
   insertMention,
   splitMessageText,
 } from '../lib/chatMentions';
-import type {ChatMemberItem, ChatMessageItem, ChatRoomSummary} from '../types/api';
+import type {ChatMemberItem, ChatMessageItem, ChatMessageReplyPreview, ChatRoomSummary} from '../types/api';
 import {useLiveStreamStore} from './liveStreamStore';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 
 type Props = {
   onClose: () => void;
 };
+
+type PendingAction = {
+  message: string;
+  run: () => Promise<void>;
+};
+
+/** PiP nodes belong to the floating window, not the opener page's Node. */
+function pointerInside(menu: HTMLElement | null, target: EventTarget | null): boolean {
+  if (!menu || target == null) {
+    return false;
+  }
+  const ViewNode = menu.ownerDocument.defaultView?.Node;
+  if (!ViewNode || !(target instanceof ViewNode)) {
+    return false;
+  }
+  return menu.contains(target);
+}
+
+function focusComposer(input: HTMLInputElement | null) {
+  if (!input) {
+    return;
+  }
+  const view = input.ownerDocument.defaultView ?? window;
+  view.requestAnimationFrame(() => input.focus());
+}
+
+function replyQuoteText(preview: ChatMessageReplyPreview, unlocked: boolean): string {
+  if (preview.deleted) {
+    return 'Message deleted';
+  }
+  const raw = preview.bodyPreview?.trim() ?? '';
+  if (!raw) {
+    return preview.messageType === 'IMAGE' ? 'Photo' : preview.messageType === 'VIDEO' ? 'Video' : 'Message';
+  }
+  if (!unlocked) {
+    return pipLockedText(raw, preview.messageId);
+  }
+  if (isEncryptedChatBody(raw) || isPaddedChatBody(raw)) {
+    return isPaddedChatBody(raw) ? decodeChatMessagePlaintext(raw) : raw;
+  }
+  return raw;
+}
 
 async function visibleChatBody(body: string, unlocked: boolean, id: string): Promise<string> {
   if (!body) {
@@ -49,6 +98,7 @@ export function MeetStylePip({onClose}: Props) {
   const viewRotate = useLiveStreamStore(s => s.viewRotate);
   const setViewRotate = useLiveStreamStore(s => s.setViewRotate);
   const liveMessages = useRealtimeStore(s => s.liveChatMessages);
+  const deletedChatMessageIds = useRealtimeStore(s => s.deletedChatMessageIds);
   const receiptPatches = useRealtimeStore(s => s.receiptPatches);
   const readReceiptsEnabled = useAuthStore(s => s.profile?.readReceiptsEnabled);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -68,10 +118,17 @@ export function MeetStylePip({onClose}: Props) {
   const [cursor, setCursor] = useState(0);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pending, setPending] = useState<PendingAction | null>(null);
+  const [replyingTo, setReplyingTo] = useState<ChatMessageItem | null>(null);
   const composeRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const sentPlain = useRef<Record<string, string>>({});
   const unlocked = useSyncExternalStore(subscribeChatViewUnlocked, isChatViewUnlocked, () => false);
+  const showDeletedMessages = useSyncExternalStore(
+    subscribeShowDeletedMessagesForOwner,
+    isShowDeletedMessagesForOwner,
+    () => false,
+  );
 
   useEffect(() => {
     const el = videoRef.current;
@@ -107,7 +164,7 @@ export function MeetStylePip({onClose}: Props) {
       return;
     }
     let cancelled = false;
-    void chatApi.listMessages(room.id, 0, 40).then(({data}) => {
+    void chatApi.listMessages(room.id, 0, 40, undefined, showDeletedMessages && Boolean(room.owner)).then(({data}) => {
       if (!cancelled) {
         setMessages(data.data ?? []);
       }
@@ -115,7 +172,7 @@ export function MeetStylePip({onClose}: Props) {
     return () => {
       cancelled = true;
     };
-  }, [room]);
+  }, [room, showDeletedMessages]);
 
   useEffect(() => {
     if (!room) {
@@ -138,8 +195,7 @@ export function MeetStylePip({onClose}: Props) {
     }
     const doc = menuRef.current?.ownerDocument ?? document;
     const onPointer = (event: Event) => {
-      const target = event.target;
-      if (target instanceof Node && menuRef.current?.contains(target)) {
+      if (pointerInside(menuRef.current, event.target)) {
         return;
       }
       setMenuOpen(false);
@@ -196,20 +252,31 @@ export function MeetStylePip({onClose}: Props) {
     }
     setSending(true);
     setNotice(null);
+    const replyId = replyingTo?.id;
     try {
       const body = await encodeOutgoingChatBody(text);
-      const {data} = await chatApi.sendMessage(room.id, body);
+      const {data} = await chatApi.sendMessage(room.id, body, replyId);
       const saved = data.data;
       if (saved) {
         sentPlain.current[saved.id] = text;
         setMessages(current => mergeChatMessages(current, [saved]));
       }
       setDraft('');
+      setReplyingTo(null);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Could not send');
     } finally {
       setSending(false);
+      focusComposer(composeRef.current);
     }
+  }
+
+  function beginReply(message: ChatMessageItem) {
+    if (message.deleted) {
+      return;
+    }
+    setReplyingTo(message);
+    focusComposer(composeRef.current);
   }
 
   async function startDecrypt() {
@@ -263,12 +330,22 @@ export function MeetStylePip({onClose}: Props) {
   const mentionChoices = activeMention ? filterMentionCandidates(mentionCandidates, activeMention.query) : [];
   const safeMentionIndex = mentionChoices.length === 0 ? 0 : mentionIndex % mentionChoices.length;
   const threaded = withMonotonicReceiptStatuses(
-    messages.map(message => {
-      const raw = receiptPatches[message.id] ?? message.receiptStatus;
-      return {
-        ...message,
-        receiptStatus: receiptStatusForViewer(raw, readReceiptsEnabled),
-      };
+    messages.flatMap(message => {
+      const visible = messageForOwnerDeletedView(message, {
+        removedForEveryone: Boolean(deletedChatMessageIds[message.id]),
+        showDeleted: showDeletedMessages,
+        viewerIsRoomOwner: Boolean(room?.owner),
+      });
+      if (!visible) {
+        return [];
+      }
+      const raw = receiptPatches[visible.id] ?? visible.receiptStatus;
+      return [
+        {
+          ...visible,
+          receiptStatus: receiptStatusForViewer(raw, readReceiptsEnabled),
+        },
+      ];
     }),
   );
 
@@ -302,9 +379,18 @@ export function MeetStylePip({onClose}: Props) {
     });
   }
 
-  function askPip(message: string): boolean {
-    const view = menuRef.current?.ownerDocument.defaultView ?? window;
-    return view.confirm(message);
+  function pressMenu(run: () => void) {
+    return (event: {preventDefault: () => void; stopPropagation: () => void}) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setMenuOpen(false);
+      run();
+    };
+  }
+
+  function askPip(message: string, run: () => Promise<void>) {
+    setMenuOpen(false);
+    setPending({message, run});
   }
 
   async function markNotebookRead() {
@@ -321,41 +407,52 @@ export function MeetStylePip({onClose}: Props) {
   }
 
   async function clearNotebook() {
-    if (!room || !askPip(`Clear messages in "${room.name}" on this device only? Other members will still see the chat.`)) {
+    if (!room) {
       return;
     }
-    await chatApi.clearChat(room.id);
-    setMessages([]);
-    setNotice('Chat cleared on this device.');
+    const roomId = room.id;
+    const roomName = room.name;
+    askPip(`Clear messages in "${roomName}" on this device only? Other members will still see the chat.`, async () => {
+      await chatApi.clearChat(roomId);
+      setMessages([]);
+      setNotice('Chat cleared on this device.');
+    });
   }
 
   async function clearNotebookHistory() {
-    if (!room || !askPip(`Remove all messages in "${room.name}" for every member?`)) {
+    if (!room) {
       return;
     }
-    await chatApi.clearHistory(room.id);
-    setMessages([]);
-    setNotice('History cleared for everyone.');
+    const roomId = room.id;
+    const roomName = room.name;
+    askPip(`Remove all messages in "${roomName}" for every member?`, async () => {
+      await chatApi.clearHistory(roomId);
+      setMessages([]);
+      setNotice('History cleared for everyone.');
+    });
   }
 
   async function deleteOrLeaveNotebook() {
     if (!room) {
       return;
     }
-    if (room.owner) {
-      if (!askPip(`Delete "${room.name}"? This removes the notebook for all members.`)) {
-        return;
-      }
-      await chatApi.deleteRoom(room.id);
-    } else {
-      if (!askPip(`Leave "${room.name}"? You can be invited again later.`)) {
-        return;
-      }
-      await chatApi.leaveRoom(room.id);
-    }
-    setRoom(null);
-    setMessages([]);
-    setMenuOpen(false);
+    const roomId = room.id;
+    const owned = room.owner;
+    const roomName = room.name;
+    askPip(
+      owned
+        ? `Delete "${roomName}"? This removes the notebook for all members.`
+        : `Leave "${roomName}"? You can be invited again later.`,
+      async () => {
+        if (owned) {
+          await chatApi.deleteRoom(roomId);
+        } else {
+          await chatApi.leaveRoom(roomId);
+        }
+        setRoom(null);
+        setMessages([]);
+      },
+    );
   }
 
   const notebookRole = (room?.myRole ?? (room?.owner ? 'OWNER' : 'MEMBER')) as ChatMemberRole;
@@ -416,7 +513,7 @@ export function MeetStylePip({onClose}: Props) {
           {menuOpen && room ? (
             <div className="meet-menu-pop" role="menu">
               {(room.unreadCount ?? 0) > 0 ? (
-                <button type="button" role="menuitem" onClick={() => void markNotebookRead().then(() => setMenuOpen(false)).catch(() => setNotice('Could not mark as read'))}>
+                <button type="button" role="menuitem" onMouseDown={pressMenu(() => void markNotebookRead().catch(() => setNotice('Could not mark as read')))}>
                   Mark as read
                 </button>
               ) : null}
@@ -424,24 +521,30 @@ export function MeetStylePip({onClose}: Props) {
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => {
-                    setMenuOpen(false);
+                  onMouseDown={pressMenu(() => {
                     if (unlocked) {
                       setChatViewUnlocked(false);
                     } else {
                       void startDecrypt();
                     }
-                  }}>
+                  })}>
                   {unlocked ? 'Lock chat' : 'Decrypt chat'}
+                </button>
+              ) : null}
+              {room.owner ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onMouseDown={pressMenu(() => setShowDeletedMessagesForOwner(!showDeletedMessages))}>
+                  {showDeletedMessages ? 'Hide deleted messages' : 'Show deleted messages'}
                 </button>
               ) : null}
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
+                onMouseDown={pressMenu(() => {
                   void clearNotebook().catch(() => setNotice('Could not clear chat'));
-                }}>
+                })}>
                 Clear chat
               </button>
               {canClearHistoryForEveryone(notebookRole) ? (
@@ -449,10 +552,9 @@ export function MeetStylePip({onClose}: Props) {
                   type="button"
                   role="menuitem"
                   className="danger"
-                  onClick={() => {
-                    setMenuOpen(false);
+                  onMouseDown={pressMenu(() => {
                     void clearNotebookHistory().catch(() => setNotice('Could not clear history'));
-                  }}>
+                  })}>
                   Clear history
                 </button>
               ) : null}
@@ -460,12 +562,11 @@ export function MeetStylePip({onClose}: Props) {
                 type="button"
                 role="menuitem"
                 className="danger"
-                onClick={() => {
-                  setMenuOpen(false);
+                onMouseDown={pressMenu(() => {
                   void deleteOrLeaveNotebook().catch(() =>
                     setNotice(room.owner ? 'Could not delete room' : 'Could not leave room'),
                   );
-                }}>
+                })}>
                 {room.owner ? 'Delete room' : 'Leave room'}
               </button>
             </div>
@@ -475,6 +576,27 @@ export function MeetStylePip({onClose}: Props) {
           ×
         </button>
       </div>
+      {pending ? (
+        <div className="meet-confirm">
+          <p>{pending.message}</p>
+          <div className="meet-confirm-actions">
+            <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => setPending(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="danger"
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => {
+                const run = pending.run;
+                setPending(null);
+                void run().catch(() => setNotice('Could not finish that'));
+              }}>
+              Confirm
+            </button>
+          </div>
+        </div>
+      ) : null}
       {pinOpen ? (
         <form className="meet-pin" onSubmit={event => void submitPin(event)}>
           <input
@@ -503,12 +625,34 @@ export function MeetStylePip({onClose}: Props) {
               </span>
             )}
             <span className="meet-bubble-text">
+              {message.replyTo ? (
+                <span className="meet-reply">
+                  {replyQuoteText(message.replyTo, unlocked)}
+                </span>
+              ) : null}
+              {message.deleted ? <span className="meet-deleted">Deleted</span> : null}
               <MentionText text={preview(message, shown[message.id])} members={members} />
               {message.ownMessage ? <ReceiptTicks status={message.receiptStatus} /> : null}
             </span>
+            {message.deleted ? null : (
+              <button type="button" className="meet-reply-btn" onMouseDown={event => event.preventDefault()} onClick={() => beginReply(message)}>
+                Reply
+              </button>
+            )}
           </div>
         ))}
       </div>
+      {replyingTo ? (
+        <div className="meet-replying">
+          <span>
+            Replying to {resolveChatDisplayNickname(replyingTo.senderNickname, replyingTo.senderLabel)}:{' '}
+            {shown[replyingTo.id] ?? preview(replyingTo, undefined)}
+          </span>
+          <button type="button" aria-label="Cancel reply" onMouseDown={event => event.preventDefault()} onClick={() => setReplyingTo(null)}>
+            ×
+          </button>
+        </div>
+      ) : null}
       {notice ? <p className="meet-notice">{notice}</p> : null}
       <form
         className="meet-compose"
@@ -568,18 +712,24 @@ export function MeetStylePip({onClose}: Props) {
           }}
           placeholder="Send a message. Type @ to tag"
           aria-label="Send a message"
-          disabled={!room || sending}
+          disabled={!room}
           maxLength={4000}
         />
         <button
           type="button"
           className="meet-tag"
           aria-label="Tag a parent"
-          disabled={!room || sending}
+          disabled={!room}
+          onMouseDown={event => event.preventDefault()}
           onClick={insertAtSign}>
           @
         </button>
-        <button type="submit" className="meet-send" aria-label="Send" disabled={!room || sending || !draft.trim()}>
+        <button
+          type="submit"
+          className="meet-send"
+          aria-label="Send"
+          disabled={!room || sending || !draft.trim()}
+          onMouseDown={event => event.preventDefault()}>
           <SendIcon />
         </button>
       </form>
@@ -717,6 +867,11 @@ const MEET_PIP_CSS = `
 .meet-menu-pop button { border: 0; background: transparent; color: #e8eaed; text-align: left; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
 .meet-menu-pop button:hover { background: #3c4043; }
 .meet-menu-pop button.danger { color: #f28b82; }
+.meet-confirm { margin: 8px 16px 0; padding: 10px; border-radius: 12px; background: #303134; }
+.meet-confirm p { margin: 0 0 8px; font-size: 13px; line-height: 1.35; }
+.meet-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.meet-confirm button { border: 0; border-radius: 8px; background: #3c4043; color: #e8eaed; padding: 6px 10px; cursor: pointer; font-size: 13px; }
+.meet-confirm button.danger { background: #f28b82; color: #202124; }
 .meet-lock { border: 0; background: #3c4043; color: #e8eaed; border-radius: 999px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
 .meet-pin { display: flex; gap: 8px; margin: 8px 16px 0; }
 .meet-pin input { flex: 1; border: 0; border-radius: 8px; background: #3c4043; color: inherit; padding: 8px 10px; }
@@ -728,6 +883,12 @@ const MEET_PIP_CSS = `
 .meet-bubble { align-self: flex-start; max-width: 86%; padding: 8px 12px; border-radius: 12px; background: #3c4043; font-size: 14px; line-height: 1.35; }
 .meet-bubble.own { align-self: flex-end; background: #394457; }
 .meet-bubble-text { display: inline; }
+.meet-reply { display: block; margin-bottom: 4px; padding-left: 6px; border-left: 2px solid #8ab4f8; color: #9aa0a6; font-size: 12px; }
+.meet-reply-btn { display: block; margin-top: 4px; border: 0; background: transparent; color: #8ab4f8; font-size: 11px; cursor: pointer; padding: 0; }
+.meet-replying { display: flex; align-items: center; gap: 8px; margin: 0 16px 6px; padding: 6px 8px; border-radius: 8px; background: #303134; font-size: 12px; color: #e8eaed; }
+.meet-replying span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meet-replying button { border: 0; background: transparent; color: #e8eaed; cursor: pointer; font-size: 18px; line-height: 1; }
+.meet-deleted { display: block; font-size: 11px; font-weight: 700; color: #f6c453; margin-bottom: 2px; }
 .meet-receipt { margin-left: 6px; font-size: 12px; letter-spacing: -1px; }
 .meet-receipt--sent, .meet-receipt--delivered { color: #8ab4f8; }
 .meet-receipt--read { color: #22c55e; }
