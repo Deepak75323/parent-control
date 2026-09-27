@@ -27,6 +27,7 @@ import {
 } from '../lib/chatMentions';
 import type {ChatMemberItem, ChatMessageItem, ChatMessageReplyPreview, ChatRoomSummary} from '../types/api';
 import {useLiveStreamStore} from './liveStreamStore';
+import {pipMediaView} from './pipMediaView';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 
 type Props = {
@@ -624,16 +625,29 @@ export function MeetStylePip({onClose}: Props) {
                 {resolveChatDisplayNickname(message.senderNickname, message.senderLabel)}
               </span>
             )}
-            <span className="meet-bubble-text">
+            <div className="meet-bubble-text">
               {message.replyTo ? (
                 <span className="meet-reply">
                   {replyQuoteText(message.replyTo, unlocked)}
                 </span>
               ) : null}
               {message.deleted ? <span className="meet-deleted">Deleted</span> : null}
-              <MentionText text={preview(message, shown[message.id])} members={members} />
+              {message.messageType === 'IMAGE' || message.messageType === 'VIDEO' ? (
+                message.deleted ? null : (
+                  <MeetPipMedia
+                    message={message}
+                    unlocked={unlocked}
+                    onRequestUnlock={() => void startDecrypt()}
+                  />
+                )
+              ) : null}
+              {shown[message.id] ? (
+                <MentionText text={shown[message.id]} members={members} />
+              ) : message.messageType === 'IMAGE' || message.messageType === 'VIDEO' ? null : (
+                <MentionText text="—" members={members} />
+              )}
               {message.ownMessage ? <ReceiptTicks status={message.receiptStatus} /> : null}
-            </span>
+            </div>
             {message.deleted ? null : (
               <button type="button" className="meet-reply-btn" onMouseDown={event => event.preventDefault()} onClick={() => beginReply(message)}>
                 Reply
@@ -804,6 +818,123 @@ function ReceiptTicks({status}: {status: ChatMessageItem['receiptStatus']}) {
   );
 }
 
+function blobUrlIn(anchor: HTMLElement | null, blob: Blob): string {
+  const view = anchor?.ownerDocument.defaultView ?? window;
+  return view.URL.createObjectURL(blob);
+}
+
+function revokeBlobUrl(anchor: HTMLElement | null, url: string) {
+  const view = anchor?.ownerDocument.defaultView ?? window;
+  view.URL.revokeObjectURL(url);
+}
+
+function MeetPipMedia({
+  message,
+  unlocked,
+  onRequestUnlock,
+}: {
+  message: ChatMessageItem;
+  unlocked: boolean;
+  onRequestUnlock: () => void;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [openedLocally, setOpenedLocally] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const [error, setError] = useState(false);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (unlocked || !blobUrl) {
+      return;
+    }
+    revokeBlobUrl(anchorRef.current, blobUrl);
+    setBlobUrl(null);
+  }, [unlocked, blobUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (blobUrl) {
+        revokeBlobUrl(anchorRef.current, blobUrl);
+      }
+    };
+  }, [blobUrl]);
+
+  const view = pipMediaView({
+    messageType: message.messageType,
+    ownMessage: message.ownMessage,
+    attachmentConsumed: Boolean(message.attachmentConsumed || openedLocally),
+    canViewAttachment: message.canViewAttachment,
+    deleted: message.deleted,
+    unlocked,
+    showing: Boolean(blobUrl),
+  });
+
+  async function open() {
+    if (!unlocked) {
+      onRequestUnlock();
+      return;
+    }
+    if (opening || blobUrl || !message.canViewAttachment) {
+      return;
+    }
+    setOpening(true);
+    setError(false);
+    try {
+      const {data} = await chatApi.viewOnceAttachment(message.roomId, message.id);
+      const mime = message.attachmentMimeType ?? 'application/octet-stream';
+      const url = blobUrlIn(anchorRef.current, new Blob([data], {type: mime}));
+      setOpenedLocally(true);
+      setBlobUrl(url);
+    } catch {
+      setError(true);
+    } finally {
+      setOpening(false);
+    }
+  }
+
+  if (view.kind === 'hidden') {
+    return null;
+  }
+  if (view.kind === 'show' && blobUrl) {
+    const alt =
+      message.attachmentFileName ??
+      (message.messageType === 'VIDEO' ? 'Video message' : 'Image message');
+    if (message.messageType === 'VIDEO') {
+      return (
+        <span className="meet-media-wrap" ref={anchorRef}>
+          <video className="meet-media" src={blobUrl} controls playsInline aria-label={alt} />
+        </span>
+      );
+    }
+    return (
+      <span className="meet-media-wrap" ref={anchorRef}>
+        <img className="meet-media" src={blobUrl} alt={alt} />
+      </span>
+    );
+  }
+  if (error) {
+    return (
+      <span className="meet-media-wrap" ref={anchorRef}>
+        <span className="meet-media-note">Could not open — it may have already been viewed</span>
+      </span>
+    );
+  }
+  if (view.kind === 'view' || view.kind === 'unlock') {
+    return (
+      <span className="meet-media-wrap" ref={anchorRef}>
+        <button type="button" className="meet-media-btn" disabled={opening} onClick={() => void open()}>
+          {opening ? 'Opening…' : view.label}
+        </button>
+      </span>
+    );
+  }
+  return (
+    <span className="meet-media-wrap" ref={anchorRef}>
+      <span className="meet-media-note">{view.label}</span>
+    </span>
+  );
+}
+
 function preview(message: ChatMessageItem, text: string | undefined): string {
   if (text) {
     return text;
@@ -882,7 +1013,12 @@ const MEET_PIP_CSS = `
 .meet-notice { padding: 0 16px 4px; }
 .meet-bubble { align-self: flex-start; max-width: 86%; padding: 8px 12px; border-radius: 12px; background: #3c4043; font-size: 14px; line-height: 1.35; }
 .meet-bubble.own { align-self: flex-end; background: #394457; }
-.meet-bubble-text { display: inline; }
+.meet-bubble-text { display: block; }
+.meet-media-wrap { display: block; }
+.meet-media { display: block; max-width: 100%; max-height: 180px; margin-top: 4px; border-radius: 8px; object-fit: contain; background: #000; }
+.meet-media-note { display: block; color: #9aa0a6; font-size: 12px; }
+.meet-media-btn { display: block; margin-top: 4px; border: 1px dashed #8ab4f8; border-radius: 8px; background: transparent; color: #8ab4f8; padding: 6px 8px; cursor: pointer; font-size: 12px; text-align: left; }
+.meet-media-btn:disabled { opacity: 0.6; cursor: wait; }
 .meet-reply { display: block; margin-bottom: 4px; padding-left: 6px; border-left: 2px solid #8ab4f8; color: #9aa0a6; font-size: 12px; }
 .meet-reply-btn { display: block; margin-top: 4px; border: 0; background: transparent; color: #8ab4f8; font-size: 11px; cursor: pointer; padding: 0; }
 .meet-replying { display: flex; align-items: center; gap: 8px; margin: 0 16px 6px; padding: 6px 8px; border-radius: 8px; background: #303134; font-size: 12px; color: #e8eaed; }
