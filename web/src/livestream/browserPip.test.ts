@@ -13,6 +13,7 @@ import {
   pathnameFromAppHref,
   isServerChatRoom,
   cameraPaneHeight,
+  defaultCameraPane,
   meetPipWindowSize,
   pipMessageActionIds,
   pickLatestChatRoom,
@@ -71,6 +72,10 @@ describe('meetPipWindowSize', () => {
     expect(cameraPaneHeight(0, 0, 640)).toBe(96);
     expect(cameraPaneHeight(900, 0, 640)).toBe(420);
     expect(cameraPaneHeight(50, 0, 180)).toBe(96);
+  });
+
+  it('opens the camera at the large full-width size', () => {
+    expect(defaultCameraPane(380, 640)).toEqual({w: 356, h: 420});
   });
 });
 

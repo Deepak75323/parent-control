@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type PointerEvent as ReactPointerEvent} from 'react';
+import {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent, type PointerEvent as ReactPointerEvent} from 'react';
 import {useAuthStore} from '../auth/authStore';
 import {chatApi} from '../api/services';
 import {decodeIncomingChatBody, encodeOutgoingChatBody, openChatDecryptSession} from '../lib/chatDecryptSession';
@@ -8,7 +8,7 @@ import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
 import {receiptStatusForViewer} from '../lib/chatReceiptPrivacy';
 import {decodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
 import {isEncryptedChatBody} from '../lib/chatMessageCrypto';
-import {cameraPaneHeight, chatRoomForPip, isPaddedChatBody, isServerChatRoom, meetPipWindowSize, mergeChatMessages, pickLatestChatRoom, pipChatChoices, pipLockedText, pipMessageActionIds, type PipMessageActionId} from './browserPip';
+import {cameraPaneHeight, chatRoomForPip, defaultCameraPane, isPaddedChatBody, isServerChatRoom, MEET_PIP_OPEN_SIZE, meetPipWindowSize, mergeChatMessages, pickLatestChatRoom, pipChatChoices, pipLockedText, pipMessageActionIds, type PipMessageActionId} from './browserPip';
 import {CHAT_QUICK_REACTION_EMOJIS} from '../lib/chatReactionEmojis';
 import {chatPipRoomId, subscribeChatPipRoom} from './chatPipTarget';
 import {nextViewerRotateDeg, prevViewerRotateDeg, viewerVideoRotateStyle} from '../lib/viewerVideoRotate';
@@ -152,6 +152,7 @@ export function MeetStylePip({onClose}: Props) {
   const [minimized, setMinimized] = useState(false);
   const [cameraBox, setCameraBox] = useState<{w: number; h: number} | null>(null);
   const cameraDrag = useRef(false);
+  const cameraChosen = useRef(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const composeRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -173,6 +174,19 @@ export function MeetStylePip({onClose}: Props) {
     el.muted = streamType === 'SCREEN' ? muted : true;
     void el.play().catch(() => undefined);
   }, [remoteStream, streamType, muted, cameraHidden, sessionId, minimized]);
+
+  useLayoutEffect(() => {
+    const live = Boolean(sessionId) && streamType !== 'AUDIO';
+    if (minimized || !live || cameraHidden || cameraChosen.current) {
+      return;
+    }
+    const shell = shellRef.current;
+    if (!shell || shell.clientHeight < 200 || shell.clientWidth < 160) {
+      return;
+    }
+    cameraChosen.current = true;
+    setCameraBox(defaultCameraPane(shell.clientWidth, shell.clientHeight));
+  }, [sessionId, streamType, cameraHidden, minimized]);
 
   useEffect(() => {
     let cancelled = false;
@@ -500,10 +514,11 @@ export function MeetStylePip({onClose}: Props) {
 
   const canLock = Boolean(room && (room.owner || room.canDecrypt));
   const turned = viewRotate === 90 || viewRotate === 270;
+  const openPane = defaultCameraPane(MEET_PIP_OPEN_SIZE.width, MEET_PIP_OPEN_SIZE.height);
   const videoStyle = viewerVideoRotateStyle(
     viewRotate,
-    cameraBox?.w ?? 280,
-    cameraBox ? Math.max(1, cameraBox.h - 8) : turned ? 280 : 175,
+    cameraBox?.w ?? openPane.w,
+    cameraBox ? Math.max(1, cameraBox.h - 8) : openPane.h,
     'contain',
   );
   const mentionCandidates = buildMentionCandidates(members);
@@ -679,6 +694,7 @@ export function MeetStylePip({onClose}: Props) {
     }
     const rect = shell.getBoundingClientRect();
     const height = cameraPaneHeight(pointerY, rect.top, rect.height);
+    cameraChosen.current = true;
     setCameraBox({w: Math.max(1, shell.clientWidth - 24), h: height});
   }
 
@@ -726,8 +742,8 @@ export function MeetStylePip({onClose}: Props) {
       <style>{MEET_PIP_CSS}</style>
       {liveCamera ? (
       <div
-        className={`meet-stage${cameraHidden ? ' hidden' : ''}${cameraBox ? ' sized' : ''}`}
-        style={cameraBox ? {height: cameraBox.h} : undefined}>
+        className={`meet-stage sized${cameraHidden ? ' hidden' : ''}`}
+        style={{height: (cameraBox ?? openPane).h}}>
         <div className={`meet-video-card${turned ? ' turned' : ''}`}>
           <video ref={videoRef} autoPlay playsInline style={videoStyle} />
           <span className="meet-name">{deviceName ?? 'Child'}</span>
@@ -1375,10 +1391,9 @@ function EndIcon() {
 
 const MEET_PIP_CSS = `
 .meet-pip { height: 100%; display: flex; flex-direction: column; background: #202124; color: #e8eaed; font-family: Roboto, system-ui, sans-serif; }
-.meet-stage { display: flex; justify-content: center; padding: 18px 16px 8px; }
+.meet-stage { display: flex; justify-content: center; box-sizing: border-box; padding: 8px 12px 0; height: calc(100% - 220px); min-height: 240px; }
 .meet-stage.hidden { display: none; }
-.meet-video-card { position: relative; width: min(100%, 280px); aspect-ratio: 16 / 10; border-radius: 12px; overflow: hidden; background: #000; }
-.meet-video-card.turned { aspect-ratio: 10 / 16; width: min(100%, 200px); }
+.meet-video-card, .meet-video-card.turned { position: relative; width: 100%; height: 100%; max-width: none; aspect-ratio: auto; border-radius: 12px; overflow: hidden; background: #000; }
 .meet-video-card video { width: 100%; height: 100%; object-fit: contain; background: #000; }
 .meet-name { position: absolute; left: 10px; bottom: 8px; font-size: 13px; text-shadow: 0 1px 2px #000; }
 .meet-video-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
@@ -1387,8 +1402,6 @@ const MEET_PIP_CSS = `
 .meet-titlebar.draggable { position: relative; cursor: ns-resize; touch-action: none; padding-top: 12px; }
 .meet-titlebar.draggable::before { content: ''; position: absolute; top: 4px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 999px; background: #5f6368; }
 .meet-titlebar.draggable button, .meet-titlebar.draggable .meet-menu { cursor: pointer; touch-action: auto; }
-.meet-stage.sized { box-sizing: border-box; padding: 8px 12px 0; }
-.meet-stage.sized .meet-video-card, .meet-stage.sized .meet-video-card.turned { width: 100%; height: 100%; max-width: none; aspect-ratio: auto; }
 .meet-title { flex: 1; min-width: 0; font-size: 20px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .meet-menu { position: relative; }
 .meet-more { width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; color: #e8eaed; cursor: pointer; display: grid; place-items: center; }

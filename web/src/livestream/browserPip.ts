@@ -70,6 +70,14 @@ export function cameraPaneHeight(pointerY: number, shellTop: number, shellHeight
   return Math.min(maxCamera, Math.max(minCamera, requested));
 }
 
+/** Full-width camera, as large as dragging the Notes banner all the way down. */
+export function defaultCameraPane(shellWidth: number, shellHeight: number): {w: number; h: number} {
+  return {
+    w: Math.max(1, shellWidth - 24),
+    h: cameraPaneHeight(shellHeight - 220, 0, shellHeight),
+  };
+}
+
 /** Close the floating window when the camera ends, unless the parent opened it for chat. */
 export function shouldReleaseMeetPipForCamera(videoSession: boolean, chatOnly: boolean): boolean {
   return !videoSession && !chatOnly;
