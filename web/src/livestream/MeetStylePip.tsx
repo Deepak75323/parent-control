@@ -975,11 +975,14 @@ function MeetPipMedia({
       </span>
     );
   }
-  return (
-    <span className="meet-media-wrap" ref={anchorRef}>
-      <span className="meet-media-note">{view.label}</span>
-    </span>
-  );
+  if (view.kind === 'own' || view.kind === 'opened') {
+    return (
+      <span className="meet-media-wrap" ref={anchorRef}>
+        <span className="meet-media-note">{view.label}</span>
+      </span>
+    );
+  }
+  return null;
 }
 
 function preview(message: ChatMessageItem, text: string | undefined): string {
