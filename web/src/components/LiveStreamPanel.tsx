@@ -164,7 +164,7 @@ export function LiveStreamPanel({deviceId, deviceName}: Props) {
 
           {sessionId && streamOnThisDevice ? (
             <p className="muted tiny">
-              The small floating video stays on this site. Switching to another tab opens the Meet window. Chrome may show the microphone dot while the live view is on. That sound is not recorded or sent.
+              The small floating video stays on this site. Picture in picture opens the Meet window for this camera. Switching to another tab does the same. Chrome may show the microphone dot while the live view is on. That sound is not recorded or sent.
             </p>
           ) : null}
         </>

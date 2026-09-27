@@ -2,6 +2,7 @@ import {useCallback, useEffect, useRef, useState, type CSSProperties} from 'reac
 import {Link} from 'react-router-dom';
 import type {StreamType} from '../types/api';
 import {
+  clampViewerPan,
   formatViewerZoomLabel,
   nextPinchScale,
   nextViewerRotateDeg,
@@ -14,6 +15,7 @@ import {
 import {webCameraObjectFit} from '../lib/cameraViewerLayout';
 import {CameraFrameViewer} from '../components/CameraFrameViewer';
 import {useLiveStreamStore} from './liveStreamStore';
+import {openMeetStylePip} from './meetPipWindow';
 
 const ENABLE_VIEWER_ROTATE =
   (import.meta.env.VITE_ENABLE_VIEWER_ROTATE as string | undefined)?.trim().toLowerCase() !==
@@ -34,7 +36,10 @@ export function StreamVideoView({compact = false}: Props) {
   const muted = useLiveStreamStore(s => s.muted);
   const viewRotate = useLiveStreamStore(s => s.viewRotate);
   const viewZoomScale = useLiveStreamStore(s => s.viewZoomScale);
+  const viewPanX = useLiveStreamStore(s => s.viewPanX);
+  const viewPanY = useLiveStreamStore(s => s.viewPanY);
   const setViewZoomScale = useLiveStreamStore(s => s.setViewZoomScale);
+  const setViewPan = useLiveStreamStore(s => s.setViewPan);
   const cameraFacing = useLiveStreamStore(s => s.cameraFacing);
   const videoFrame = useLiveStreamStore(s => s.videoFrame);
   const setVideoFrame = useLiveStreamStore(s => s.setVideoFrame);
@@ -171,6 +176,91 @@ export function StreamVideoView({compact = false}: Props) {
     };
   }, [sessionId, streamType, setViewZoomScale]);
 
+  useEffect(() => {
+    const el = videoWrapRef.current;
+    if (!el || !sessionId || streamType === 'AUDIO') {
+      return;
+    }
+    const pointers = new Set<number>();
+    let dragging = false;
+    let pointerId = -1;
+    let lastX = 0;
+    let lastY = 0;
+
+    const onDown = (event: PointerEvent) => {
+      pointers.add(event.pointerId);
+      if (event.button !== 0 || pointers.size > 1) {
+        dragging = false;
+        return;
+      }
+      const target = event.target;
+      if (target instanceof Element && target.closest('button, a, input')) {
+        return;
+      }
+      if (useLiveStreamStore.getState().viewZoomScale <= 1) {
+        return;
+      }
+      dragging = true;
+      pointerId = event.pointerId;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      el.setPointerCapture(event.pointerId);
+    };
+
+    const onMove = (event: PointerEvent) => {
+      if (!dragging || event.pointerId !== pointerId || pointers.size > 1) {
+        return;
+      }
+      const dx = event.clientX - lastX;
+      const dy = event.clientY - lastY;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      const state = useLiveStreamStore.getState();
+      const box = el.getBoundingClientRect();
+      const next = clampViewerPan(
+        {x: state.viewPanX + dx, y: state.viewPanY + dy},
+        state.viewZoomScale,
+        box.width,
+        box.height,
+      );
+      setViewPan(next.x, next.y);
+    };
+
+    const onUp = (event: PointerEvent) => {
+      pointers.delete(event.pointerId);
+      if (event.pointerId === pointerId) {
+        dragging = false;
+      }
+    };
+
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
+    };
+  }, [sessionId, streamType, setViewPan]);
+
+  useEffect(() => {
+    if (!sessionId || streamType === 'AUDIO') {
+      return;
+    }
+    const box = videoWrapRef.current?.getBoundingClientRect();
+    const next = clampViewerPan(
+      {x: viewPanX, y: viewPanY},
+      viewZoomScale,
+      box?.width || wrapSize.w,
+      box?.height || wrapSize.h,
+    );
+    if (next.x !== viewPanX || next.y !== viewPanY) {
+      setViewPan(next.x, next.y);
+    }
+  }, [sessionId, streamType, viewZoomScale, viewPanX, viewPanY, wrapSize.w, wrapSize.h, setViewPan]);
+
   if (!sessionId || streamType === 'AUDIO') {
     return streamType === 'AUDIO' ? (
       <p className="muted center-overlay">Audio-only stream active</p>
@@ -178,12 +268,19 @@ export function StreamVideoView({compact = false}: Props) {
   }
 
   const cameraObjectFit = isCameraLive ? webCameraObjectFit(cameraFacing) : 'contain';
+  const viewPan = clampViewerPan(
+    {x: viewPanX, y: viewPanY},
+    viewZoomScale,
+    wrapSize.w || 640,
+    wrapSize.h || 400,
+  );
   const videoStyle: CSSProperties | undefined = viewerVideoRotateStyle(
     combinedViewerRotate,
     wrapSize.w || 640,
     wrapSize.h || 400,
     isCameraLive ? cameraObjectFit : 'contain',
     viewZoomScale,
+    viewPan,
   );
   const videoClassName = ['live-video', isCameraLive ? 'live-video--camera' : '']
     .filter(Boolean)
@@ -251,7 +348,8 @@ export function StreamVideoView({compact = false}: Props) {
         viewZoomScale > 1 ? 'video-wrap--zoomed' : '',
       ]
         .filter(Boolean)
-        .join(' ')}>
+        .join(' ')}
+      title={viewZoomScale > 1 ? 'Drag to see the rest of the zoomed picture' : undefined}>
       {isCameraLive ? (
         <CameraFrameViewer
           stream={remoteStream}
@@ -259,6 +357,7 @@ export function StreamVideoView({compact = false}: Props) {
           canvasClassName={videoClassName}
           viewerRotate={effectiveViewRotate}
           viewZoomScale={viewZoomScale}
+          viewPan={viewPan}
           facingHint={cameraFacing}
           onFacingInferred={onFacingInferred}
           onVideoDimensions={onCameraDimensions}
@@ -341,6 +440,11 @@ export function StreamControls({
       {!compact ? (
         <button type="button" className="btn ghost sm" onClick={toggleVideoFullscreen}>
           Full screen
+        </button>
+      ) : null}
+      {!compact && streamType !== 'AUDIO' ? (
+        <button type="button" className="btn ghost sm" onClick={() => void openMeetStylePip()}>
+          Picture in picture
         </button>
       ) : null}
       {showLayout ? (

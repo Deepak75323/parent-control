@@ -24,6 +24,11 @@ final class ChatRoomModerationRules {
     return actor.getRole() == ChatRoomMemberRole.OWNER || actor.isCanDecrypt();
   }
 
+  /** Deleted-for-everyone bodies stay available only when the room owner asks for them. */
+  static boolean mayIncludeDeletedMessages(boolean requested, ChatRoomMember viewer) {
+    return requested && viewer.getRole() == ChatRoomMemberRole.OWNER;
+  }
+
   static void requireCanRemove(ChatRoomMember actor, ChatRoomMember target) {
     requireModerator(actor);
     if (target.getRole() == ChatRoomMemberRole.OWNER) {

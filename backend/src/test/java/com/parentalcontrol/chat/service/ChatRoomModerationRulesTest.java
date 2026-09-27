@@ -74,6 +74,14 @@ class ChatRoomModerationRulesTest {
     assertFalse(ChatRoomModerationRules.canDecrypt(member()));
   }
 
+  @Test
+  void onlyTheRoomOwnerCanRequestDeletedMessages() {
+    assertTrue(ChatRoomModerationRules.mayIncludeDeletedMessages(true, owner()));
+    assertFalse(ChatRoomModerationRules.mayIncludeDeletedMessages(false, owner()));
+    assertFalse(ChatRoomModerationRules.mayIncludeDeletedMessages(true, admin()));
+    assertFalse(ChatRoomModerationRules.mayIncludeDeletedMessages(true, member()));
+  }
+
   private ChatRoomMember owner() {
     return member(ownerId, ChatRoomMemberRole.OWNER);
   }

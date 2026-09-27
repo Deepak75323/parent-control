@@ -313,9 +313,20 @@ export const chatApi = {
     api.post<ApiResponse<ChatInviteItem>>(ApiPaths.chatRoomInvites(roomId), {identifier}),
   respondInvite: (inviteId: string, accept: boolean) =>
     api.post<ApiResponse<ChatInviteItem>>(ApiPaths.chatInviteRespond(inviteId), {accept}),
-  listMessages: (roomId: string, page = 0, size = 50, channelId?: string) =>
+  listMessages: (
+    roomId: string,
+    page = 0,
+    size = 50,
+    channelId?: string,
+    includeDeleted = false,
+  ) =>
     api.get<ApiResponse<ChatMessageItem[]>>(ApiPaths.chatRoomMessages(roomId), {
-      params: {page, size, ...(channelId ? {channelId} : {})},
+      params: {
+        page,
+        size,
+        ...(channelId ? {channelId} : {}),
+        ...(includeDeleted ? {includeDeleted: true} : {}),
+      },
     }),
   sendMessage: (roomId: string, body: string, replyToMessageId?: string, channelId?: string) =>
     api.post<ApiResponse<ChatMessageItem>>(ApiPaths.chatRoomMessages(roomId), {

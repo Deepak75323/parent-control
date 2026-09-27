@@ -57,6 +57,35 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
   @Query("SELECT m FROM ChatMessage m WHERE m.roomId = :roomId AND m.deletedAt IS NULL")
   List<ChatMessage> findActiveByRoomId(@Param("roomId") UUID roomId);
 
+  /**
+   * Room-owner view: includes messages soft-deleted for everyone. Native so the deleted_at
+   * restriction does not drop those rows. Per-user hides stay excluded.
+   */
+  @Query(
+      value =
+          "SELECT m.* FROM chat_messages m WHERE m.room_id = :roomId "
+              + "AND m.channel_id = :channelId AND m.created_at > :clearedAfter "
+              + "AND (m.deleted_at IS NULL OR m.deleted_at > :deletedVisibleAfter) "
+              + "AND NOT EXISTS ("
+              + "SELECT 1 FROM chat_message_hides h WHERE h.message_id = m.id "
+              + "AND h.user_id = :userId AND h.deleted_at IS NULL) "
+              + "ORDER BY m.created_at DESC",
+      countQuery =
+          "SELECT COUNT(*) FROM chat_messages m WHERE m.room_id = :roomId "
+              + "AND m.channel_id = :channelId AND m.created_at > :clearedAfter "
+              + "AND (m.deleted_at IS NULL OR m.deleted_at > :deletedVisibleAfter) "
+              + "AND NOT EXISTS ("
+              + "SELECT 1 FROM chat_message_hides h WHERE h.message_id = m.id "
+              + "AND h.user_id = :userId AND h.deleted_at IS NULL)",
+      nativeQuery = true)
+  Page<ChatMessage> findForOwnerIncludingDeletedInChannel(
+      @Param("roomId") UUID roomId,
+      @Param("channelId") UUID channelId,
+      @Param("userId") UUID userId,
+      @Param("clearedAfter") Instant clearedAfter,
+      @Param("deletedVisibleAfter") Instant deletedVisibleAfter,
+      Pageable pageable);
+
   @Modifying(clearAutomatically = true, flushAutomatically = true)
   @Query(
       "UPDATE ChatMessage m SET m.deletedAt = :now, m.updatedAt = :now "
@@ -92,4 +121,12 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
               + "LIMIT 200",
       nativeQuery = true)
   List<UUID> findIdsReadyForAutoDelete(@Param("cutoff") Instant cutoff);
+
+  @Modifying(clearAutomatically = true, flushAutomatically = true)
+  @Query(
+      value =
+          "UPDATE chat_messages SET body = '' "
+              + "WHERE deleted_at IS NOT NULL AND deleted_at <= :cutoff AND body <> ''",
+      nativeQuery = true)
+  int blankDeletedBodiesBefore(@Param("cutoff") Instant cutoff);
 }

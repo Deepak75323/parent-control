@@ -510,6 +510,13 @@ public class ChatService {
     return purged;
   }
 
+  /** Erase deleted-for-everyone bodies once the room owner’s 24-hour window has closed. */
+  @Transactional
+  public int wipeExpiredDeletedMessageBodies() {
+    Instant cutoff = Instant.now().minus(DeletedMessageRetention.RETENTION);
+    return messageRepository.blankDeletedBodiesBefore(cutoff);
+  }
+
   @Transactional
   public List<ChatMessageReactionSummary> setMessageReaction(
       UUID roomId, UUID messageId, String emoji) {
@@ -688,7 +695,7 @@ public class ChatService {
 
   @Transactional(readOnly = true)
   public List<ChatMessageResponse> listMessages(
-      UUID roomId, UUID channelId, int page, int size) {
+      UUID roomId, UUID channelId, int page, int size, boolean includeDeleted) {
     UUID userId = SecurityUtils.requireUserId();
     ChatRoomMember member = requireActiveMember(roomId, userId);
     UUID resolvedChannelId = channelService.resolveTextChannel(roomId, channelId).getId();
@@ -696,13 +703,23 @@ public class ChatService {
     Instant clearedAfter =
         member.getChatClearedAt() != null ? member.getChatClearedAt() : Instant.EPOCH;
 
+    boolean ownerDeletedView =
+        ChatRoomModerationRules.mayIncludeDeletedMessages(includeDeleted, member);
     Page<ChatMessage> messages =
-        messageRepository.findVisibleForMemberInChannelOrderByCreatedAtDesc(
-            roomId,
-            resolvedChannelId,
-            userId,
-            clearedAfter,
-            PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+        ownerDeletedView
+            ? messageRepository.findForOwnerIncludingDeletedInChannel(
+                roomId,
+                resolvedChannelId,
+                userId,
+                clearedAfter,
+                Instant.now().minus(DeletedMessageRetention.RETENTION),
+                PageRequest.of(page, size))
+            : messageRepository.findVisibleForMemberInChannelOrderByCreatedAtDesc(
+                roomId,
+                resolvedChannelId,
+                userId,
+                clearedAfter,
+                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
 
     List<ChatMessage> content = messages.getContent();
     List<UUID> messageIds = content.stream().map(ChatMessage::getId).toList();
@@ -1193,6 +1210,7 @@ public class ChatService {
         .editedAt(message.getEditedAt())
         .receiptStatus(ownMessage ? readReceiptService.statusForMessage(message.getId()) : null)
         .unread(unread)
+        .deleted(message.getDeletedAt() != null)
         .replyTo(buildReplyPreview(message))
         .reactions(reactions)
         .build();

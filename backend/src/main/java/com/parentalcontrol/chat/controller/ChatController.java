@@ -288,8 +288,10 @@ public class ChatController {
       @PathVariable UUID roomId,
       @RequestParam(required = false) UUID channelId,
       @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "50") int size) {
-    return ApiResponse.ok(chatService.listMessages(roomId, channelId, page, size));
+      @RequestParam(defaultValue = "50") int size,
+      @RequestParam(defaultValue = "false") boolean includeDeleted) {
+    return ApiResponse.ok(
+        chatService.listMessages(roomId, channelId, page, size, includeDeleted));
   }
 
   @PostMapping("/rooms/{roomId}/messages")

@@ -33,6 +33,8 @@ public class ChatMessageResponse {
   ChatReceiptStatus receiptStatus;
   /** True when this incoming message has not been read by the viewer yet. */
   Boolean unread;
+  /** True when the message was deleted for everyone and is visible only to the room owner. */
+  boolean deleted;
   /** Quoted parent message, when this message is a reply. */
   ChatMessageReplyPreview replyTo;
   /** Emoji reactions grouped by emoji. */

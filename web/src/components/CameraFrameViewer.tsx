@@ -8,7 +8,7 @@ import {
 } from '../lib/cameraFramePaint';
 import {createMediaStreamTrackProcessor} from '../lib/mediaStreamTrackProcessor';
 import type {ViewerRotateDeg} from '../lib/viewerVideoRotate';
-import {viewerVideoRotateStyle, viewerZoomLayerStyle} from '../lib/viewerVideoRotate';
+import {viewerVideoRotateStyle, viewerZoomLayerStyle, type ViewerPan} from '../lib/viewerVideoRotate';
 
 type VideoFrameWithCvo = VideoFrame & {rotation?: number};
 
@@ -22,6 +22,7 @@ type Props = {
   viewerRotate?: ViewerRotateDeg;
   /** Viewer-only pinch/button zoom (CSS scale on the canvas layer). */
   viewZoomScale?: number;
+  viewPan?: ViewerPan;
   /** UI hint when CVO cannot distinguish front vs back (e.g. landscape tilt). */
   facingHint?: WebCameraFacing;
   onFacingInferred?: (facing: WebCameraFacing) => void;
@@ -47,6 +48,7 @@ export function CameraFrameViewer({
   canvasClassName,
   viewerRotate = 0,
   viewZoomScale = 1,
+  viewPan = {x: 0, y: 0},
   facingHint = 'user',
   onFacingInferred,
   onVideoDimensions,
@@ -272,7 +274,7 @@ export function CameraFrameViewer({
         position: 'absolute',
         inset: 0,
         transformOrigin: 'center center',
-        ...viewerZoomLayerStyle(viewZoomScale),
+        ...viewerZoomLayerStyle(viewZoomScale, viewPan),
       }}>
       <div ref={rotateLayerRef} style={rotateStyle}>
         <canvas ref={canvasRef} className={canvasClassName} aria-label="Live camera" />

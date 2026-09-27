@@ -18,6 +18,12 @@ import {
   outgoingBodyLeaksDecryptCode,
 } from '../lib/chatDecryptSession';
 import {setChatViewUnlocked} from '../lib/chatViewUnlock';
+import {
+  isShowDeletedMessagesForOwner,
+  messageForOwnerDeletedView,
+  setShowDeletedMessagesForOwner,
+  subscribeShowDeletedMessagesForOwner,
+} from '../lib/ownerDeletedMessages';
 import {groupMessagesByDate} from '../lib/chatMessageGrouping';
 import {resolveOwnSenderUserId, withResolvedOwnership} from '../lib/chatMessageOwnership';
 import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
@@ -229,6 +235,14 @@ export function ChatPage() {
   const [decryptPinError, setDecryptPinError] = useState<string | null>(null);
   const [decryptDialogMode, setDecryptDialogMode] = useState<ChatDecryptDialogMode>('unlock');
   const [cryptoSalt, setCryptoSalt] = useState<string | null>(null);
+  const [showDeletedMessages, setShowDeletedMessages] = useState(isShowDeletedMessagesForOwner);
+  useEffect(
+    () =>
+      subscribeShowDeletedMessagesForOwner(() => {
+        setShowDeletedMessages(isShowDeletedMessagesForOwner());
+      }),
+    [],
+  );
 
   const setReadCursor = (messageId: string | null) => {
     lastReadMessageIdRef.current = messageId;
@@ -239,6 +253,8 @@ export function ChatPage() {
     () => rooms.find(room => room.id === selectedRoomId) ?? null,
     [rooms, selectedRoomId],
   );
+  const includeDeletedRef = useRef(false);
+  includeDeletedRef.current = showDeletedMessages && Boolean(selectedRoom?.owner);
   const selectedRoomDisplay = useMemo(() => {
     if (!selectedRoom || !isDirectStyleRoom(selectedRoom)) {
       return selectedRoom;
@@ -572,17 +588,22 @@ export function ChatPage() {
       ) {
         continue;
       }
-      if (deletedChatMessageIds[message.id]) {
+      const visible = messageForOwnerDeletedView(message, {
+        removedForEveryone: Boolean(deletedChatMessageIds[message.id]),
+        showDeleted: showDeletedMessages,
+        viewerIsRoomOwner: Boolean(selectedRoom?.owner),
+      });
+      if (!visible) {
         continue;
       }
-      const createdMs = new Date(message.createdAt).getTime();
+      const createdMs = new Date(visible.createdAt).getTime();
       if (globalClearedAt && createdMs <= globalClearedAt) {
         continue;
       }
       if (personalClearedAt && createdMs <= personalClearedAt) {
         continue;
       }
-      byId.set(message.id, message);
+      byId.set(visible.id, visible);
     }
 
     if (loadedAt > 0) {
@@ -597,29 +618,35 @@ export function ChatPage() {
         ) {
           continue;
         }
-        if (deletedChatMessageIds[message.id]) {
+        const visible = messageForOwnerDeletedView(message, {
+          removedForEveryone: Boolean(deletedChatMessageIds[message.id]),
+          showDeleted: showDeletedMessages,
+          viewerIsRoomOwner: Boolean(selectedRoom?.owner),
+        });
+        if (!visible) {
           continue;
         }
-        const createdMs = new Date(message.createdAt).getTime();
+        const createdMs = new Date(visible.createdAt).getTime();
         if (globalClearedAt && createdMs <= globalClearedAt) {
           continue;
         }
         if (personalClearedAt && createdMs <= personalClearedAt) {
           continue;
         }
-        if (createdMs <= loadedAt && !byId.has(message.id)) {
+        if (createdMs <= loadedAt && !byId.has(visible.id)) {
           continue;
         }
-        const existing = byId.get(message.id);
+        const existing = byId.get(visible.id);
         byId.set(
-          message.id,
+          visible.id,
           existing
             ? {
                 ...existing,
-                ...message,
-                unread: mergeChatUnreadFlag(existing.unread, message.unread),
+                ...visible,
+                deleted: Boolean(existing.deleted || visible.deleted),
+                unread: mergeChatUnreadFlag(existing.unread, visible.unread),
               }
-            : message,
+            : visible,
         );
       }
     }
@@ -647,6 +674,8 @@ export function ChatPage() {
     selectedRoomId,
     selectedChannelId,
     deletedChatMessageIds,
+    showDeletedMessages,
+    selectedRoom?.owner,
     chatClearedAt,
     personalChatClearedAt,
     messagesLoadedAt,
@@ -1221,7 +1250,13 @@ export function ChatPage() {
     async (roomId: string, channelId?: string | null) => {
       const loadGen = ++messagesLoadGenRef.current;
       try {
-        const {data} = await chatApi.listMessages(roomId, 0, 50, channelId ?? undefined);
+        const {data} = await chatApi.listMessages(
+          roomId,
+          0,
+          50,
+          channelId ?? undefined,
+          includeDeletedRef.current,
+        );
         if (loadGen !== messagesLoadGenRef.current) {
           return;
         }
@@ -1443,11 +1478,41 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
+    const keep = showDeletedMessages && Boolean(selectedRoom?.owner);
     setApiMessages(prev => {
+      if (keep) {
+        let changed = false;
+        const next = prev.map(message => {
+          if (!deletedChatMessageIds[message.id] || message.deleted) {
+            return message;
+          }
+          changed = true;
+          return {...message, deleted: true};
+        });
+        return changed ? next : prev;
+      }
       const next = prev.filter(message => !deletedChatMessageIds[message.id]);
       return next.length === prev.length ? prev : next;
     });
-  }, [deletedChatMessageIds]);
+  }, [deletedChatMessageIds, showDeletedMessages, selectedRoom?.owner]);
+
+  const showDeletedReloadRef = useRef(showDeletedMessages);
+  useEffect(() => {
+    if (showDeletedReloadRef.current === showDeletedMessages) {
+      return;
+    }
+    showDeletedReloadRef.current = showDeletedMessages;
+    if (!selectedRoomId || !selectedRoom?.owner) {
+      return;
+    }
+    void loadMessages(selectedRoomId, selectedChannelId);
+  }, [
+    showDeletedMessages,
+    selectedRoomId,
+    selectedRoom?.owner,
+    selectedChannelId,
+    loadMessages,
+  ]);
 
   useEffect(() => {
     deliveredMarkedRef.current.clear();
@@ -2145,8 +2210,16 @@ export function ChatPage() {
     }
     setBusy(true);
     setError(null);
-    setApiMessages(prev => prev.filter(entry => entry.id !== message.id));
-    removeLiveChatMessage(message.id);
+    const keepDeleted =
+      scope === 'FOR_EVERYONE' && showDeletedMessages && Boolean(selectedRoom?.owner);
+    if (keepDeleted) {
+      setApiMessages(prev =>
+        prev.map(entry => (entry.id === message.id ? {...entry, deleted: true} : entry)),
+      );
+    } else {
+      setApiMessages(prev => prev.filter(entry => entry.id !== message.id));
+      removeLiveChatMessage(message.id);
+    }
     try {
       await chatApi.deleteMessage(selectedRoomId, message.id, scope);
     } catch {
@@ -2191,7 +2264,13 @@ export function ChatPage() {
     async (roomId: string, messageId: string) => {
       const pageSize = 50;
       for (let page = 1; page < 20; page += 1) {
-        const {data} = await chatApi.listMessages(roomId, page, pageSize, selectedChannelId ?? undefined);
+        const {data} = await chatApi.listMessages(
+          roomId,
+          page,
+          pageSize,
+          selectedChannelId ?? undefined,
+          includeDeletedRef.current,
+        );
         const batch = data.data ?? [];
         if (batch.length === 0) {
           break;
@@ -2368,6 +2447,7 @@ export function ChatPage() {
 
     return (
       <>
+        {message.deleted ? <p className="chat-message-deleted-label">Deleted</p> : null}
         {showMedia ? (
           <ChatMessageMedia
             message={message}
@@ -2408,18 +2488,20 @@ export function ChatPage() {
         )}
         busy={busy}
         isEditing={editingMessageId === message.id}
-        canEdit={canEditMessage(message)}
-        canDelete={canDeleteMessage(message)}
-        canDeleteForEveryone={canDeleteForEveryone(message)}
-        swipeToReplyEnabled={workspace.isMobile}
+        canEdit={canEditMessage(message) && !message.deleted}
+        canDelete={canDeleteMessage(message) && !message.deleted}
+        canDeleteForEveryone={canDeleteForEveryone(message) && !message.deleted}
+        swipeToReplyEnabled={workspace.isMobile && !message.deleted}
         onEdit={() => startEditMessage(message)}
         onDeleteForMe={() => void handleDeleteMessage(message, 'FOR_ME')}
         onDeleteForEveryone={() => void handleDeleteMessage(message, 'FOR_EVERYONE')}
         onCopy={() => handleCopyMessage(message)}
-        onReply={() => startReplyMessage(message)}
+        onReply={message.deleted ? undefined : () => startReplyMessage(message)}
         onQuoteClick={scrollToMessage}
-        onToggleReaction={emoji => handleToggleReaction(message, emoji)}
-        onMarkUnread={() => void handleMarkUnread(message)}
+        onToggleReaction={
+          message.deleted ? undefined : emoji => handleToggleReaction(message, emoji)
+        }
+        onMarkUnread={message.deleted ? undefined : () => void handleMarkUnread(message)}
         canDecryptRoom={canDecryptSelected}
         chatDecrypted={chatDecrypted}
         onDecryptChat={() => {
@@ -2488,6 +2570,16 @@ export function ChatPage() {
                       void openDecryptDialog();
                     },
                   },
+            ]
+          : []),
+        ...(selectedRoom.owner
+          ? [
+              {
+                id: 'show-deleted',
+                label: showDeletedMessages ? 'Hide deleted messages' : 'Show deleted messages',
+                disabled: busy,
+                onSelect: () => setShowDeletedMessagesForOwner(!showDeletedMessages),
+              },
             ]
           : []),
         {

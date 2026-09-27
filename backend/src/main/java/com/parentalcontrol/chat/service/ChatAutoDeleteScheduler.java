@@ -19,5 +19,9 @@ public class ChatAutoDeleteScheduler {
     if (purged > 0) {
       log.info("Auto-deleted {} fully-read chat message(s) after grace period", purged);
     }
+    int wiped = chatService.wipeExpiredDeletedMessageBodies();
+    if (wiped > 0) {
+      log.info("Erased {} deleted chat body/bodies older than 24 hours", wiped);
+    }
   }
 }

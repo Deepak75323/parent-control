@@ -40,6 +40,27 @@ export function nudgeViewerZoomPercent(currentScale: number, deltaPercent: numbe
   return viewerZoomPercentToScale(scaleToViewerZoomPercent(currentScale) + deltaPercent);
 }
 
+export type ViewerPan = {x: number; y: number};
+
+/** Extra pixels past the frame on each side once the picture is scaled from the center. */
+export function clampViewerPan(
+  pan: ViewerPan,
+  scale: number,
+  width: number,
+  height: number,
+): ViewerPan {
+  const pinch = clampViewerPinchScale(scale);
+  if (pinch <= 1 || width <= 0 || height <= 0) {
+    return {x: 0, y: 0};
+  }
+  const maxX = ((pinch - 1) * width) / 2;
+  const maxY = ((pinch - 1) * height) / 2;
+  return {
+    x: Math.min(maxX, Math.max(-maxX, pan.x)),
+    y: Math.min(maxY, Math.max(-maxY, pan.y)),
+  };
+}
+
 export function nextPinchScale(
   startScale: number,
   startDistance: number,
@@ -93,9 +114,16 @@ export type ViewerVideoStyle = {
 /**
  * Layout style so a CSS-rotated video still fits the container without clipping.
  */
-function viewerZoomTransform(degrees: ViewerRotateDeg, pinchScale: number): string {
+function viewerZoomTransform(
+  degrees: ViewerRotateDeg,
+  pinchScale: number,
+  pan: ViewerPan = {x: 0, y: 0},
+): string {
   const pinch = clampViewerPinchScale(pinchScale);
   const parts: string[] = [];
+  if (pinch !== 1 && (pan.x !== 0 || pan.y !== 0)) {
+    parts.push(`translate(${pan.x}px, ${pan.y}px)`);
+  }
   if (degrees !== 0) {
     parts.push(`rotate(${degrees}deg)`);
   }
@@ -105,11 +133,11 @@ function viewerZoomTransform(degrees: ViewerRotateDeg, pinchScale: number): stri
   return parts.length > 0 ? parts.join(' ') : 'none';
 }
 
-export function viewerZoomLayerStyle(pinchScale: number): {transform: string} {
-  const pinch = clampViewerPinchScale(pinchScale);
-  return {
-    transform: pinch === 1 ? 'none' : `scale(${pinch})`,
-  };
+export function viewerZoomLayerStyle(
+  pinchScale: number,
+  pan: ViewerPan = {x: 0, y: 0},
+): {transform: string} {
+  return {transform: viewerZoomTransform(0, pinchScale, pan)};
 }
 
 export function viewerVideoRotateStyle(
@@ -118,8 +146,9 @@ export function viewerVideoRotateStyle(
   containerH: number,
   objectFit: 'contain' | 'cover' = 'contain',
   pinchScale = 1,
+  pan: ViewerPan = {x: 0, y: 0},
 ): ViewerVideoStyle {
-  const transform = viewerZoomTransform(degrees, pinchScale);
+  const transform = viewerZoomTransform(degrees, pinchScale, pan);
   if (degrees === 0) {
     return {
       transform,

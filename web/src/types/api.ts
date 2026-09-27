@@ -305,6 +305,8 @@ export interface ChatMessageItem {
   receiptStatus?: 'SENT' | 'DELIVERED' | 'READ';
   /** Incoming messages not yet read by this user. */
   unread?: boolean;
+  /** Deleted for everyone. Present only when the room owner asked to see those messages. */
+  deleted?: boolean;
   replyTo?: ChatMessageReplyPreview | null;
   reactions?: ChatMessageReactionSummary[];
 }
