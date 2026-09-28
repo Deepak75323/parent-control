@@ -1,4 +1,4 @@
-import {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent, type PointerEvent as ReactPointerEvent} from 'react';
+import {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type PointerEvent as ReactPointerEvent} from 'react';
 import {useAuthStore} from '../auth/authStore';
 import {chatApi} from '../api/services';
 import {decodeIncomingChatBody, encodeOutgoingChatBody, openChatDecryptSession} from '../lib/chatDecryptSession';
@@ -10,6 +10,15 @@ import {decodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
 import {isEncryptedChatBody} from '../lib/chatMessageCrypto';
 import {cameraPaneHeight, chatRoomForPip, defaultCameraPane, isPaddedChatBody, isServerChatRoom, MEET_PIP_OPEN_SIZE, meetPipWindowSize, mergeChatMessages, pickLatestChatRoom, pipChatChoices, pipLockedText, pipMessageActionIds, type PipMessageActionId} from './browserPip';
 import {CHAT_QUICK_REACTION_EMOJIS} from '../lib/chatReactionEmojis';
+import {
+  CHAT_EMOJI_CATEGORIES,
+  defaultEmojiCategoryId,
+  loadRecentEmojis,
+  rememberEmoji,
+  type EmojiCategory,
+} from '../lib/chatEmojiCatalog';
+import {formatChatTypingLine} from '../lib/chatTypingLabel';
+import {insertTextAtSelection} from '../lib/insertTextAtSelection';
 import {chatPipRoomId, subscribeChatPipRoom} from './chatPipTarget';
 import {nextViewerRotateDeg, prevViewerRotateDeg, viewerVideoRotateStyle} from '../lib/viewerVideoRotate';
 import {isChatViewUnlocked, setChatViewUnlocked, subscribeChatViewUnlocked} from '../lib/chatViewUnlock';
@@ -40,6 +49,13 @@ type PendingAction = {
   message: string;
   run: () => Promise<void>;
 };
+
+function meetEmojiCategories(recent: string[]): EmojiCategory[] {
+  if (recent.length === 0) {
+    return CHAT_EMOJI_CATEGORIES;
+  }
+  return [{id: 'recent', label: 'Recent', icon: '🕘', emojis: recent}, ...CHAT_EMOJI_CATEGORIES];
+}
 
 /** PiP nodes belong to the floating window, not the opener page's Node. */
 function pointerInside(menu: HTMLElement | null, target: EventTarget | null): boolean {
@@ -155,7 +171,17 @@ export function MeetStylePip({onClose}: Props) {
   const cameraChosen = useRef(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const composeRef = useRef<HTMLInputElement>(null);
+  const emojiRootRef = useRef<HTMLDivElement>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const typingIdleTimerRef = useRef<number | null>(null);
+  const typingActiveRef = useRef(false);
+  const lastTypingPulseAtRef = useRef(0);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [emojiCategoryId, setEmojiCategoryId] = useState('smileys');
+  const [emojiCategories, setEmojiCategories] = useState<EmojiCategory[]>(CHAT_EMOJI_CATEGORIES);
+  const chatTypingByRoom = useRealtimeStore(s => s.chatTypingByRoom);
+  const pruneExpiredChatTyping = useRealtimeStore(s => s.pruneExpiredChatTyping);
   const sentPlain = useRef<Record<string, string>>({});
   const unlocked = useSyncExternalStore(subscribeChatViewUnlocked, isChatViewUnlocked, () => false);
   const preferredRoomId = useSyncExternalStore(subscribeChatPipRoom, chatPipRoomId, () => null);
@@ -323,6 +349,123 @@ export function MeetStylePip({onClose}: Props) {
     log.scrollTop = log.scrollHeight;
   }, [messages, shown]);
 
+  const roomId = room?.id ?? null;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => pruneExpiredChatTyping(), 1000);
+    return () => window.clearInterval(timer);
+  }, [pruneExpiredChatTyping]);
+
+  useEffect(() => {
+    return () => {
+      if (typingIdleTimerRef.current != null) {
+        window.clearTimeout(typingIdleTimerRef.current);
+        typingIdleTimerRef.current = null;
+      }
+      if (typingActiveRef.current && roomId) {
+        typingActiveRef.current = false;
+        void chatApi.notifyTyping(roomId, false).catch(() => undefined);
+      }
+    };
+  }, [roomId]);
+
+  const typingLine = useMemo(() => {
+    if (!roomId) {
+      return '';
+    }
+    const now = Date.now();
+    const peers = (chatTypingByRoom[roomId] ?? []).filter(peer => peer.expiresAt > now);
+    return formatChatTypingLine(peers);
+  }, [chatTypingByRoom, roomId]);
+
+  function clearTypingIdleTimer() {
+    if (typingIdleTimerRef.current != null) {
+      window.clearTimeout(typingIdleTimerRef.current);
+      typingIdleTimerRef.current = null;
+    }
+  }
+
+  function publishTyping(typing: boolean) {
+    if (!roomId) {
+      return;
+    }
+    if (typingActiveRef.current === typing) {
+      return;
+    }
+    typingActiveRef.current = typing;
+    void chatApi.notifyTyping(roomId, typing).catch(() => undefined);
+  }
+
+  function stopTypingSignal() {
+    clearTypingIdleTimer();
+    lastTypingPulseAtRef.current = 0;
+    publishTyping(false);
+  }
+
+  function pulseTypingFromDraft(nextDraft: string) {
+    if (!roomId || editingMessage) {
+      return;
+    }
+    if (!nextDraft.trim()) {
+      stopTypingSignal();
+      return;
+    }
+    const now = Date.now();
+    if (!typingActiveRef.current || now - lastTypingPulseAtRef.current > 2000) {
+      typingActiveRef.current = false;
+      lastTypingPulseAtRef.current = now;
+      publishTyping(true);
+    }
+    clearTypingIdleTimer();
+    typingIdleTimerRef.current = window.setTimeout(() => {
+      publishTyping(false);
+    }, 2500);
+  }
+
+  useEffect(() => {
+    if (!emojiOpen) {
+      return;
+    }
+    const doc = composeRef.current?.ownerDocument ?? document;
+    function handlePointer(event: Event) {
+      const target = event.target;
+      if (pointerInside(emojiRootRef.current, target) || pointerInside(emojiButtonRef.current, target)) {
+        return;
+      }
+      setEmojiOpen(false);
+    }
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setEmojiOpen(false);
+      }
+    }
+    doc.addEventListener('mousedown', handlePointer);
+    doc.addEventListener('keydown', handleKey);
+    return () => {
+      doc.removeEventListener('mousedown', handlePointer);
+      doc.removeEventListener('keydown', handleKey);
+    };
+  }, [emojiOpen]);
+
+  function insertEmoji(emoji: string) {
+    const input = composeRef.current;
+    const start = input?.selectionStart ?? cursor;
+    const end = input?.selectionEnd ?? cursor;
+    const {nextText, cursor: nextCursor} = insertTextAtSelection(draft, emoji, start, end);
+    setDraft(nextText);
+    setCursor(nextCursor);
+    setEmojiCategories(meetEmojiCategories(rememberEmoji(emoji)));
+    pulseTypingFromDraft(nextText);
+    const view = input?.ownerDocument.defaultView ?? window;
+    view.requestAnimationFrame(() => {
+      if (!input) {
+        return;
+      }
+      input.focus();
+      input.setSelectionRange(nextCursor, nextCursor);
+    });
+  }
+
   async function send(event: FormEvent) {
     event.preventDefault();
     const text = draft.trim();
@@ -341,6 +484,7 @@ export function MeetStylePip({onClose}: Props) {
           setMessages(current => mergeChatMessages(current, [saved]));
         }
         setDraft('');
+        setEmojiOpen(false);
         setEditingMessage(null);
       } catch (err) {
         setNotice(err instanceof Error ? err.message : 'Could not edit');
@@ -362,6 +506,8 @@ export function MeetStylePip({onClose}: Props) {
         setMessages(current => mergeChatMessages(current, [saved]));
       }
       setDraft('');
+      setEmojiOpen(false);
+      stopTypingSignal();
       setReplyingTo(null);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Could not send');
@@ -1073,6 +1219,11 @@ export function MeetStylePip({onClose}: Props) {
         </div>
       ) : null}
       {notice ? <p className="meet-notice">{notice}</p> : null}
+      {typingLine && !editingMessage ? (
+        <p className="meet-typing" aria-live="polite">
+          {typingLine}
+        </p>
+      ) : null}
       <form
         className="meet-compose"
         onSubmit={event => {
@@ -1101,6 +1252,39 @@ export function MeetStylePip({onClose}: Props) {
             ))}
           </div>
         ) : null}
+        {emojiOpen && mentionChoices.length === 0 ? (
+          <div className="meet-emoji" ref={emojiRootRef} role="dialog" aria-label="Choose emoji">
+            <div className="meet-emoji-tabs" role="tablist" aria-label="Emoji categories">
+              {emojiCategories.map(category => (
+                <button
+                  key={category.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={category.id === emojiCategoryId}
+                  aria-label={category.label}
+                  className={category.id === emojiCategoryId ? 'active' : undefined}
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => setEmojiCategoryId(category.id)}>
+                  {category.icon}
+                </button>
+              ))}
+            </div>
+            <div className="meet-emoji-grid" role="tabpanel">
+              {(emojiCategories.find(category => category.id === emojiCategoryId) ?? emojiCategories[0])?.emojis.map(
+                (emoji, index) => (
+                  <button
+                    key={`${emojiCategoryId}-${index}-${emoji}`}
+                    type="button"
+                    aria-label={`Insert ${emoji}`}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => insertEmoji(emoji)}>
+                    {emoji}
+                  </button>
+                ),
+              )}
+            </div>
+          </div>
+        ) : null}
         <input
           ref={composeRef}
           value={draft}
@@ -1108,9 +1292,15 @@ export function MeetStylePip({onClose}: Props) {
             setDraft(event.target.value);
             setCursor(event.target.selectionStart ?? event.target.value.length);
             setMentionIndex(0);
+            pulseTypingFromDraft(event.target.value);
           }}
           onSelect={event => setCursor(event.currentTarget.selectionStart ?? 0)}
           onKeyDown={event => {
+            if (event.key === 'Escape' && emojiOpen && mentionChoices.length === 0) {
+              event.preventDefault();
+              setEmojiOpen(false);
+              return;
+            }
             if (mentionChoices.length === 0) {
               return;
             }
@@ -1129,8 +1319,8 @@ export function MeetStylePip({onClose}: Props) {
               setCursor(activeMention.start);
             }
           }}
-          placeholder={editingMessage ? 'Edit message' : 'Send a message. Type @ to tag'}
-          aria-label="Send a message"
+          placeholder={editingMessage ? 'Edit note' : 'Type a note. Type @ to tag'}
+          aria-label="Type a note"
           disabled={!room}
           maxLength={4000}
         />
@@ -1142,6 +1332,27 @@ export function MeetStylePip({onClose}: Props) {
           onMouseDown={event => event.preventDefault()}
           onClick={insertAtSign}>
           @
+        </button>
+        <button
+          ref={emojiButtonRef}
+          type="button"
+          className={emojiOpen ? 'meet-tag active' : 'meet-tag'}
+          aria-label="Emoji"
+          aria-expanded={emojiOpen}
+          disabled={!room}
+          onMouseDown={event => event.preventDefault()}
+          onClick={() => {
+            setEmojiOpen(open => {
+              const next = !open;
+              if (next) {
+                const recent = loadRecentEmojis();
+                setEmojiCategories(meetEmojiCategories(recent));
+                setEmojiCategoryId(defaultEmojiCategoryId(recent));
+              }
+              return next;
+            });
+          }}>
+          <EmojiIcon />
         </button>
         <button
           type="submit"
@@ -1370,6 +1581,17 @@ function MicIcon({off}: {off: boolean}) {
   );
 }
 
+function EmojiIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M8 14s1.5 2 4 2 4-2 4-2" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <circle cx="9" cy="10" r="1" fill="currentColor" />
+      <circle cx="15" cy="10" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
@@ -1460,13 +1682,22 @@ const MEET_PIP_CSS = `
 .meet-receipt--read { color: #22c55e; }
 .meet-bubble-label { display: block; font-size: 11px; color: #9aa0a6; margin-bottom: 2px; }
 .meet-compose { position: relative; display: flex; align-items: center; gap: 8px; margin: 8px 16px; padding: 6px 8px 6px 16px; background: #3c4043; border-radius: 24px; }
+.meet-typing { margin: 0 22px 0; min-height: 16px; font-size: 12px; font-weight: 600; font-style: italic; color: #8ab4f8; }
+.meet-emoji { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 4; display: flex; flex-direction: column; gap: 6px; max-height: 220px; padding: 8px; border-radius: 12px; background: #303134; box-shadow: 0 4px 16px rgba(0,0,0,0.45); }
+.meet-emoji-tabs { display: flex; gap: 4px; overflow-x: auto; }
+.meet-emoji-tabs button { flex-shrink: 0; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; font-size: 18px; cursor: pointer; }
+.meet-emoji-tabs button.active, .meet-emoji-tabs button:hover { background: #3c4043; }
+.meet-emoji-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; overflow-y: auto; max-height: 160px; }
+.meet-emoji-grid button { border: 0; border-radius: 8px; background: transparent; font-size: 20px; height: 32px; cursor: pointer; }
+.meet-emoji-grid button:hover { background: #3c4043; }
 .meet-mentions { position: absolute; left: 0; right: 40px; bottom: calc(100% + 6px); display: flex; flex-direction: column; max-height: 140px; overflow-y: auto; border-radius: 12px; background: #303134; box-shadow: 0 4px 16px rgba(0,0,0,0.4); z-index: 2; }
 .meet-mentions button { border: 0; background: transparent; color: #e8eaed; text-align: left; padding: 8px 12px; cursor: pointer; font-size: 13px; }
 .meet-mentions button.active, .meet-mentions button:hover { background: #3c4043; }
 .meet-mention { color: #8ab4f8; font-weight: 600; }
 .meet-compose input { flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; font-size: 14px; outline: none; }
 .meet-send { width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #8ab4f8; cursor: pointer; display: grid; place-items: center; }
-.meet-tag { width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #e8eaed; cursor: pointer; font-size: 16px; font-weight: 700; }
+.meet-tag { width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #e8eaed; cursor: pointer; font-size: 16px; font-weight: 700; display: grid; place-items: center; }
+.meet-tag.active { background: #5f6368; }
 .meet-tag:disabled { color: #5f6368; cursor: default; }
 .meet-send:disabled { color: #5f6368; cursor: default; }
 .meet-controls { display: flex; justify-content: center; gap: 18px; padding: 10px 12px 16px; }
