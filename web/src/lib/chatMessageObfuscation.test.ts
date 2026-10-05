@@ -47,6 +47,20 @@ describe('chatMessageObfuscation', () => {
     expect(decodeChatMessagePlaintext(encoded)).toBe(plaintext);
   });
 
+  it('keeps each love-percent line on its own row', () => {
+    const plaintext = 'I Love You 💕1%\nI Love You 💕2%\nI Love You 💕3%';
+    const encoded = encodeChatMessagePlaintext(plaintext, {seed: 'lines'});
+    expect(encoded.split('\n')).toHaveLength(3);
+    expect(decodeChatMessagePlaintext(encoded)).toBe(plaintext);
+  });
+
+  it('keeps leading spaces used by emoji art shapes', () => {
+    const plaintext = 'I love you 1%❤\n I love you 2%🧡\n  I love you 3%💛';
+    const encoded = encodeChatMessagePlaintext(plaintext, {seed: 'indent'});
+    expect(encoded.split('\n')[1]?.startsWith(' ')).toBe(true);
+    expect(decodeChatMessagePlaintext(encoded)).toBe(plaintext);
+  });
+
   it('leaves short tokens unchanged', () => {
     expect(decodeChatMessagePlaintext('hi')).toBe('hi');
     expect(decodeChatMessagePlaintext('abcdef')).toBe('abcdef');

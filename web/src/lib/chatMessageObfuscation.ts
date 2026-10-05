@@ -4,10 +4,6 @@ const ALPHABET = 'abcdefghijklmnopqrstuvwxyz';
 
 type Rng = () => number;
 
-function splitMessageWords(text: string): string[] {
-  return text.trim().split(/\s+/).filter(Boolean);
-}
-
 function createRng(seed: string): Rng {
   let state = 0;
   for (let index = 0; index < seed.length; index += 1) {
@@ -34,22 +30,43 @@ function encodeWord(word: string, rng: Rng): string {
   return pickRandomLetters(LETTERS_PER_SIDE, rng) + word + pickRandomLetters(LETTERS_PER_SIDE, rng);
 }
 
+function encodeLine(line: string, rng: Rng): string {
+  const leadingMatch = line.match(/^\s*/);
+  const leading = leadingMatch?.[0] ?? '';
+  const core = line.slice(leading.length).replace(/\s+$/, '');
+  const words = core.split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return leading.length > 0 ? leading : '';
+  }
+  return `${leading}${words.map(word => encodeWord(word, rng)).join(' ')}`;
+}
+
+function decodeLine(line: string): string {
+  const leadingMatch = line.match(/^\s*/);
+  const leading = leadingMatch?.[0] ?? '';
+  const core = line.slice(leading.length).replace(/\s+$/, '');
+  const words = core.split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return leading.length > 0 ? leading : '';
+  }
+  return `${leading}${words.map(decodeWord).join(' ')}`;
+}
+
 type EncodeOptions = {
   seed?: string;
 };
 
 /**
  * Each word becomes one glued token: 3 random letters + word + 3 random letters
- * (e.g. hi → abchixyz).
+ * (e.g. hi → abchixyz). Newlines and leading indentation are preserved for emoji art.
  */
 export function encodeChatMessagePlaintext(plaintext: string, options?: EncodeOptions): string {
-  const words = splitMessageWords(plaintext);
-  if (words.length === 0) {
+  if (!plaintext.trim()) {
     return '';
   }
   const seed = options?.seed ?? `${plaintext}:${Date.now()}:${Math.random()}`;
   const rng = createRng(seed);
-  return words.map(word => encodeWord(word, rng)).join(' ');
+  return plaintext.split('\n').map(line => encodeLine(line, rng)).join('\n');
 }
 
 function decodeWord(token: string): string {
@@ -61,14 +78,13 @@ function decodeWord(token: string): string {
 
 /**
  * Inverse of encode: strip 3 letters from each side of every whitespace-separated token.
- * Tokens too short to have been padded are left unchanged.
+ * Tokens too short to have been padded are left unchanged. Line breaks are preserved.
  */
 export function decodeChatMessagePlaintext(obfuscated: string): string {
-  const words = splitMessageWords(obfuscated);
-  if (words.length === 0) {
+  if (!obfuscated.trim()) {
     return '';
   }
-  return words.map(decodeWord).join(' ');
+  return obfuscated.split('\n').map(decodeLine).join('\n');
 }
 
 export const chatObfuscationConfig = {

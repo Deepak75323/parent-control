@@ -1708,9 +1708,9 @@ const MEET_PIP_CSS = `
 .meet-log { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; }
 .meet-empty, .meet-notice { margin: 0; color: #9aa0a6; font-size: 13px; text-align: center; }
 .meet-notice { padding: 0 16px 4px; }
-.meet-bubble { align-self: flex-start; max-width: 86%; padding: 8px 12px; border-radius: 12px; background: #3c4043; font-size: 14px; line-height: 1.35; }
+.meet-bubble { align-self: flex-start; max-width: 86%; padding: 8px 12px; border-radius: 12px; background: #3c4043; font-size: 14px; line-height: 1.35; white-space: pre-wrap; word-break: break-word; }
 .meet-bubble.own { align-self: flex-end; background: #394457; }
-.meet-bubble-text { display: block; }
+.meet-bubble-text { display: block; white-space: pre-wrap; }
 .meet-media-wrap { display: block; }
 .meet-media { display: block; max-width: 100%; max-height: 180px; margin-top: 4px; border-radius: 8px; object-fit: contain; background: #000; }
 .meet-media-note { display: block; color: #9aa0a6; font-size: 12px; }
