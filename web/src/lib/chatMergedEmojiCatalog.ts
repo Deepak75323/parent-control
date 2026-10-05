@@ -290,6 +290,21 @@ export function previewMergedEmoji(art: string, maxChars = 48): string {
   return `${compact.slice(0, Math.max(0, maxChars - 1))}…`;
 }
 
+/** Multi-line preview for paste box and collection cards (keeps row order). */
+export function previewMergedEmojiLines(art: string, maxLines = 5, maxLineChars = 120): string {
+  const lines = art.replace(/\r\n/g, '\n').split('\n');
+  const shown = lines.slice(0, maxLines).map(line => {
+    if (line.length <= maxLineChars) {
+      return line;
+    }
+    return `${line.slice(0, maxLineChars - 1)}…`;
+  });
+  if (lines.length > maxLines) {
+    shown.push(`… ${lines.length - maxLines} more line${lines.length - maxLines === 1 ? '' : 's'}`);
+  }
+  return shown.join('\n');
+}
+
 export function loadCustomMergedEmojis(): MergedEmojiArt[] {
   try {
     const raw = localStorage.getItem(CUSTOM_KEY);

@@ -12,7 +12,7 @@ import {
   allMergedEmojiCollections,
   filterMergedEmojiItems,
   loadCustomMergedEmojis,
-  previewMergedEmoji,
+  previewMergedEmojiLines,
   removeCustomMergedEmoji,
   type MergedEmojiArt,
 } from '../../lib/chatMergedEmojiCatalog';
@@ -248,14 +248,24 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
                 <span>Paste here</span>
                 <textarea
                   ref={pasteRef}
+                  className="chat-merged-emoji-paste-input"
                   value={addArt}
                   onChange={event => setAddArt(event.target.value.slice(0, CHAT_MESSAGE_MAX_LENGTH))}
                   onMouseDown={event => event.stopPropagation()}
                   placeholder="Copy emoji art from anywhere, then paste it here…"
-                  rows={7}
+                  rows={10}
                   maxLength={CHAT_MESSAGE_MAX_LENGTH}
+                  spellCheck={false}
                 />
               </label>
+              {addArt.trim() ? (
+                <div className="chat-merged-emoji-live-preview" aria-label="Preview">
+                  <span className="chat-merged-emoji-live-preview-label">Preview (same order as sent)</span>
+                  <pre className="chat-merged-emoji-live-preview-body">
+                    {previewMergedEmojiLines(addArt, 12, 200)}
+                  </pre>
+                </div>
+              ) : null}
               <label className="chat-merged-emoji-add-field">
                 <span>Name (optional)</span>
                 <input
@@ -321,7 +331,7 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
                     aria-label={`Insert ${item.label}`}
                     onClick={() => handleSelectMerged(item)}>
                     <span className="chat-merged-emoji-label">{item.label}</span>
-                    <span className="chat-merged-emoji-preview">{previewMergedEmoji(item.art)}</span>
+                    <pre className="chat-merged-emoji-preview">{previewMergedEmojiLines(item.art, 4, 80)}</pre>
                   </button>
                   {item.id.startsWith('custom-') ? (
                     <button

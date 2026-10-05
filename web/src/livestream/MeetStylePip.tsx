@@ -25,7 +25,7 @@ import {
   allMergedEmojiCollections,
   filterMergedEmojiItems,
   loadCustomMergedEmojis,
-  previewMergedEmoji,
+  previewMergedEmojiLines,
 } from '../lib/chatMergedEmojiCatalog';
 import {chatPipRoomId, subscribeChatPipRoom} from './chatPipTarget';
 import {nextViewerRotateDeg, prevViewerRotateDeg, viewerVideoRotateStyle} from '../lib/viewerVideoRotate';
@@ -1330,13 +1330,20 @@ export function MeetStylePip({onClose}: Props) {
                 {showMergedPaste ? (
                   <div className="meet-merged-paste">
                     <textarea
+                      className="meet-merged-paste-input"
                       value={mergedPaste}
-                      rows={5}
+                      rows={8}
                       maxLength={CHAT_MESSAGE_MAX_LENGTH}
                       placeholder="Paste emoji art here…"
+                      spellCheck={false}
                       onMouseDown={event => event.stopPropagation()}
                       onChange={event => setMergedPaste(event.target.value.slice(0, CHAT_MESSAGE_MAX_LENGTH))}
                     />
+                    {mergedPaste.trim() ? (
+                      <pre className="meet-merged-paste-preview">
+                        {previewMergedEmojiLines(mergedPaste, 10, 200)}
+                      </pre>
+                    ) : null}
                     <input
                       value={mergedPasteName}
                       maxLength={64}
@@ -1400,7 +1407,7 @@ export function MeetStylePip({onClose}: Props) {
                       setEmojiOpen(false);
                     }}>
                     <span>{item.label}</span>
-                    <small>{previewMergedEmoji(item.art, 36)}</small>
+                    <small>{previewMergedEmojiLines(item.art, 3, 60)}</small>
                   </button>
                 ))}
               </div>
@@ -1827,6 +1834,9 @@ const MEET_PIP_CSS = `
 .meet-merged-paste-toggle { border: 1px dashed #5f6368; border-radius: 8px; background: #3c4043; color: #e8eaed; font-size: 12px; font-weight: 700; padding: 8px; cursor: pointer; text-align: left; }
 .meet-merged-paste { display: flex; flex-direction: column; gap: 6px; }
 .meet-merged-paste textarea, .meet-merged-paste input { width: 100%; box-sizing: border-box; border: 0; border-radius: 8px; background: #202124; color: #e8eaed; font: inherit; font-size: 12px; padding: 8px; resize: vertical; }
+.meet-merged-paste-input { white-space: pre; overflow: auto; min-height: 120px; max-height: 200px; font-family: ui-monospace, Menlo, monospace; line-height: 1.35; }
+.meet-merged-paste-preview { margin: 0; padding: 6px 8px; border-radius: 8px; background: #202124; color: #9aa0a6; font-size: 11px; line-height: 1.35; white-space: pre-wrap; max-height: 100px; overflow: auto; font-family: ui-monospace, Menlo, monospace; }
+.meet-merged-item small { font-size: 11px; color: #9aa0a6; white-space: pre-wrap; max-width: 100%; line-height: 1.3; }
 .meet-merged-paste-actions { display: flex; gap: 6px; }
 .meet-merged-paste-actions button { border: 0; border-radius: 8px; background: #8ab4f8; color: #202124; font-size: 12px; font-weight: 700; padding: 6px 8px; cursor: pointer; }
 .meet-merged-paste-actions button:disabled { opacity: 0.5; cursor: default; }

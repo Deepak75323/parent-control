@@ -5,6 +5,7 @@ import {
   loadCustomMergedEmojis,
   mergedEmojiFitsLimit,
   previewMergedEmoji,
+  previewMergedEmojiLines,
   removeCustomMergedEmoji,
 } from './chatMergedEmojiCatalog';
 import {CHAT_MESSAGE_MAX_LENGTH} from './chatMessageLimits';
@@ -65,5 +66,10 @@ describe('chatMergedEmojiCatalog', () => {
   it('builds a short single-line preview', () => {
     expect(previewMergedEmoji('line1\nline2\nline3')).toContain('line1');
     expect(previewMergedEmoji('line1\nline2\nline3')).not.toContain('\n');
+  });
+
+  it('keeps line order in multi-line preview', () => {
+    const art = 'I Love You 💕1%\nI Love You 💕2%\nI Love You 💕3%';
+    expect(previewMergedEmojiLines(art)).toBe(art);
   });
 });
