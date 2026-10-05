@@ -560,7 +560,7 @@ public class ChatService {
     if (message.getMessageType() == ChatMessageType.TEXT && body.isEmpty()) {
       throw new BusinessException(ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_MESSAGE_BODY_REQUIRED);
     }
-    if (body.length() > 2000) {
+    if (body.length() > 8000) {
       throw new BusinessException(
           ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_CAPTION_TOO_LONG);
     }
@@ -836,7 +836,7 @@ public class ChatService {
     UUID resolvedChannelId = channelService.resolveTextChannel(roomId, channelId).getId();
 
     String body = caption != null ? caption.trim() : "";
-    if (body.length() > 2000) {
+    if (body.length() > 8000) {
       throw new BusinessException(
           ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_CAPTION_TOO_LONG);
     }

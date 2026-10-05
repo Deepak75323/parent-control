@@ -19,6 +19,13 @@ import {
 } from '../lib/chatEmojiCatalog';
 import {formatChatTypingLine} from '../lib/chatTypingLabel';
 import {insertTextAtSelection} from '../lib/insertTextAtSelection';
+import {CHAT_MESSAGE_MAX_LENGTH} from '../lib/chatMessageLimits';
+import {
+  allMergedEmojiCollections,
+  filterMergedEmojiItems,
+  loadCustomMergedEmojis,
+  previewMergedEmoji,
+} from '../lib/chatMergedEmojiCatalog';
 import {chatPipRoomId, subscribeChatPipRoom} from './chatPipTarget';
 import {nextViewerRotateDeg, prevViewerRotateDeg, viewerVideoRotateStyle} from '../lib/viewerVideoRotate';
 import {isChatViewUnlocked, setChatViewUnlocked, subscribeChatViewUnlocked} from '../lib/chatViewUnlock';
@@ -69,7 +76,7 @@ function pointerInside(menu: HTMLElement | null, target: EventTarget | null): bo
   return menu.contains(target);
 }
 
-function focusComposer(input: HTMLInputElement | null) {
+function focusComposer(input: HTMLInputElement | HTMLTextAreaElement | null) {
   if (!input) {
     return;
   }
@@ -170,7 +177,7 @@ export function MeetStylePip({onClose}: Props) {
   const cameraDrag = useRef(false);
   const cameraChosen = useRef(false);
   const shellRef = useRef<HTMLDivElement>(null);
-  const composeRef = useRef<HTMLInputElement>(null);
+  const composeRef = useRef<HTMLTextAreaElement>(null);
   const emojiRootRef = useRef<HTMLDivElement>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -178,6 +185,7 @@ export function MeetStylePip({onClose}: Props) {
   const typingActiveRef = useRef(false);
   const lastTypingPulseAtRef = useRef(0);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [emojiMode, setEmojiMode] = useState<'emoji' | 'merged'>('emoji');
   const [emojiCategoryId, setEmojiCategoryId] = useState('smileys');
   const [emojiCategories, setEmojiCategories] = useState<EmojiCategory[]>(CHAT_EMOJI_CATEGORIES);
   const chatTypingByRoom = useRealtimeStore(s => s.chatTypingByRoom);
@@ -1254,40 +1262,79 @@ export function MeetStylePip({onClose}: Props) {
         ) : null}
         {emojiOpen && mentionChoices.length === 0 ? (
           <div className="meet-emoji" ref={emojiRootRef} role="dialog" aria-label="Choose emoji">
-            <div className="meet-emoji-tabs" role="tablist" aria-label="Emoji categories">
-              {emojiCategories.map(category => (
-                <button
-                  key={category.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={category.id === emojiCategoryId}
-                  aria-label={category.label}
-                  className={category.id === emojiCategoryId ? 'active' : undefined}
-                  onMouseDown={event => event.preventDefault()}
-                  onClick={() => setEmojiCategoryId(category.id)}>
-                  {category.icon}
-                </button>
-              ))}
+            <div className="meet-emoji-modes">
+              <button
+                type="button"
+                className={emojiMode === 'emoji' ? 'active' : undefined}
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => setEmojiMode('emoji')}>
+                Emoji
+              </button>
+              <button
+                type="button"
+                className={emojiMode === 'merged' ? 'active' : undefined}
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => setEmojiMode('merged')}>
+                Merged
+              </button>
             </div>
-            <div className="meet-emoji-grid" role="tabpanel">
-              {(emojiCategories.find(category => category.id === emojiCategoryId) ?? emojiCategories[0])?.emojis.map(
-                (emoji, index) => (
+            {emojiMode === 'emoji' ? (
+              <>
+                <div className="meet-emoji-tabs" role="tablist" aria-label="Emoji categories">
+                  {emojiCategories.map(category => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={category.id === emojiCategoryId}
+                      aria-label={category.label}
+                      className={category.id === emojiCategoryId ? 'active' : undefined}
+                      onMouseDown={event => event.preventDefault()}
+                      onClick={() => setEmojiCategoryId(category.id)}>
+                      {category.icon}
+                    </button>
+                  ))}
+                </div>
+                <div className="meet-emoji-grid" role="tabpanel">
+                  {(emojiCategories.find(category => category.id === emojiCategoryId) ?? emojiCategories[0])?.emojis.map(
+                    (emoji, index) => (
+                      <button
+                        key={`${emojiCategoryId}-${index}-${emoji}`}
+                        type="button"
+                        aria-label={`Insert ${emoji}`}
+                        onMouseDown={event => event.preventDefault()}
+                        onClick={() => insertEmoji(emoji)}>
+                        {emoji}
+                      </button>
+                    ),
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="meet-merged-list" role="tabpanel" aria-label="Merged emoji">
+                {filterMergedEmojiItems(allMergedEmojiCollections(loadCustomMergedEmojis()), null).map(item => (
                   <button
-                    key={`${emojiCategoryId}-${index}-${emoji}`}
+                    key={item.id}
                     type="button"
-                    aria-label={`Insert ${emoji}`}
+                    className="meet-merged-item"
+                    aria-label={`Insert ${item.label}`}
                     onMouseDown={event => event.preventDefault()}
-                    onClick={() => insertEmoji(emoji)}>
-                    {emoji}
+                    onClick={() => {
+                      insertEmoji(item.art);
+                      setEmojiOpen(false);
+                    }}>
+                    <span>{item.label}</span>
+                    <small>{previewMergedEmoji(item.art, 36)}</small>
                   </button>
-                ),
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         ) : null}
-        <input
+        <textarea
           ref={composeRef}
           value={draft}
+          rows={1}
           onChange={event => {
             setDraft(event.target.value);
             setCursor(event.target.selectionStart ?? event.target.value.length);
@@ -1299,6 +1346,13 @@ export function MeetStylePip({onClose}: Props) {
             if (event.key === 'Escape' && emojiOpen && mentionChoices.length === 0) {
               event.preventDefault();
               setEmojiOpen(false);
+              return;
+            }
+            if (event.key === 'Enter' && !event.shiftKey && mentionChoices.length === 0) {
+              event.preventDefault();
+              if (draft.trim() && room && !sending) {
+                void send(event);
+              }
               return;
             }
             if (mentionChoices.length === 0) {
@@ -1322,7 +1376,7 @@ export function MeetStylePip({onClose}: Props) {
           placeholder={editingMessage ? 'Edit note' : 'Type a note. Type @ to tag'}
           aria-label="Type a note"
           disabled={!room}
-          maxLength={4000}
+          maxLength={CHAT_MESSAGE_MAX_LENGTH}
         />
         <button
           type="button"
@@ -1681,20 +1735,27 @@ const MEET_PIP_CSS = `
 .meet-receipt--sent, .meet-receipt--delivered { color: #8ab4f8; }
 .meet-receipt--read { color: #22c55e; }
 .meet-bubble-label { display: block; font-size: 11px; color: #9aa0a6; margin-bottom: 2px; }
-.meet-compose { position: relative; display: flex; align-items: center; gap: 8px; margin: 8px 16px; padding: 6px 8px 6px 16px; background: #3c4043; border-radius: 24px; }
+.meet-compose { position: relative; display: flex; align-items: flex-end; gap: 8px; margin: 8px 16px; padding: 6px 8px 6px 16px; background: #3c4043; border-radius: 24px; }
 .meet-typing { margin: 0 22px 0; min-height: 16px; font-size: 12px; font-weight: 600; font-style: italic; color: #8ab4f8; }
-.meet-emoji { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 4; display: flex; flex-direction: column; gap: 6px; max-height: 220px; padding: 8px; border-radius: 12px; background: #303134; box-shadow: 0 4px 16px rgba(0,0,0,0.45); }
+.meet-emoji { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 4; display: flex; flex-direction: column; gap: 6px; max-height: 260px; padding: 8px; border-radius: 12px; background: #303134; box-shadow: 0 4px 16px rgba(0,0,0,0.45); }
+.meet-emoji-modes { display: flex; gap: 6px; }
+.meet-emoji-modes button { border: 0; border-radius: 999px; background: #3c4043; color: #e8eaed; font-size: 12px; font-weight: 600; padding: 4px 10px; cursor: pointer; }
+.meet-emoji-modes button.active { background: #5f6368; }
 .meet-emoji-tabs { display: flex; gap: 4px; overflow-x: auto; }
 .meet-emoji-tabs button { flex-shrink: 0; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; font-size: 18px; cursor: pointer; }
 .meet-emoji-tabs button.active, .meet-emoji-tabs button:hover { background: #3c4043; }
 .meet-emoji-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; overflow-y: auto; max-height: 160px; }
 .meet-emoji-grid button { border: 0; border-radius: 8px; background: transparent; font-size: 20px; height: 32px; cursor: pointer; }
 .meet-emoji-grid button:hover { background: #3c4043; }
+.meet-merged-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; max-height: 180px; }
+.meet-merged-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border: 0; border-radius: 8px; background: #3c4043; color: #e8eaed; text-align: left; padding: 6px 8px; cursor: pointer; }
+.meet-merged-item span { font-size: 12px; font-weight: 700; }
+.meet-merged-item small { font-size: 11px; color: #9aa0a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .meet-mentions { position: absolute; left: 0; right: 40px; bottom: calc(100% + 6px); display: flex; flex-direction: column; max-height: 140px; overflow-y: auto; border-radius: 12px; background: #303134; box-shadow: 0 4px 16px rgba(0,0,0,0.4); z-index: 2; }
 .meet-mentions button { border: 0; background: transparent; color: #e8eaed; text-align: left; padding: 8px 12px; cursor: pointer; font-size: 13px; }
 .meet-mentions button.active, .meet-mentions button:hover { background: #3c4043; }
 .meet-mention { color: #8ab4f8; font-weight: 600; }
-.meet-compose input { flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; font-size: 14px; outline: none; }
+.meet-compose input, .meet-compose textarea { flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; font-size: 14px; outline: none; font-family: inherit; resize: none; max-height: 120px; line-height: 1.35; }
 .meet-send { width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #8ab4f8; cursor: pointer; display: grid; place-items: center; }
 .meet-tag { width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #e8eaed; cursor: pointer; font-size: 16px; font-weight: 700; display: grid; place-items: center; }
 .meet-tag.active { background: #5f6368; }

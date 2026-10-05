@@ -16,12 +16,13 @@ import {
 } from '../../lib/chatMentions';
 import {autosizeTextarea} from '../../lib/autosizeTextarea';
 import type {ChatMemberItem} from '../../types/api';
+import {CHAT_MESSAGE_MAX_LENGTH} from '../../lib/chatMessageLimits';
 import {insertTextAtSelection} from '../../lib/insertTextAtSelection';
 import {ComposeAnchorPortal} from './ComposeAnchorPortal';
 import {EmojiPicker} from './EmojiPicker';
 import {MentionAutocomplete} from './MentionAutocomplete';
 
-const COMPOSE_MAX_HEIGHT_PX = 144;
+const COMPOSE_MAX_HEIGHT_PX = 320;
 
 type Props = {
   draft: string;
@@ -223,6 +224,7 @@ export function MessageComposer({
           rows={1}
           aria-label={placeholder}
           aria-expanded={mentionOpen}
+          maxLength={CHAT_MESSAGE_MAX_LENGTH}
           onChange={event => {
             onDraftChange(event.target.value);
             setMentionIndex(0);
@@ -356,7 +358,7 @@ export function EditMessageComposer({
             className="chat-compose-editing-input"
             value={draft}
             autoFocus
-            maxLength={2000}
+            maxLength={CHAT_MESSAGE_MAX_LENGTH}
             placeholder={isText ? 'Edit message' : 'Edit caption'}
             disabled={busy}
             onChange={event => onDraftChange(event.target.value)}

@@ -9,7 +9,7 @@ import lombok.Data;
 public class SendChatMessageRequest {
 
   @NotBlank
-  @Size(min = 1, max = 2000)
+  @Size(min = 1, max = 8000)
   private String body;
 
   /** Text channel; defaults to the server's first TEXT channel. */

@@ -40,6 +40,7 @@ import {
 } from '../lib/chatUnreadMerge';
 import {resolveChatDisplayNickname} from '../lib/chatDisplayNickname';
 import {formatChatTypingLine} from '../lib/chatTypingLabel';
+import {CHAT_MESSAGE_MAX_LENGTH} from '../lib/chatMessageLimits';
 import {formatPartnerPresenceLabel} from '../lib/parentPresence';
 import {isChatDmsEnabled, isChatFriendsEnabled} from '../lib/chatFriendsFeature';
 import {validateChatMediaFile} from '../lib/chatMediaUpload';
@@ -2085,7 +2086,7 @@ export function ChatPage() {
     try {
       if (fileToSend) {
         const caption = body ? await sealOutgoingBody(body) : undefined;
-        if (caption && caption.length > 2000) {
+        if (caption && caption.length > CHAT_MESSAGE_MAX_LENGTH) {
           setError('Caption is too long after encoding — use fewer words');
           setDraft(body);
           return;
@@ -2104,7 +2105,7 @@ export function ChatPage() {
         }
       } else {
         const sealedBody = await sealOutgoingBody(body);
-        if (sealedBody.length > 2000) {
+        if (sealedBody.length > CHAT_MESSAGE_MAX_LENGTH) {
           setError('Message is too long after encoding — use fewer words');
           setDraft(body);
           return;
