@@ -5748,7 +5748,46 @@ body.chat-resizing * {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 8px;
+  margin: 8px 0;
+}
+
+.chat-merged-emoji-paste-toggle {
+  width: 100%;
+  border: 1px dashed color-mix(in srgb, var(--gp-primary) 35%, var(--gp-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gp-primary) 8%, var(--gp-surface));
+  color: var(--gp-text);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chat-merged-emoji-paste-toggle:hover {
+  background: color-mix(in srgb, var(--gp-primary) 14%, var(--gp-surface));
+}
+
+.chat-merged-emoji-add-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chat-merged-emoji-add-secondary {
+  border: 1px solid var(--gp-border-light);
+  border-radius: 10px;
+  background: var(--gp-surface-elevated);
+  color: var(--gp-text);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.chat-merged-emoji-add-secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .chat-merged-emoji-tags button {

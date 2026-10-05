@@ -21,6 +21,7 @@ import {formatChatTypingLine} from '../lib/chatTypingLabel';
 import {insertTextAtSelection} from '../lib/insertTextAtSelection';
 import {CHAT_MESSAGE_MAX_LENGTH} from '../lib/chatMessageLimits';
 import {
+  addCustomMergedEmoji,
   allMergedEmojiCollections,
   filterMergedEmojiItems,
   loadCustomMergedEmojis,
@@ -188,6 +189,10 @@ export function MeetStylePip({onClose}: Props) {
   const [emojiMode, setEmojiMode] = useState<'emoji' | 'merged'>('emoji');
   const [emojiCategoryId, setEmojiCategoryId] = useState('smileys');
   const [emojiCategories, setEmojiCategories] = useState<EmojiCategory[]>(CHAT_EMOJI_CATEGORIES);
+  const [mergedPaste, setMergedPaste] = useState('');
+  const [mergedPasteName, setMergedPasteName] = useState('');
+  const [mergedPasteError, setMergedPasteError] = useState<string | null>(null);
+  const [showMergedPaste, setShowMergedPaste] = useState(false);
   const chatTypingByRoom = useRealtimeStore(s => s.chatTypingByRoom);
   const pruneExpiredChatTyping = useRealtimeStore(s => s.pruneExpiredChatTyping);
   const sentPlain = useRef<Record<string, string>>({});
@@ -1312,6 +1317,77 @@ export function MeetStylePip({onClose}: Props) {
               </>
             ) : (
               <div className="meet-merged-list" role="tabpanel" aria-label="Merged emoji">
+                <button
+                  type="button"
+                  className="meet-merged-paste-toggle"
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => {
+                    setShowMergedPaste(open => !open);
+                    setMergedPasteError(null);
+                  }}>
+                  {showMergedPaste ? 'Hide paste box' : 'Paste your own emoji art'}
+                </button>
+                {showMergedPaste ? (
+                  <div className="meet-merged-paste">
+                    <textarea
+                      value={mergedPaste}
+                      rows={5}
+                      maxLength={CHAT_MESSAGE_MAX_LENGTH}
+                      placeholder="Paste emoji art here…"
+                      onMouseDown={event => event.stopPropagation()}
+                      onChange={event => setMergedPaste(event.target.value.slice(0, CHAT_MESSAGE_MAX_LENGTH))}
+                    />
+                    <input
+                      value={mergedPasteName}
+                      maxLength={64}
+                      placeholder="Name (optional)"
+                      onMouseDown={event => event.stopPropagation()}
+                      onChange={event => setMergedPasteName(event.target.value)}
+                    />
+                    {mergedPasteError ? <p className="meet-merged-paste-error">{mergedPasteError}</p> : null}
+                    <div className="meet-merged-paste-actions">
+                      <button
+                        type="button"
+                        disabled={!mergedPaste.trim()}
+                        onMouseDown={event => event.preventDefault()}
+                        onClick={() => {
+                          try {
+                            const saved = addCustomMergedEmoji({
+                              label: mergedPasteName || 'Pasted art',
+                              art: mergedPaste,
+                              tags: ['my collection', 'cute'],
+                            });
+                            setMergedPaste('');
+                            setMergedPasteName('');
+                            setMergedPasteError(null);
+                            setShowMergedPaste(false);
+                            insertEmoji(saved.art);
+                            setEmojiOpen(false);
+                          } catch (error) {
+                            setMergedPasteError(
+                              error instanceof Error ? error.message : 'Could not save',
+                            );
+                          }
+                        }}>
+                        Save & insert
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!mergedPaste.trim()}
+                        onMouseDown={event => event.preventDefault()}
+                        onClick={() => {
+                          const art = mergedPaste.trimEnd();
+                          if (!art) {
+                            return;
+                          }
+                          insertEmoji(art);
+                          setEmojiOpen(false);
+                        }}>
+                        Insert only
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 {filterMergedEmojiItems(allMergedEmojiCollections(loadCustomMergedEmojis()), null).map(item => (
                   <button
                     key={item.id}
@@ -1747,7 +1823,14 @@ const MEET_PIP_CSS = `
 .meet-emoji-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; overflow-y: auto; max-height: 160px; }
 .meet-emoji-grid button { border: 0; border-radius: 8px; background: transparent; font-size: 20px; height: 32px; cursor: pointer; }
 .meet-emoji-grid button:hover { background: #3c4043; }
-.meet-merged-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; max-height: 180px; }
+.meet-merged-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; max-height: 220px; }
+.meet-merged-paste-toggle { border: 1px dashed #5f6368; border-radius: 8px; background: #3c4043; color: #e8eaed; font-size: 12px; font-weight: 700; padding: 8px; cursor: pointer; text-align: left; }
+.meet-merged-paste { display: flex; flex-direction: column; gap: 6px; }
+.meet-merged-paste textarea, .meet-merged-paste input { width: 100%; box-sizing: border-box; border: 0; border-radius: 8px; background: #202124; color: #e8eaed; font: inherit; font-size: 12px; padding: 8px; resize: vertical; }
+.meet-merged-paste-actions { display: flex; gap: 6px; }
+.meet-merged-paste-actions button { border: 0; border-radius: 8px; background: #8ab4f8; color: #202124; font-size: 12px; font-weight: 700; padding: 6px 8px; cursor: pointer; }
+.meet-merged-paste-actions button:disabled { opacity: 0.5; cursor: default; }
+.meet-merged-paste-error { margin: 0; font-size: 11px; color: #f28b82; }
 .meet-merged-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border: 0; border-radius: 8px; background: #3c4043; color: #e8eaed; text-align: left; padding: 6px 8px; cursor: pointer; }
 .meet-merged-item span { font-size: 12px; font-weight: 700; }
 .meet-merged-item small { font-size: 11px; color: #9aa0a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }

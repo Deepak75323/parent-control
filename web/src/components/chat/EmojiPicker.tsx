@@ -18,7 +18,7 @@ import {
 } from '../../lib/chatMergedEmojiCatalog';
 import {CHAT_MESSAGE_MAX_LENGTH} from '../../lib/chatMessageLimits';
 
-type PickerMode = 'emoji' | 'merged' | 'add';
+type PickerMode = 'emoji' | 'merged';
 
 type Props = {
   open: boolean;
@@ -30,6 +30,7 @@ type Props = {
 export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const pasteRef = useRef<HTMLTextAreaElement>(null);
   const [recentEmojis, setRecentEmojis] = useState<string[]>(() => loadRecentEmojis());
   const [activeCategoryId, setActiveCategoryId] = useState(() =>
     defaultEmojiCategoryId(loadRecentEmojis()),
@@ -40,6 +41,7 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
   const [addLabel, setAddLabel] = useState('');
   const [addArt, setAddArt] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
+  const [showPaste, setShowPaste] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -50,8 +52,16 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
     setActiveCategoryId(defaultEmojiCategoryId(recent));
     setCustomItems(loadCustomMergedEmojis());
     setMode('emoji');
+    setShowPaste(false);
     setAddError(null);
   }, [open]);
+
+  useEffect(() => {
+    if (!open || mode !== 'merged' || !showPaste) {
+      return;
+    }
+    window.requestAnimationFrame(() => pasteRef.current?.focus());
+  }, [open, mode, showPaste]);
 
   const categories = useMemo(() => {
     const recentCategory: EmojiCategory | null =
@@ -116,24 +126,45 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
     onClose();
   }
 
-  function handleSaveCollection() {
+  function clearPasteForm() {
+    setAddLabel('');
+    setAddArt('');
+    setAddError(null);
+  }
+
+  function handleSaveFromPaste(insertAfterSave: boolean) {
     setAddError(null);
     try {
       const saved = addCustomMergedEmoji({
-        label: addLabel,
+        label: addLabel || 'Pasted art',
         art: addArt,
         tags: ['my collection', 'cute'],
       });
       setCustomItems(loadCustomMergedEmojis());
-      setAddLabel('');
-      setAddArt('');
+      clearPasteForm();
       setMergedTag('my collection');
-      setMode('merged');
-      onSelect(saved.art);
-      onClose();
+      setShowPaste(false);
+      if (insertAfterSave) {
+        onSelect(saved.art);
+        onClose();
+      }
     } catch (error) {
       setAddError(error instanceof Error ? error.message : 'Could not save collection');
     }
+  }
+
+  function handleInsertPasteOnly() {
+    const art = addArt.trimEnd();
+    if (!art) {
+      setAddError('Paste emoji art first');
+      return;
+    }
+    if (art.length > CHAT_MESSAGE_MAX_LENGTH) {
+      setAddError(`Art is too long (max ${CHAT_MESSAGE_MAX_LENGTH} characters)`);
+      return;
+    }
+    onSelect(art);
+    onClose();
   }
 
   return (
@@ -159,14 +190,6 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
           className={mode === 'merged' ? 'chat-emoji-picker-mode--active' : undefined}
           onClick={() => setMode('merged')}>
           Merged emoji
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'add'}
-          className={mode === 'add' ? 'chat-emoji-picker-mode--active' : undefined}
-          onClick={() => setMode('add')}>
-          Add collection
         </button>
       </div>
 
@@ -208,6 +231,71 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
 
       {mode === 'merged' ? (
         <div className="chat-merged-emoji" role="tabpanel" aria-label="Merged emoji">
+          <button
+            type="button"
+            className="chat-merged-emoji-paste-toggle"
+            aria-expanded={showPaste}
+            onClick={() => {
+              setShowPaste(openPaste => !openPaste);
+              setAddError(null);
+            }}>
+            {showPaste ? 'Hide paste box' : 'Paste your own emoji art'}
+          </button>
+
+          {showPaste ? (
+            <div className="chat-merged-emoji-add">
+              <label className="chat-merged-emoji-add-field">
+                <span>Paste here</span>
+                <textarea
+                  ref={pasteRef}
+                  value={addArt}
+                  onChange={event => setAddArt(event.target.value.slice(0, CHAT_MESSAGE_MAX_LENGTH))}
+                  onMouseDown={event => event.stopPropagation()}
+                  placeholder="Copy emoji art from anywhere, then paste it here…"
+                  rows={7}
+                  maxLength={CHAT_MESSAGE_MAX_LENGTH}
+                />
+              </label>
+              <label className="chat-merged-emoji-add-field">
+                <span>Name (optional)</span>
+                <input
+                  value={addLabel}
+                  onChange={event => setAddLabel(event.target.value)}
+                  onMouseDown={event => event.stopPropagation()}
+                  placeholder="Golden lily"
+                  maxLength={64}
+                />
+              </label>
+              <p className="chat-merged-emoji-add-hint">
+                Up to {CHAT_MESSAGE_MAX_LENGTH.toLocaleString()} characters. Saved on this device.
+              </p>
+              {addError ? <p className="chat-merged-emoji-add-error">{addError}</p> : null}
+              <div className="chat-merged-emoji-add-actions">
+                <button
+                  type="button"
+                  className="chat-merged-emoji-add-save"
+                  disabled={!addArt.trim()}
+                  onClick={() => handleSaveFromPaste(true)}>
+                  Save & insert
+                </button>
+                <button
+                  type="button"
+                  className="chat-merged-emoji-add-secondary"
+                  disabled={!addArt.trim()}
+                  onClick={() => handleSaveFromPaste(false)}>
+                  Save only
+                </button>
+                <button
+                  type="button"
+                  className="chat-merged-emoji-add-secondary"
+                  disabled={!addArt.trim()}
+                  onClick={handleInsertPasteOnly}>
+                  Insert only
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <div className="chat-merged-emoji-tags" role="toolbar" aria-label="Merged emoji filters">
             {MERGED_EMOJI_FILTER_TAGS.map(tag => (
               <button
@@ -221,7 +309,9 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
           </div>
           <div className="chat-merged-emoji-list">
             {mergedItems.length === 0 ? (
-              <p className="chat-merged-emoji-empty">No merged emoji in this collection yet.</p>
+              <p className="chat-merged-emoji-empty">
+                No merged emoji here yet. Paste your own art above.
+              </p>
             ) : (
               mergedItems.map(item => (
                 <div key={item.id} className="chat-merged-emoji-row">
@@ -249,41 +339,6 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
               ))
             )}
           </div>
-        </div>
-      ) : null}
-
-      {mode === 'add' ? (
-        <div className="chat-merged-emoji-add" role="tabpanel" aria-label="Add emoji collection">
-          <label className="chat-merged-emoji-add-field">
-            <span>Name</span>
-            <input
-              value={addLabel}
-              onChange={event => setAddLabel(event.target.value)}
-              placeholder="Golden lily"
-              maxLength={64}
-            />
-          </label>
-          <label className="chat-merged-emoji-add-field">
-            <span>Paste merged emoji art</span>
-            <textarea
-              value={addArt}
-              onChange={event => setAddArt(event.target.value.slice(0, CHAT_MESSAGE_MAX_LENGTH))}
-              placeholder="Paste emoji art here…"
-              rows={6}
-              maxLength={CHAT_MESSAGE_MAX_LENGTH}
-            />
-          </label>
-          <p className="chat-merged-emoji-add-hint">
-            Up to {CHAT_MESSAGE_MAX_LENGTH.toLocaleString()} characters. Saved on this device.
-          </p>
-          {addError ? <p className="chat-merged-emoji-add-error">{addError}</p> : null}
-          <button
-            type="button"
-            className="chat-merged-emoji-add-save"
-            disabled={!addArt.trim()}
-            onClick={handleSaveCollection}>
-            Save and insert
-          </button>
         </div>
       ) : null}
     </div>
