@@ -305,8 +305,10 @@ export interface ChatMessageItem {
   receiptStatus?: 'SENT' | 'DELIVERED' | 'READ';
   /** Incoming messages not yet read by this user. */
   unread?: boolean;
-  /** Deleted for everyone. Present only when the room owner asked to see those messages. */
+  /** Deleted for everyone. The notice stays until this time, or until an unread recipient reads it. */
   deleted?: boolean;
+  /** When the "This note is deleted" notice leaves. Omitted while the recipient has not read it. */
+  deletedVisibleUntil?: string | null;
   replyTo?: ChatMessageReplyPreview | null;
   reactions?: ChatMessageReactionSummary[];
 }

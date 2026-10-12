@@ -26,7 +26,7 @@ export function ChatMessageReplyQuote({preview, variant = 'bubble', onClick}: Pr
       disabled={!clickable}
       aria-label={
         preview.deleted
-          ? 'Quoted message was deleted'
+          ? 'This note is deleted'
           : `Quoted message from ${senderName}: ${previewText}`
       }
       onClick={clickable ? onClick : undefined}>

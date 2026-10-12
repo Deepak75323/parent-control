@@ -12,7 +12,7 @@ describe('chatReplyPreview', () => {
         bodyPreview: '',
         deleted: true,
       }),
-    ).toBe('Message deleted');
+    ).toBe('This note is deleted');
   });
 
   it('builds preview from a media message without caption', () => {

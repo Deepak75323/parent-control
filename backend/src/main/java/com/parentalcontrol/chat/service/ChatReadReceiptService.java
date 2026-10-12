@@ -77,23 +77,17 @@ public class ChatReadReceiptService {
 
     ChatMessage lastMessage =
         messageRepository
-            .findById(lastMessageId)
+            .findIncludingDeletedByIdAndRoomId(lastMessageId, roomId)
             .orElseThrow(
                 () ->
                     new BusinessException(
                         ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND));
-    if (!lastMessage.getRoomId().equals(roomId)) {
-      throw new BusinessException(ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND);
-    }
 
     advanceReadCursor(member, lastMessage);
 
     List<UUID> messageIds =
-        messageRepository.findActiveByRoomId(roomId).stream()
-            .filter(m -> !m.getCreatedAt().isAfter(lastMessage.getCreatedAt()))
-            .filter(m -> !m.getSenderUserId().equals(recipientUserId))
-            .map(ChatMessage::getId)
-            .toList();
+        messageRepository.findIdsThroughForRecipient(
+            roomId, recipientUserId, lastMessage.getCreatedAt());
     if (messageIds.isEmpty()) {
       return List.of();
     }
@@ -228,6 +222,20 @@ public class ChatReadReceiptService {
     }
   }
 
+  @Transactional(readOnly = true)
+  public Map<UUID, Instant> readAtForViewer(Collection<UUID> messageIds, UUID viewerUserId) {
+    if (messageIds == null || messageIds.isEmpty()) {
+      return Map.of();
+    }
+    Map<UUID, Instant> readAtByMessage = new HashMap<>();
+    for (ChatMessageReceipt receipt : receiptRepository.findByMessageIdIn(messageIds)) {
+      if (receipt.getRecipientUserId().equals(viewerUserId) && receipt.getReadAt() != null) {
+        readAtByMessage.put(receipt.getMessageId(), receipt.getReadAt());
+      }
+    }
+    return readAtByMessage;
+  }
+
   /**
    * Unread = incoming messages after the member's read cursor ({@code lastReadMessageId}).
    * Falls back to receipt {@code readAt} / legacy {@code unreadFromAt} when cursor is unset.
@@ -246,7 +254,7 @@ public class ChatReadReceiptService {
     if (lastReadMessageId != null) {
       cursorAt =
           messageRepository
-              .findById(lastReadMessageId)
+              .findIncludingDeletedById(lastReadMessageId)
               .map(ChatMessage::getCreatedAt)
               .orElse(null);
     }
@@ -292,7 +300,8 @@ public class ChatReadReceiptService {
   @Transactional(readOnly = true)
   public int countUnread(
       UUID roomId, UUID viewerUserId, UUID lastReadMessageId, Instant unreadFromAt) {
-    List<ChatMessage> messages = messageRepository.findActiveByRoomId(roomId);
+    List<ChatMessage> messages = new ArrayList<>(messageRepository.findActiveByRoomId(roomId));
+    messages.addAll(messageRepository.findUnreadDeletedForRecipient(roomId, viewerUserId));
     Map<UUID, Boolean> unread =
         unreadForViewer(messages, viewerUserId, lastReadMessageId, unreadFromAt);
     return (int) unread.values().stream().filter(Boolean.TRUE::equals).count();
@@ -309,7 +318,7 @@ public class ChatReadReceiptService {
     UUID currentId = member.getLastReadMessageId();
     if (currentId != null) {
       ChatMessage current =
-          messageRepository.findById(currentId).orElse(null);
+          messageRepository.findIncludingDeletedById(currentId).orElse(null);
       if (current != null
           && current.getRoomId().equals(lastMessage.getRoomId())
           && lastMessage.getCreatedAt().isBefore(current.getCreatedAt())) {

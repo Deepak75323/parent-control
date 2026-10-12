@@ -3,7 +3,7 @@ import {resolveChatDisplayNickname} from './chatDisplayNickname';
 
 export function formatReplyPreviewText(preview: ChatMessageReplyPreview): string {
   if (preview.deleted) {
-    return 'Message deleted';
+    return 'This note is deleted';
   }
   if (preview.bodyPreview?.trim()) {
     return preview.bodyPreview;

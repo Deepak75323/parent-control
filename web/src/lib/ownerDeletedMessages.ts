@@ -1,4 +1,5 @@
 import type {ChatMessageItem} from '../types/api';
+import {deletedNoticeStillVisible, deletedNoticeTombstone} from './deletedNotice';
 
 let showDeleted = false;
 const listeners = new Set<() => void>();
@@ -20,10 +21,15 @@ export function subscribeShowDeletedMessagesForOwner(listener: () => void): () =
   return () => listeners.delete(listener);
 }
 
-/** Drop a message removed for everyone, unless this viewer is the room owner and asked to see it. */
+/** Drop a removed message unless the delete notice is still on screen, or the owner asked to see it. */
 export function messageForOwnerDeletedView(
   message: ChatMessageItem,
-  options: {removedForEveryone: boolean; showDeleted: boolean; viewerIsRoomOwner: boolean},
+  options: {
+    removedForEveryone: boolean;
+    showDeleted: boolean;
+    viewerIsRoomOwner: boolean;
+    nowMs?: number;
+  },
 ): ChatMessageItem | null {
   const deleted = Boolean(message.deleted) || options.removedForEveryone;
   if (!deleted) {
@@ -31,6 +37,13 @@ export function messageForOwnerDeletedView(
   }
   if (options.showDeleted && options.viewerIsRoomOwner) {
     return message.deleted ? message : {...message, deleted: true};
+  }
+  const nowMs = options.nowMs ?? Date.now();
+  if (deletedNoticeStillVisible(message.deletedVisibleUntil, nowMs)) {
+    return deletedNoticeTombstone(message);
+  }
+  if (!message.ownMessage && message.unread) {
+    return deletedNoticeTombstone(message);
   }
   return null;
 }

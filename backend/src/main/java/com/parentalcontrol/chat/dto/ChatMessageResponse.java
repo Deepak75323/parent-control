@@ -33,8 +33,13 @@ public class ChatMessageResponse {
   ChatReceiptStatus receiptStatus;
   /** True when this incoming message has not been read by the viewer yet. */
   Boolean unread;
-  /** True when the message was deleted for everyone and is visible only to the room owner. */
+  /** True when the message was deleted for everyone. */
   boolean deleted;
+  /**
+   * When the delete notice should leave the chat. Null while a recipient has not read it yet
+   * (it stays until they read it, then the client applies the same grace as a normal note).
+   */
+  Instant deletedVisibleUntil;
   /** Quoted parent message, when this message is a reply. */
   ChatMessageReplyPreview replyTo;
   /** Emoji reactions grouped by emoji. */

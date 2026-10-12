@@ -29,6 +29,7 @@ import com.parentalcontrol.chat.repository.ChatRoomMemberRepository;
 import com.parentalcontrol.chat.repository.ChatRoomRepository;
 import com.parentalcontrol.common.constant.ApiConstants;
 import com.parentalcontrol.common.constant.MessageConstants;
+import com.parentalcontrol.common.constant.ValidationConstants;
 import com.parentalcontrol.common.domain.Role;
 import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.exception.ErrorCode;
@@ -56,7 +57,6 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -560,7 +560,7 @@ public class ChatService {
     if (message.getMessageType() == ChatMessageType.TEXT && body.isEmpty()) {
       throw new BusinessException(ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_MESSAGE_BODY_REQUIRED);
     }
-    if (body.length() > 8000) {
+    if (body.length() > ValidationConstants.CHAT_MESSAGE_BODY_MAX_LENGTH) {
       throw new BusinessException(
           ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_CAPTION_TOO_LONG);
     }
@@ -719,7 +719,8 @@ public class ChatService {
                 resolvedChannelId,
                 userId,
                 clearedAfter,
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+                tombstoneVisibleAfter(),
+                PageRequest.of(page, size));
 
     List<ChatMessage> content = messages.getContent();
     List<UUID> messageIds = content.stream().map(ChatMessage::getId).toList();
@@ -728,6 +729,7 @@ public class ChatService {
     Map<UUID, Boolean> unreadByMessage =
         readReceiptService.unreadForViewer(
             content, userId, member.getLastReadMessageId(), member.getUnreadFromAt());
+    Map<UUID, Instant> readAtByMessage = readReceiptService.readAtForViewer(messageIds, userId);
 
     List<ChatMessageResponse> responses = new ArrayList<>();
     for (ChatMessage message : content) {
@@ -736,7 +738,9 @@ public class ChatService {
               message,
               userId,
               reactionsByMessage.getOrDefault(message.getId(), List.of()),
-              unreadByMessage));
+              unreadByMessage,
+              ownerDeletedView,
+              readAtByMessage));
     }
     Collections.reverse(responses);
     return responses;
@@ -836,7 +840,7 @@ public class ChatService {
     UUID resolvedChannelId = channelService.resolveTextChannel(roomId, channelId).getId();
 
     String body = caption != null ? caption.trim() : "";
-    if (body.length() > 8000) {
+    if (body.length() > ValidationConstants.CHAT_MESSAGE_BODY_MAX_LENGTH) {
       throw new BusinessException(
           ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_CAPTION_TOO_LONG);
     }
@@ -1139,21 +1143,23 @@ public class ChatService {
                 viewerUserId,
                 member.getLastReadMessageId(),
                 member.getUnreadFromAt());
-    return toMessageResponse(message, viewerUserId, reactions, unreadByMessage);
+    return toMessageResponse(message, viewerUserId, reactions, unreadByMessage, false, null);
   }
 
   private ChatMessageResponse toMessageResponse(
       ChatMessage message,
       UUID viewerUserId,
       List<ChatMessageReactionSummary> reactions) {
-    return toMessageResponse(message, viewerUserId, reactions, null);
+    return toMessageResponse(message, viewerUserId, reactions, null, false, null);
   }
 
   private ChatMessageResponse toMessageResponse(
       ChatMessage message,
       UUID viewerUserId,
       List<ChatMessageReactionSummary> reactions,
-      Map<UUID, Boolean> unreadByMessage) {
+      Map<UUID, Boolean> unreadByMessage,
+      boolean revealDeletedBody,
+      Map<UUID, Instant> readAtByMessage) {
     boolean ownMessage = message.getSenderUserId().equals(viewerUserId);
     boolean consumed =
         message.getAttachmentConsumedAt() != null
@@ -1174,6 +1180,13 @@ public class ChatService {
               + "/messages/"
               + message.getId()
               + "/attachment";
+    }
+
+    boolean deleted = message.getDeletedAt() != null;
+    boolean redactDeleted = deleted && !revealDeletedBody;
+    if (redactDeleted) {
+      attachmentUrl = null;
+      canViewAttachment = false;
     }
 
     boolean unread = false;
@@ -1197,7 +1210,7 @@ public class ChatService {
         .senderLabel(displayLabel(message.getSenderUserId()))
         .senderNickname(chatNicknameForUser(message.getSenderUserId()))
         .messageType(message.getMessageType())
-        .body(message.getBody())
+        .body(redactDeleted ? "" : message.getBody())
         .attachmentUrl(attachmentUrl)
         .attachmentMimeType(message.getAttachmentMimeType())
         .attachmentFileName(message.getAttachmentFileName())
@@ -1210,10 +1223,43 @@ public class ChatService {
         .editedAt(message.getEditedAt())
         .receiptStatus(ownMessage ? readReceiptService.statusForMessage(message.getId()) : null)
         .unread(unread)
-        .deleted(message.getDeletedAt() != null)
+        .deleted(deleted)
+        .deletedVisibleUntil(
+            deletedNoticeUntil(message, ownMessage, revealDeletedBody, readAtByMessage))
         .replyTo(buildReplyPreview(message))
         .reactions(reactions)
         .build();
+  }
+
+  private Instant tombstoneVisibleAfter() {
+    java.time.Duration grace = autoDeleteProperties.getGraceAfterRead();
+    if (grace == null || grace.isNegative()) {
+      grace = java.time.Duration.ZERO;
+    }
+    return Instant.now().minus(grace);
+  }
+
+  /** Sender: grace after delete. Recipient who already read the notice: grace after that read. */
+  private Instant deletedNoticeUntil(
+      ChatMessage message,
+      boolean ownMessage,
+      boolean revealDeletedBody,
+      Map<UUID, Instant> readAtByMessage) {
+    if (message.getDeletedAt() == null || revealDeletedBody) {
+      return null;
+    }
+    java.time.Duration grace = autoDeleteProperties.getGraceAfterRead();
+    if (grace == null || grace.isNegative()) {
+      grace = java.time.Duration.ZERO;
+    }
+    if (ownMessage) {
+      return message.getDeletedAt().plus(grace);
+    }
+    if (readAtByMessage == null) {
+      return null;
+    }
+    Instant readAt = readAtByMessage.get(message.getId());
+    return readAt == null ? null : readAt.plus(grace);
   }
 
   private UUID resolveReplyTarget(UUID roomId, UUID replyToMessageId) {

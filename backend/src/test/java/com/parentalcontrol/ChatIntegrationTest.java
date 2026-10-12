@@ -1,5 +1,6 @@
 package com.parentalcontrol;
 
+import static org.hamcrest.Matchers.hasItem;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -226,7 +227,31 @@ class ChatIntegrationTest {
             get("/api/v1/chat/rooms/" + roomId + "/messages")
                 .header("Authorization", "Bearer " + tokenA))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data").isEmpty());
+        .andExpect(jsonPath("$.data[?(@.id=='" + ownMessageId + "')].deleted").value(hasItem(true)))
+        .andExpect(jsonPath("$.data[?(@.id=='" + ownMessageId + "')].body").value(hasItem("")))
+        .andExpect(jsonPath("$.data[?(@.id=='" + ownMessageId + "')].unread").value(hasItem(true)));
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenB))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[?(@.id=='" + ownMessageId + "')]").isEmpty());
+
+    mockMvc
+        .perform(
+            post("/api/v1/chat/rooms/" + roomId + "/read")
+                .header("Authorization", "Bearer " + tokenA)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"lastMessageId\":\"" + ownMessageId + "\"}"))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(
+            get("/api/v1/chat/rooms/" + roomId + "/messages")
+                .header("Authorization", "Bearer " + tokenA))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[?(@.id=='" + ownMessageId + "')]").isEmpty());
 
     MvcResult other =
         mockMvc

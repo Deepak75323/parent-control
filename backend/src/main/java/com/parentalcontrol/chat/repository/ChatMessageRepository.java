@@ -13,26 +13,48 @@ import org.springframework.data.repository.query.Param;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> {
 
+  /**
+   * Live messages, plus delete-for-everyone tombstones still inside the read grace window. The
+   * sender sees the notice for that window after deleting. A recipient sees it until they read
+   * it, then for the same window. Native so soft-deleted rows are not dropped.
+   */
   @Query(
       value =
-          "SELECT m FROM ChatMessage m WHERE m.roomId = :roomId AND m.channelId = :channelId "
-              + "AND m.deletedAt IS NULL "
-              + "AND m.createdAt > :clearedAfter "
+          "SELECT m.* FROM chat_messages m WHERE m.room_id = :roomId AND m.channel_id = :channelId "
+              + "AND m.created_at > :clearedAfter "
+              + "AND ("
+              + "m.deleted_at IS NULL "
+              + "OR (m.sender_user_id = :userId AND m.deleted_at > :tombstoneVisibleAfter) "
+              + "OR EXISTS ("
+              + "SELECT 1 FROM chat_message_receipts r WHERE r.message_id = m.id "
+              + "AND r.recipient_user_id = :userId AND r.deleted_at IS NULL "
+              + "AND (r.read_at IS NULL OR r.read_at > :tombstoneVisibleAfter))"
+              + ") "
               + "AND NOT EXISTS ("
-              + "SELECT 1 FROM ChatMessageHide h WHERE h.messageId = m.id "
-              + "AND h.userId = :userId AND h.deletedAt IS NULL)",
+              + "SELECT 1 FROM chat_message_hides h WHERE h.message_id = m.id "
+              + "AND h.user_id = :userId AND h.deleted_at IS NULL) "
+              + "ORDER BY m.created_at DESC",
       countQuery =
-          "SELECT COUNT(m) FROM ChatMessage m WHERE m.roomId = :roomId AND m.channelId = :channelId "
-              + "AND m.deletedAt IS NULL "
-              + "AND m.createdAt > :clearedAfter "
+          "SELECT COUNT(*) FROM chat_messages m WHERE m.room_id = :roomId AND m.channel_id = :channelId "
+              + "AND m.created_at > :clearedAfter "
+              + "AND ("
+              + "m.deleted_at IS NULL "
+              + "OR (m.sender_user_id = :userId AND m.deleted_at > :tombstoneVisibleAfter) "
+              + "OR EXISTS ("
+              + "SELECT 1 FROM chat_message_receipts r WHERE r.message_id = m.id "
+              + "AND r.recipient_user_id = :userId AND r.deleted_at IS NULL "
+              + "AND (r.read_at IS NULL OR r.read_at > :tombstoneVisibleAfter))"
+              + ") "
               + "AND NOT EXISTS ("
-              + "SELECT 1 FROM ChatMessageHide h WHERE h.messageId = m.id "
-              + "AND h.userId = :userId AND h.deletedAt IS NULL)")
+              + "SELECT 1 FROM chat_message_hides h WHERE h.message_id = m.id "
+              + "AND h.user_id = :userId AND h.deleted_at IS NULL)",
+      nativeQuery = true)
   Page<ChatMessage> findVisibleForMemberInChannelOrderByCreatedAtDesc(
       @Param("roomId") UUID roomId,
       @Param("channelId") UUID channelId,
       @Param("userId") UUID userId,
       @Param("clearedAfter") Instant clearedAfter,
+      @Param("tombstoneVisibleAfter") Instant tombstoneVisibleAfter,
       Pageable pageable);
 
   @Query(
@@ -99,6 +121,36 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
       nativeQuery = true)
   boolean existsActiveInRoom(
       @Param("messageId") UUID messageId, @Param("roomId") UUID roomId);
+
+  @Query(value = "SELECT * FROM chat_messages WHERE id = :id", nativeQuery = true)
+  java.util.Optional<ChatMessage> findIncludingDeletedById(@Param("id") UUID id);
+
+  @Query(
+      value =
+          "SELECT m.id FROM chat_messages m WHERE m.room_id = :roomId "
+              + "AND m.created_at <= :createdAt AND m.sender_user_id <> :recipientUserId "
+              + "AND ("
+              + "m.deleted_at IS NULL "
+              + "OR EXISTS ("
+              + "SELECT 1 FROM chat_message_receipts r WHERE r.message_id = m.id "
+              + "AND r.recipient_user_id = :recipientUserId AND r.read_at IS NULL "
+              + "AND r.deleted_at IS NULL)"
+              + ")",
+      nativeQuery = true)
+  List<UUID> findIdsThroughForRecipient(
+      @Param("roomId") UUID roomId,
+      @Param("recipientUserId") UUID recipientUserId,
+      @Param("createdAt") Instant createdAt);
+
+  @Query(
+      value =
+          "SELECT m.* FROM chat_messages m WHERE m.room_id = :roomId AND m.deleted_at IS NOT NULL "
+              + "AND EXISTS ("
+              + "SELECT 1 FROM chat_message_receipts r WHERE r.message_id = m.id "
+              + "AND r.recipient_user_id = :userId AND r.read_at IS NULL AND r.deleted_at IS NULL)",
+      nativeQuery = true)
+  List<ChatMessage> findUnreadDeletedForRecipient(
+      @Param("roomId") UUID roomId, @Param("userId") UUID userId);
 
   @Query(
       value = "SELECT * FROM chat_messages WHERE id = :messageId AND room_id = :roomId",

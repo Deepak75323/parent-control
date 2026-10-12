@@ -19,7 +19,16 @@ import {
 } from '../lib/chatEmojiCatalog';
 import {formatChatTypingLine} from '../lib/chatTypingLabel';
 import {insertTextAtSelection} from '../lib/insertTextAtSelection';
-import {CHAT_MESSAGE_MAX_LENGTH} from '../lib/chatMessageLimits';
+import {
+  countMergedEmojiLines,
+  normalizeMergedEmojiArt,
+} from '../lib/chatMergedEmojiFormat';
+import {CHAT_MESSAGE_BODY_MAX, CHAT_MESSAGE_PLAINTEXT_MAX} from '../lib/chatMessageLimits';
+import {deletedNoticeTombstone, deletedNoticeVisibleUntil, withDeletedNoticeRead} from '../lib/deletedNotice';
+import {
+  chatMessageTooLongAfterSealingError,
+  trimPlaintextToSealedLimit,
+} from '../lib/chatMessageSealedLength';
 import {
   addCustomMergedEmoji,
   allMergedEmojiCollections,
@@ -106,7 +115,7 @@ function pipMessageActionLabel(action: PipMessageActionId): string {
 
 function replyQuoteText(preview: ChatMessageReplyPreview, unlocked: boolean): string {
   if (preview.deleted) {
-    return 'Message deleted';
+    return 'This note is deleted';
   }
   const raw = preview.bodyPreview?.trim() ?? '';
   if (!raw) {
@@ -460,6 +469,11 @@ export function MeetStylePip({onClose}: Props) {
     };
   }, [emojiOpen]);
 
+  function artForSend(raw: string): string {
+    const normalized = normalizeMergedEmojiArt(raw).slice(0, CHAT_MESSAGE_PLAINTEXT_MAX);
+    return trimPlaintextToSealedLimit(normalized);
+  }
+
   function insertEmoji(emoji: string) {
     const input = composeRef.current;
     const start = input?.selectionStart ?? cursor;
@@ -490,6 +504,10 @@ export function MeetStylePip({onClose}: Props) {
       setNotice(null);
       try {
         const body = await encodeOutgoingChatBody(text);
+        if (body.length > CHAT_MESSAGE_BODY_MAX) {
+          setNotice(chatMessageTooLongAfterSealingError(text));
+          return;
+        }
         const {data} = await chatApi.editMessage(room.id, editingMessage.id, body);
         const saved = data.data;
         if (saved) {
@@ -512,6 +530,10 @@ export function MeetStylePip({onClose}: Props) {
     const replyId = replyingTo?.id;
     try {
       const body = await encodeOutgoingChatBody(text);
+      if (body.length > CHAT_MESSAGE_BODY_MAX) {
+        setNotice(chatMessageTooLongAfterSealingError(text));
+        return;
+      }
       const {data} = await chatApi.sendMessage(room.id, body, replyId);
       const saved = data.data;
       if (saved) {
@@ -618,11 +640,17 @@ export function MeetStylePip({onClose}: Props) {
     askPip(everyone ? 'Delete this note for everyone?' : 'Delete this note for you?', async () => {
       await chatApi.deleteMessage(room.id, message.id, everyone ? 'FOR_EVERYONE' : 'FOR_ME');
       setMessages(current =>
-        everyone && showDeletedMessages
-          ? current.map(item => (item.id === message.id ? {...item, deleted: true, body: item.body} : item))
+        everyone
+          ? current.map(item =>
+              item.id === message.id
+                ? showDeletedMessages
+                  ? {...item, deleted: true}
+                  : deletedNoticeTombstone(item, deletedNoticeVisibleUntil())
+                : item,
+            )
           : current.filter(item => item.id !== message.id),
       );
-      if (!(everyone && showDeletedMessages)) {
+      if (!everyone) {
         useRealtimeStore.getState().removeLiveChatMessage(message.id);
       }
     });
@@ -690,6 +718,7 @@ export function MeetStylePip({onClose}: Props) {
         removedForEveryone: Boolean(deletedChatMessageIds[message.id]),
         showDeleted: showDeletedMessages,
         viewerIsRoomOwner: Boolean(room?.owner),
+        nowMs: Date.now(),
       });
       if (!visible) {
         return [];
@@ -757,6 +786,9 @@ export function MeetStylePip({onClose}: Props) {
       return;
     }
     await chatApi.markRead(room.id, lastIncoming.id);
+    setMessages(current =>
+      current.map(message => (message.ownMessage ? message : withDeletedNoticeRead(message))),
+    );
     setRoom(current => (current ? {...current, unreadCount: 0} : current));
     setNotice(null);
   }
@@ -1104,7 +1136,9 @@ export function MeetStylePip({onClose}: Props) {
                   {replyQuoteText(message.replyTo, unlocked)}
                 </span>
               ) : null}
-              {message.deleted ? <span className="meet-deleted">Deleted</span> : null}
+              {message.deleted ? (
+                <span className="meet-deleted">This note is deleted</span>
+              ) : null}
               {message.messageType === 'IMAGE' || message.messageType === 'VIDEO' ? (
                 message.deleted ? null : (
                   <MeetPipMedia
@@ -1114,7 +1148,7 @@ export function MeetStylePip({onClose}: Props) {
                   />
                 )
               ) : null}
-              {shown[message.id] ? (
+              {message.deleted ? null : shown[message.id] ? (
                 <MentionText text={shown[message.id]} members={members} />
               ) : message.messageType === 'IMAGE' || message.messageType === 'VIDEO' ? null : (
                 <MentionText text="—" members={members} />
@@ -1333,15 +1367,34 @@ export function MeetStylePip({onClose}: Props) {
                       className="meet-merged-paste-input"
                       value={mergedPaste}
                       rows={8}
-                      maxLength={CHAT_MESSAGE_MAX_LENGTH}
+                      maxLength={CHAT_MESSAGE_PLAINTEXT_MAX}
                       placeholder="Paste emoji art here…"
                       spellCheck={false}
                       onMouseDown={event => event.stopPropagation()}
-                      onChange={event => setMergedPaste(event.target.value.slice(0, CHAT_MESSAGE_MAX_LENGTH))}
+                      onPaste={event => {
+                        const pasted = event.clipboardData.getData('text');
+                        if (!pasted) {
+                          return;
+                        }
+                        event.preventDefault();
+                        setMergedPaste(artForSend(pasted));
+                        setMergedPasteError(null);
+                      }}
+                      onChange={event =>
+                        setMergedPaste(event.target.value.slice(0, CHAT_MESSAGE_PLAINTEXT_MAX))
+                      }
                     />
+                    <button
+                      type="button"
+                      className="meet-merged-paste-toggle"
+                      disabled={!mergedPaste.trim()}
+                      onMouseDown={event => event.preventDefault()}
+                      onClick={() => setMergedPaste(artForSend(mergedPaste))}>
+                      Split into rows (fix order)
+                    </button>
                     {mergedPaste.trim() ? (
-                      <pre className="meet-merged-paste-preview">
-                        {previewMergedEmojiLines(mergedPaste, 10, 200)}
+                      <pre className="meet-merged-paste-preview" aria-label="Preview">
+                        {`Preview (${countMergedEmojiLines(mergedPaste)} lines)\n${artForSend(mergedPaste)}`}
                       </pre>
                     ) : null}
                     <input
@@ -1361,7 +1414,7 @@ export function MeetStylePip({onClose}: Props) {
                           try {
                             const saved = addCustomMergedEmoji({
                               label: mergedPasteName || 'Pasted art',
-                              art: mergedPaste,
+                              art: artForSend(mergedPaste),
                               tags: ['my collection', 'cute'],
                             });
                             setMergedPaste('');
@@ -1383,8 +1436,8 @@ export function MeetStylePip({onClose}: Props) {
                         disabled={!mergedPaste.trim()}
                         onMouseDown={event => event.preventDefault()}
                         onClick={() => {
-                          const art = mergedPaste.trimEnd();
-                          if (!art) {
+                          const art = artForSend(mergedPaste);
+                          if (!art.trim()) {
                             return;
                           }
                           insertEmoji(art);
@@ -1403,11 +1456,11 @@ export function MeetStylePip({onClose}: Props) {
                     aria-label={`Insert ${item.label}`}
                     onMouseDown={event => event.preventDefault()}
                     onClick={() => {
-                      insertEmoji(item.art);
+                      insertEmoji(artForSend(item.art));
                       setEmojiOpen(false);
                     }}>
                     <span>{item.label}</span>
-                    <small>{previewMergedEmojiLines(item.art, 3, 60)}</small>
+                    <small>{previewMergedEmojiLines(artForSend(item.art), 4, 80)}</small>
                   </button>
                 ))}
               </div>
@@ -1459,7 +1512,7 @@ export function MeetStylePip({onClose}: Props) {
           placeholder={editingMessage ? 'Edit note' : 'Type a note. Type @ to tag'}
           aria-label="Type a note"
           disabled={!room}
-          maxLength={CHAT_MESSAGE_MAX_LENGTH}
+          maxLength={CHAT_MESSAGE_PLAINTEXT_MAX}
         />
         <button
           type="button"
@@ -1835,7 +1888,7 @@ const MEET_PIP_CSS = `
 .meet-merged-paste { display: flex; flex-direction: column; gap: 6px; }
 .meet-merged-paste textarea, .meet-merged-paste input { width: 100%; box-sizing: border-box; border: 0; border-radius: 8px; background: #202124; color: #e8eaed; font: inherit; font-size: 12px; padding: 8px; resize: vertical; }
 .meet-merged-paste-input { white-space: pre; overflow: auto; min-height: 120px; max-height: 200px; font-family: ui-monospace, Menlo, monospace; line-height: 1.35; }
-.meet-merged-paste-preview { margin: 0; padding: 6px 8px; border-radius: 8px; background: #202124; color: #9aa0a6; font-size: 11px; line-height: 1.35; white-space: pre-wrap; max-height: 100px; overflow: auto; font-family: ui-monospace, Menlo, monospace; }
+.meet-merged-paste-preview { margin: 0; padding: 6px 8px; border-radius: 8px; background: #202124; color: #9aa0a6; font-size: 11px; line-height: 1.35; white-space: pre; max-height: min(240px, 38dvh); overflow: auto; font-family: ui-monospace, Menlo, monospace; }
 .meet-merged-item small { font-size: 11px; color: #9aa0a6; white-space: pre-wrap; max-width: 100%; line-height: 1.3; }
 .meet-merged-paste-actions { display: flex; gap: 6px; }
 .meet-merged-paste-actions button { border: 0; border-radius: 8px; background: #8ab4f8; color: #202124; font-size: 12px; font-weight: 700; padding: 6px 8px; cursor: pointer; }
@@ -1843,7 +1896,7 @@ const MEET_PIP_CSS = `
 .meet-merged-paste-error { margin: 0; font-size: 11px; color: #f28b82; }
 .meet-merged-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border: 0; border-radius: 8px; background: #3c4043; color: #e8eaed; text-align: left; padding: 6px 8px; cursor: pointer; }
 .meet-merged-item span { font-size: 12px; font-weight: 700; }
-.meet-merged-item small { font-size: 11px; color: #9aa0a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.meet-merged-item small { font-size: 11px; color: #9aa0a6; white-space: pre-wrap; max-width: 100%; line-height: 1.3; }
 .meet-mentions { position: absolute; left: 0; right: 40px; bottom: calc(100% + 6px); display: flex; flex-direction: column; max-height: 140px; overflow-y: auto; border-radius: 12px; background: #303134; box-shadow: 0 4px 16px rgba(0,0,0,0.4); z-index: 2; }
 .meet-mentions button { border: 0; background: transparent; color: #e8eaed; text-align: left; padding: 8px 12px; cursor: pointer; font-size: 13px; }
 .meet-mentions button.active, .meet-mentions button:hover { background: #3c4043; }

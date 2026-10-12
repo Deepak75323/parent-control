@@ -27,6 +27,7 @@ import {
   setShowDeletedMessagesForOwner,
   subscribeShowDeletedMessagesForOwner,
 } from '../lib/ownerDeletedMessages';
+import {deletedNoticeTombstone, deletedNoticeVisibleUntil, withDeletedNoticeRead} from '../lib/deletedNotice';
 import {groupMessagesByDate} from '../lib/chatMessageGrouping';
 import {resolveOwnSenderUserId, withResolvedOwnership} from '../lib/chatMessageOwnership';
 import {withMonotonicReceiptStatuses} from '../lib/chatReceiptMonotonic';
@@ -40,7 +41,8 @@ import {
 } from '../lib/chatUnreadMerge';
 import {resolveChatDisplayNickname} from '../lib/chatDisplayNickname';
 import {formatChatTypingLine} from '../lib/chatTypingLabel';
-import {CHAT_MESSAGE_MAX_LENGTH} from '../lib/chatMessageLimits';
+import {CHAT_MESSAGE_BODY_MAX} from '../lib/chatMessageLimits';
+import {chatMessageTooLongAfterSealingError} from '../lib/chatMessageSealedLength';
 import {formatPartnerPresenceLabel} from '../lib/parentPresence';
 import {isChatDmsEnabled, isChatFriendsEnabled} from '../lib/chatFriendsFeature';
 import {validateChatMediaFile} from '../lib/chatMediaUpload';
@@ -597,6 +599,7 @@ export function ChatPage() {
         removedForEveryone: Boolean(deletedChatMessageIds[message.id]),
         showDeleted: showDeletedMessages,
         viewerIsRoomOwner: Boolean(selectedRoom?.owner),
+        nowMs: presenceNowMs,
       });
       if (!visible) {
         continue;
@@ -627,6 +630,7 @@ export function ChatPage() {
           removedForEveryone: Boolean(deletedChatMessageIds[message.id]),
           showDeleted: showDeletedMessages,
           viewerIsRoomOwner: Boolean(selectedRoom?.owner),
+          nowMs: presenceNowMs,
         });
         if (!visible) {
           continue;
@@ -688,6 +692,7 @@ export function ChatPage() {
     reactionPatches,
     ownSenderUserId,
     profile?.readReceiptsEnabled,
+    presenceNowMs,
   ]);
 
   const visibleMessages = useMemo(() => {
@@ -1496,8 +1501,29 @@ export function ChatPage() {
         });
         return changed ? next : prev;
       }
-      const next = prev.filter(message => !deletedChatMessageIds[message.id]);
-      return next.length === prev.length ? prev : next;
+      let changed = false;
+      const next = prev.flatMap(message => {
+        if (!deletedChatMessageIds[message.id]) {
+          return [message];
+        }
+        if (message.ownMessage || (message.deleted && message.deletedVisibleUntil)) {
+          if (message.deleted && !message.body && message.deletedVisibleUntil) {
+            return [message];
+          }
+          changed = true;
+          return [deletedNoticeTombstone(message, message.deletedVisibleUntil ?? deletedNoticeVisibleUntil())];
+        }
+        if (!message.ownMessage && message.unread) {
+          if (message.deleted && !message.body) {
+            return [message];
+          }
+          changed = true;
+          return [deletedNoticeTombstone(message)];
+        }
+        changed = true;
+        return [];
+      });
+      return changed ? next : prev;
     });
   }, [deletedChatMessageIds, showDeletedMessages, selectedRoom?.owner]);
 
@@ -1667,7 +1693,7 @@ export function ChatPage() {
         setApiMessages(prev =>
           prev.map(message =>
             message.roomId === selectedRoomId && !message.ownMessage
-              ? {...message, unread: false}
+              ? withDeletedNoticeRead(message)
               : message,
           ),
         );
@@ -2036,7 +2062,7 @@ export function ChatPage() {
         setApiMessages(prev =>
           prev.map(message =>
             message.roomId === selectedRoomId && !message.ownMessage
-              ? {...message, unread: false}
+              ? withDeletedNoticeRead(message)
               : message,
           ),
         );
@@ -2086,8 +2112,8 @@ export function ChatPage() {
     try {
       if (fileToSend) {
         const caption = body ? await sealOutgoingBody(body) : undefined;
-        if (caption && caption.length > CHAT_MESSAGE_MAX_LENGTH) {
-          setError('Caption is too long after encoding — use fewer words');
+        if (caption && caption.length > CHAT_MESSAGE_BODY_MAX) {
+          setError(chatMessageTooLongAfterSealingError(body));
           setDraft(body);
           return;
         }
@@ -2105,8 +2131,8 @@ export function ChatPage() {
         }
       } else {
         const sealedBody = await sealOutgoingBody(body);
-        if (sealedBody.length > CHAT_MESSAGE_MAX_LENGTH) {
-          setError('Message is too long after encoding — use fewer words');
+        if (sealedBody.length > CHAT_MESSAGE_BODY_MAX) {
+          setError(chatMessageTooLongAfterSealingError(body));
           setDraft(body);
           return;
         }
@@ -2184,6 +2210,10 @@ export function ChatPage() {
       return;
     }
     const payloadBody = await sealOutgoingBody(trimmed);
+    if (payloadBody.length > CHAT_MESSAGE_BODY_MAX) {
+      setError(chatMessageTooLongAfterSealingError(trimmed));
+      return;
+    }
     const currentDisplay = revealMessageBody(target);
     if (trimmed === currentDisplay) {
       cancelEditMessage();
@@ -2217,9 +2247,15 @@ export function ChatPage() {
     setError(null);
     const keepDeleted =
       scope === 'FOR_EVERYONE' && showDeletedMessages && Boolean(selectedRoom?.owner);
-    if (keepDeleted) {
+    if (scope === 'FOR_EVERYONE') {
       setApiMessages(prev =>
-        prev.map(entry => (entry.id === message.id ? {...entry, deleted: true} : entry)),
+        prev.map(entry =>
+          entry.id === message.id
+            ? keepDeleted
+              ? {...entry, deleted: true}
+              : deletedNoticeTombstone(entry, deletedNoticeVisibleUntil())
+            : entry,
+        ),
       );
     } else {
       setApiMessages(prev => prev.filter(entry => entry.id !== message.id));
@@ -2452,7 +2488,9 @@ export function ChatPage() {
 
     return (
       <>
-        {message.deleted ? <p className="chat-message-deleted-label">Deleted</p> : null}
+        {message.deleted ? (
+          <p className="chat-message-deleted-label">This note is deleted</p>
+        ) : null}
         {showMedia ? (
           <ChatMessageMedia
             message={message}

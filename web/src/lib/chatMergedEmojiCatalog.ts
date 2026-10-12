@@ -1,4 +1,5 @@
-import {CHAT_MESSAGE_MAX_LENGTH} from './chatMessageLimits';
+import {CHAT_MESSAGE_PLAINTEXT_MAX} from './chatMessageLimits';
+import {plaintextFitsSealedLimit} from './chatMessageSealedLength';
 
 export type MergedEmojiArt = {
   id: string;
@@ -279,7 +280,11 @@ export const BUILTIN_MERGED_EMOJI_COLLECTIONS: MergedEmojiCollection[] = [
 ];
 
 export function mergedEmojiFitsLimit(art: string): boolean {
-  return art.length > 0 && art.length <= CHAT_MESSAGE_MAX_LENGTH;
+  return (
+    art.length > 0 &&
+    art.length <= CHAT_MESSAGE_PLAINTEXT_MAX &&
+    plaintextFitsSealedLimit(art)
+  );
 }
 
 export function previewMergedEmoji(art: string, maxChars = 48): string {
@@ -348,7 +353,9 @@ export function addCustomMergedEmoji(input: {
   const art = input.art.trimEnd();
   const label = input.label.trim() || 'My emoji';
   if (!mergedEmojiFitsLimit(art)) {
-    throw new Error(`Merged emoji is too long (max ${CHAT_MESSAGE_MAX_LENGTH} characters)`);
+    throw new Error(
+      `Merged emoji is too long (max ${CHAT_MESSAGE_PLAINTEXT_MAX.toLocaleString()} characters, or too large after sealing)`,
+    );
   }
   const item: MergedEmojiArt = {
     id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

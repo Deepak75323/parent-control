@@ -29,11 +29,16 @@ export function ComposeAnchorPortal({open, anchorRef, className, children}: Prop
         Math.max(horizontalPadding, rect.left),
         window.innerWidth - width - horizontalPadding,
       );
+      const gapAboveCompose = 8;
+      const maxHeight = Math.max(160, rect.top - gapAboveCompose);
       setStyle({
         position: 'fixed',
         left,
         width,
-        bottom: Math.max(8, window.innerHeight - rect.top + 8),
+        bottom: Math.max(8, window.innerHeight - rect.top + gapAboveCompose),
+        maxHeight,
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch',
         zIndex: 10060,
       });
     }

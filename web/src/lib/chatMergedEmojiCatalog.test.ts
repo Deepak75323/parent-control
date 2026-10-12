@@ -8,7 +8,7 @@ import {
   previewMergedEmojiLines,
   removeCustomMergedEmoji,
 } from './chatMergedEmojiCatalog';
-import {CHAT_MESSAGE_MAX_LENGTH} from './chatMessageLimits';
+import {CHAT_MESSAGE_PLAINTEXT_MAX} from './chatMessageLimits';
 
 function mockLocalStorage() {
   const store = new Map<string, string>();
@@ -39,7 +39,7 @@ describe('chatMergedEmojiCatalog', () => {
 
   it('rejects arts that exceed the note length limit', () => {
     expect(mergedEmojiFitsLimit('ok')).toBe(true);
-    expect(mergedEmojiFitsLimit('x'.repeat(CHAT_MESSAGE_MAX_LENGTH + 1))).toBe(false);
+    expect(mergedEmojiFitsLimit('x'.repeat(CHAT_MESSAGE_PLAINTEXT_MAX + 1))).toBe(false);
   });
 
   it('saves a custom merged emoji into My collection', () => {
