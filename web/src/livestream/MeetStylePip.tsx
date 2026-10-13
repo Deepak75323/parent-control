@@ -37,6 +37,7 @@ import {
   previewMergedEmojiLines,
 } from '../lib/chatMergedEmojiCatalog';
 import {chatPipRoomId, subscribeChatPipRoom} from './chatPipTarget';
+import {CameraFrameViewer} from '../components/CameraFrameViewer';
 import {nextViewerRotateDeg, prevViewerRotateDeg, viewerVideoRotateStyle} from '../lib/viewerVideoRotate';
 import {isChatViewUnlocked, setChatViewUnlocked, subscribeChatViewUnlocked} from '../lib/chatViewUnlock';
 import {
@@ -153,6 +154,7 @@ export function MeetStylePip({onClose}: Props) {
   const stop = useLiveStreamStore(s => s.stop);
   const viewRotate = useLiveStreamStore(s => s.viewRotate);
   const setViewRotate = useLiveStreamStore(s => s.setViewRotate);
+  const cameraFacing = useLiveStreamStore(s => s.cameraFacing);
   const liveMessages = useRealtimeStore(s => s.liveChatMessages);
   const reactionPatches = useRealtimeStore(s => s.reactionPatches);
   const deletedChatMessageIds = useRealtimeStore(s => s.deletedChatMessageIds);
@@ -936,7 +938,16 @@ export function MeetStylePip({onClose}: Props) {
         className={`meet-stage sized${cameraHidden ? ' hidden' : ''}`}
         style={{height: (cameraBox ?? openPane).h}}>
         <div className={`meet-video-card${turned ? ' turned' : ''}`}>
-          <video ref={videoRef} autoPlay playsInline style={videoStyle} />
+          {streamType === 'CAMERA' ? (
+            <CameraFrameViewer
+              stream={remoteStream}
+              objectFit="contain"
+              viewerRotate={viewRotate}
+              facingHint={cameraFacing}
+            />
+          ) : (
+            <video ref={videoRef} autoPlay playsInline style={videoStyle} />
+          )}
           <span className="meet-name">{deviceName ?? 'Child'}</span>
           <div className="meet-video-actions">
             <button
