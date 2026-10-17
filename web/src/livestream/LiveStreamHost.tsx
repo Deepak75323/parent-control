@@ -1,6 +1,9 @@
 import {useEffect} from 'react';
+import {streamFailureMessage} from '../lib/streamFailureMessages';
 import {shouldReleaseViewerOnStreamingEnded} from '../lib/streamTakeover';
+import {AutoBrowserPictureInPicture} from './AutoBrowserPictureInPicture';
 import {FloatingStreamPip} from './FloatingStreamPip';
+import {PersistentStreamSink} from './PersistentStreamSink';
 import {getLiveStreamRoomId, useLiveStreamStore} from './liveStreamStore';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 
@@ -30,5 +33,32 @@ export function LiveStreamHost() {
     releaseFromTakeover();
   }, [streamingState, deviceId, busy, releaseFromTakeover]);
 
-  return <FloatingStreamPip />;
+  useEffect(() => {
+    if (!streamingState || busy) {
+      return;
+    }
+    if (streamingState.deviceId && streamingState.deviceId !== deviceId) {
+      return;
+    }
+    if (streamingState.status !== 'FAILED') {
+      return;
+    }
+    const activeRoom = getLiveStreamRoomId();
+    if (streamingState.roomId && activeRoom && streamingState.roomId !== activeRoom) {
+      return;
+    }
+    useLiveStreamStore.setState({
+      error: streamFailureMessage(streamingState.failureReason),
+      status: 'Failed',
+      busy: false,
+    });
+  }, [streamingState, deviceId, busy]);
+
+  return (
+    <>
+      <PersistentStreamSink />
+      <AutoBrowserPictureInPicture />
+      <FloatingStreamPip />
+    </>
+  );
 }

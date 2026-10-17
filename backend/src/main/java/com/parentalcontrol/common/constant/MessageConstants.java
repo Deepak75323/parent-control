@@ -127,6 +127,8 @@ public final class MessageConstants {
 
   public static final String INVALID_DEVICE_TOKEN = "Invalid device token";
 
+  public static final String INVALID_EMAIL_OR_PASSWORD = "Invalid email or password";
+
   public static final String INVALID_OR_EXPIRED_RESET_LINK = "Invalid or expired reset link";
 
   public static final String INVALID_OR_EXPIRED_VERIFICATION_LINK =
@@ -303,6 +305,95 @@ public final class MessageConstants {
 
   public static final String CHAT_ONLY_OWNER_CAN_DELETE = "Only the room owner can delete this room";
 
+  public static final String CHAT_ONLY_OWNER_CAN_CLEAR =
+      "Only the room owner or an admin can clear chat history";
+
+  public static final String CHAT_ONLY_OWNER_CAN_DECRYPT =
+      "You do not have permission to decrypt this chat";
+
+  public static final String CHAT_ONLY_OWNER_CAN_TRANSFER =
+      "Only the room owner can transfer ownership";
+
+  public static final String CHAT_ONLY_OWNER_CAN_SHARE_MEMBERS_PANEL =
+      "Only the room owner can show or hide the Members panel for others";
+
+  public static final String CHAT_ONLY_OWNER_CAN_CHANGE_ROLE =
+      "Only the room owner can change member roles";
+
+  public static final String CHAT_CANNOT_MODERATE_TARGET =
+      "You cannot moderate that member";
+
+  public static final String CHAT_CANNOT_REMOVE_OWNER =
+      "Transfer ownership before removing the room owner";
+
+  public static final String CHAT_MEMBER_MUTED = "You are muted in this room";
+
+  public static final String CHAT_INVALID_MEMBER_ROLE =
+      "Role must be ADMIN or MEMBER";
+
+  public static final String CHAT_TRANSFER_MUST_BE_MEMBER =
+      "New owner must be an active member of this room";
+
+  public static final String CHAT_CHANNEL_NOT_FOUND = "Chat channel not found";
+
+  public static final String CHAT_CHANNEL_NAME_REQUIRED = "Channel name is required";
+
+  public static final String CHAT_CHANNEL_TYPE_REQUIRED = "Channel type is required";
+
+  public static final String CHAT_CHANNEL_NAME_TAKEN =
+      "A channel with that name already exists in this server";
+
+  public static final String CHAT_CHANNEL_LIMIT =
+      "This server already has the maximum number of channels";
+
+  public static final String CHAT_CHANNEL_CREATE_FORBIDDEN =
+      "Only the server owner or an admin can create channels";
+
+  public static final String CHAT_CHANNEL_TEXT_REQUIRED =
+      "Messages can only be sent in text channels";
+
+  public static final String CHAT_CHANNEL_VOICE_REQUIRED =
+      "Calls can only start in voice channels";
+
+  public static final String CHAT_CALL_NOT_FOUND = "Video call not found";
+
+  public static final String CHAT_CALL_NOT_ACTIVE = "This video call is not active";
+
+  public static final String CHAT_CALL_FULL =
+      "This video call is full (max 4 parents)";
+
+  public static final String CHAT_CALL_NOT_PARTICIPANT =
+      "You are not in this video call";
+
+  public static final String CHAT_CALL_CANNOT_END =
+      "Only the call starter, room owner, or an admin can end the call";
+
+  public static final String CHAT_CALL_SIGNAL_TARGET =
+      "Signal target must be an active call participant";
+
+  public static final String CHAT_DECRYPT_NOT_CONFIGURED =
+      "Chat decrypt is not configured on this server";
+
+  public static final String CHAT_DECRYPT_PIN_INVALID = "Invalid decrypt PIN";
+
+  public static final String CHAT_DECRYPT_PIN_ALREADY_SET =
+      "Decrypt PIN is already set on this server";
+
+  public static final String CHAT_OWNER_CANNOT_LEAVE =
+      "Room owners must delete the room instead of leaving";
+
+  public static final String CHAT_MESSAGE_NOT_FOUND = "Message not found";
+
+  public static final String CHAT_MESSAGE_BODY_REQUIRED = "Message cannot be empty";
+
+  public static final String CHAT_CANNOT_DELETE_MESSAGE =
+      "You can only delete your own messages for everyone";
+
+  public static final String CHAT_CANNOT_DELETE_FOR_EVERYONE =
+      "Only the sender can delete a message for everyone";
+
+  public static final String CHAT_CANNOT_EDIT_MESSAGE = "You can only edit your own messages";
+
   public static final String CHAT_CANNOT_INVITE_YOURSELF = "You cannot invite yourself";
 
   public static final String CHAT_USER_ALREADY_IN_ROOM = "That parent is already in this room";
@@ -311,6 +402,52 @@ public final class MessageConstants {
       "An invite is already pending for that parent";
 
   public static final String CHAT_INVITE_ALREADY_RESPONDED = "This invite has already been responded to";
+
+  public static final String CHAT_ATTACHMENT_REQUIRED = "A file attachment is required";
+
+  public static final String CHAT_ATTACHMENT_TYPE_NOT_ALLOWED =
+      "Only JPEG, PNG, WebP, GIF images and MP4, WebM, or MOV videos are allowed";
+
+  public static final String CHAT_ATTACHMENT_TOO_LARGE = "Attachment exceeds the size limit";
+
+  public static final String CHAT_ATTACHMENT_NOT_FOUND = "Attachment not found";
+
+  public static final String CHAT_ATTACHMENT_STORE_FAILED = "Could not store attachment";
+
+  public static final String CHAT_ATTACHMENT_READ_FAILED = "Could not read attachment";
+
+  public static final String CHAT_ATTACHMENT_ALREADY_VIEWED =
+      "This view-once attachment was already opened";
+
+  public static final String CHAT_SENDER_CANNOT_VIEW_ONCE =
+      "View-once media can only be opened by recipients";
+
+  public static final String CHAT_ATTACHMENT_USE_VIEW_ENDPOINT =
+      "Use the view endpoint to open this attachment";
+
+  public static final String CHAT_CAPTION_TOO_LONG =
+      "Caption is too long (max 32768 characters)";
+
+  public static final String CHAT_REPLY_MESSAGE_NOT_FOUND =
+      "The message you are replying to was not found";
+
+  public static final String CHAT_REACTION_EMOJI_REQUIRED = "Reaction emoji is required";
+
+  public static final String CHAT_REACTION_EMOJI_INVALID = "Reaction emoji is invalid";
+
+  public static final String FRIEND_CANNOT_ADD_YOURSELF = "You cannot send a friend request to yourself";
+
+  public static final String FRIEND_ALREADY_FRIENDS = "You are already friends with that parent";
+
+  public static final String FRIEND_REQUEST_ALREADY_PENDING =
+      "A friend request is already pending with that parent";
+
+  public static final String FRIEND_REQUEST_NOT_FOUND = "Friend request not found";
+
+  public static final String FRIEND_REQUEST_ALREADY_RESPONDED =
+      "This friend request has already been responded to";
+
+  public static final String FRIEND_NOT_FOUND = "Friend not found";
 
   private MessageConstants() {}
 }

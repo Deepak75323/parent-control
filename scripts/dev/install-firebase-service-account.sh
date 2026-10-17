@@ -23,7 +23,7 @@ fi
 
 mkdir -p "$(dirname "$DEST")"
 cp "$1" "$DEST"
-chmod 600 "$DEST"
+chmod 644 "$DEST"
 
 SA_PROJECT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['project_id'])" "$DEST")
 echo "Installed service account → $DEST"

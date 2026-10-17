@@ -25,6 +25,11 @@ object CameraAccessManager {
     private const val TAKEOVER_RETRY_DELAY_MS = 400L
     private const val TAKEOVER_MAX_ATTEMPTS = 2
 
+    /** Parent stream requests — always displace, longer timeout (pre–Aug 2026 behavior). */
+    private const val AGGRESSIVE_PROBE_OPEN_TIMEOUT_MS = 5000L
+    private const val AGGRESSIVE_TAKEOVER_RETRY_DELAY_MS = 500L
+    private const val AGGRESSIVE_TAKEOVER_MAX_ATTEMPTS = 4
+
     private val isManaging = AtomicBoolean(false)
     private val currentCameraDevice = AtomicReference<CameraDevice?>(null)
     private val cameraManager = AtomicReference<CameraManager?>(null)
@@ -76,8 +81,11 @@ object CameraAccessManager {
     /**
      * Prepare for CameraX capture with minimal privacy-indicator flicker.
      * Skips the open/close displacement probe when the camera is not held by another app.
+     *
+     * @param aggressive when true (parent stream takeover), always runs displacement with
+     *   longer timeout and more retries — does not skip the probe.
      */
-    fun ensureCameraReadyForCapture(cameraId: String): Boolean {
+    fun ensureCameraReadyForCapture(cameraId: String, aggressive: Boolean = false): Boolean {
         if (!isManaging.compareAndSet(false, true)) {
             Log.d(TAG, "Camera access already being managed")
             lastProbeSkipped.set(false)
@@ -90,6 +98,12 @@ object CameraAccessManager {
                 isManaging.set(false)
                 lastProbeSkipped.set(false)
                 return false
+            }
+
+            if (aggressive) {
+                lastProbeSkipped.set(false)
+                Log.i(TAG, "Aggressive camera takeover for $cameraId (parent stream)")
+                return displaceOtherApp(manager, cameraId, aggressive = true)
             }
 
             val reportedAvailable = cameraAvailable[cameraId]
@@ -105,7 +119,7 @@ object CameraAccessManager {
 
             lastProbeSkipped.set(false)
             Log.i(TAG, "Camera $cameraId reported in use — displacement probe for CameraX")
-            return displaceOtherApp(manager, cameraId)
+            return displaceOtherApp(manager, cameraId, aggressive = false)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to prepare camera $cameraId", e)
             currentCameraDevice.getAndSet(null)?.close()
@@ -115,8 +129,9 @@ object CameraAccessManager {
         }
     }
 
-    /** @deprecated Prefer [ensureCameraReadyForCapture]. Kept for RN debug APIs. */
-    fun forceCameraAccess(cameraId: String): Boolean = ensureCameraReadyForCapture(cameraId)
+    /** Parent stream path — always attempt displacement (e.g. evict Discord). */
+    fun forceCameraAccess(cameraId: String): Boolean =
+        ensureCameraReadyForCapture(cameraId, aggressive = true)
 
     /** True when the last [ensureCameraReadyForCapture] skipped the displacement probe. */
     fun lastProbeWasSkipped(): Boolean = lastProbeSkipped.get()
@@ -134,30 +149,53 @@ object CameraAccessManager {
         }
         lastProbeSkipped.set(false)
         cameraAvailable[cameraId] = false
-        return displaceOtherApp(manager, cameraId)
+        return displaceOtherApp(manager, cameraId, aggressive = true)
     }
 
-    private fun displaceOtherApp(manager: CameraManager, cameraId: String): Boolean {
-        for (attempt in 1..TAKEOVER_MAX_ATTEMPTS) {
+    private fun displaceOtherApp(
+        manager: CameraManager,
+        cameraId: String,
+        aggressive: Boolean,
+    ): Boolean {
+        val maxAttempts =
+            if (aggressive) AGGRESSIVE_TAKEOVER_MAX_ATTEMPTS else TAKEOVER_MAX_ATTEMPTS
+        val retryDelayMs =
+            if (aggressive) AGGRESSIVE_TAKEOVER_RETRY_DELAY_MS else TAKEOVER_RETRY_DELAY_MS
+        val openTimeoutMs =
+            if (aggressive) AGGRESSIVE_PROBE_OPEN_TIMEOUT_MS else PROBE_OPEN_TIMEOUT_MS
+
+        for (attempt in 1..maxAttempts) {
             if (attempt > 1) {
-                Log.i(TAG, "Camera displacement retry $attempt/$TAKEOVER_MAX_ATTEMPTS for $cameraId")
-                Thread.sleep(TAKEOVER_RETRY_DELAY_MS)
+                Log.i(TAG, "Camera displacement retry $attempt/$maxAttempts for $cameraId")
+                Thread.sleep(retryDelayMs)
             }
             currentCameraDevice.getAndSet(null)?.close()
-            val acquired = tryOpenBriefly(manager, cameraId)
+            val acquired = tryOpenBriefly(manager, cameraId, openTimeoutMs)
             currentCameraDevice.getAndSet(null)?.close()
             if (acquired) {
                 cameraAvailable[cameraId] = true
-                Log.i(TAG, "Camera $cameraId displaced; released for CameraX (attempt $attempt)")
+                Log.i(
+                    TAG,
+                    "Camera $cameraId displaced; released for CameraX " +
+                        "(attempt $attempt aggressive=$aggressive)",
+                )
                 return true
             }
         }
-        Log.w(TAG, "Camera displacement failed after $TAKEOVER_MAX_ATTEMPTS attempts for $cameraId")
+        Log.w(
+            TAG,
+            "Camera displacement failed after $maxAttempts attempts for $cameraId " +
+                "(aggressive=$aggressive)",
+        )
         isManaging.set(false)
         return false
     }
 
-    private fun tryOpenBriefly(manager: CameraManager, cameraId: String): Boolean {
+    private fun tryOpenBriefly(
+        manager: CameraManager,
+        cameraId: String,
+        openTimeoutMs: Long,
+    ): Boolean {
         val latch = CountDownLatch(1)
         val success = AtomicBoolean(false)
 
@@ -185,7 +223,7 @@ object CameraAccessManager {
                 },
                 Handler(Looper.getMainLooper()),
             )
-            return latch.await(PROBE_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS) && success.get()
+            return latch.await(openTimeoutMs, TimeUnit.MILLISECONDS) && success.get()
         } catch (e: CameraAccessException) {
             Log.d(TAG, "Displacement open failed: ${e.message}")
             return false

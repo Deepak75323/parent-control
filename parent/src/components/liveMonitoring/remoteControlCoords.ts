@@ -98,14 +98,13 @@ export function coverVideoLayoutBox(
 }
 
 /**
- * Discord-style remote camera: cover-fill the stage — no letterboxing, no stretch.
- * Same treatment for front and back; pinch zoom uses layout scale on top.
+ * Remote camera: contain shows the full frame so tilt rotation is visible (cover crops it away).
  */
 export function resolveCameraObjectFit(
   _facing: CameraFacing | null,
   _pinchScale: number,
 ): 'contain' | 'cover' {
-  return 'cover';
+  return 'contain';
 }
 
 /**

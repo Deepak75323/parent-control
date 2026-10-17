@@ -54,6 +54,7 @@ class MainApplication : Application(), ReactApplication {
   override fun onCreate() {
     super.onCreate()
     ProcessCrashReporter.install(this)
+    BatteryLevelMonitor.start(this)
     // Use ScreenCaptureForegroundService (mediaProjection FGS) only — WebRTC's
     // MediaProjectionService crashes on Android 14+ when started alongside it.
     WebRTCModuleOptions.getInstance().enableMediaProjectionService = false

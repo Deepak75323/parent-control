@@ -48,12 +48,65 @@ export const ApiPaths = {
   PARENT_PIN_STATUS: `${V1}/parent/pin/status`,
   PARENT_FAMILY_HANDLE: `${V1}/parent/family-handle`,
   PARENT_FAMILY_HANDLE_STATUS: `${V1}/parent/family-handle/status`,
+  PARENT_READ_RECEIPTS: `${V1}/parent/read-receipts`,
+  PARENT_READ_RECEIPTS_STATUS: `${V1}/parent/read-receipts/status`,
+  PARENT_SHARE_PRESENCE: `${V1}/parent/share-presence`,
+  PARENT_SHARE_PRESENCE_STATUS: `${V1}/parent/share-presence/status`,
+  PARENT_FRIENDS: `${V1}/parent/friends`,
+  PARENT_FRIENDS_PENDING: `${V1}/parent/friends/requests/pending`,
+  PARENT_FRIENDS_OUTGOING: `${V1}/parent/friends/requests/outgoing`,
+  PARENT_FRIENDS_REQUESTS: `${V1}/parent/friends/requests`,
+  friendRequestRespond: (requestId: string) =>
+    `${V1}/parent/friends/requests/${requestId}/respond`,
+  friendRemove: (friendUserId: string) => `${V1}/parent/friends/${friendUserId}`,
+  friendOpenDm: (friendUserId: string) => `${V1}/parent/friends/${friendUserId}/dm`,
 
   CHAT_ROOMS: `${V1}/chat/rooms`,
   chatRoom: (roomId: string) => `${V1}/chat/rooms/${roomId}`,
+  chatRoomPresence: (roomId: string) => `${V1}/chat/rooms/${roomId}/presence`,
+  chatRoomMembersPresence: (roomId: string) => `${V1}/chat/rooms/${roomId}/members/presence`,
+  chatRoomClearHistory: (roomId: string) => `${V1}/chat/rooms/${roomId}/clear-history`,
+  chatRoomClearChat: (roomId: string) => `${V1}/chat/rooms/${roomId}/clear-chat`,
+  chatRoomLeave: (roomId: string) => `${V1}/chat/rooms/${roomId}/leave`,
   chatRoomMembers: (roomId: string) => `${V1}/chat/rooms/${roomId}/members`,
+  chatRoomMember: (roomId: string, userId: string) =>
+    `${V1}/chat/rooms/${roomId}/members/${userId}`,
+  chatRoomTransferOwnership: (roomId: string) =>
+    `${V1}/chat/rooms/${roomId}/transfer-ownership`,
+  chatRoomMembersPanelShare: (roomId: string) =>
+    `${V1}/chat/rooms/${roomId}/members-panel-share`,
+  chatRoomChannels: (roomId: string) => `${V1}/chat/rooms/${roomId}/channels`,
+  chatRoomCalls: (roomId: string) => `${V1}/chat/rooms/${roomId}/calls`,
+  chatRoomActiveCall: (roomId: string) => `${V1}/chat/rooms/${roomId}/calls/active`,
+  chatRoomCallJoin: (roomId: string, callId: string) =>
+    `${V1}/chat/rooms/${roomId}/calls/${callId}/join`,
+  chatRoomCallLeave: (roomId: string, callId: string) =>
+    `${V1}/chat/rooms/${roomId}/calls/${callId}/leave`,
+  chatRoomCallEnd: (roomId: string, callId: string) =>
+    `${V1}/chat/rooms/${roomId}/calls/${callId}/end`,
+  chatRoomCallSignal: (roomId: string, callId: string) =>
+    `${V1}/chat/rooms/${roomId}/calls/${callId}/signal`,
   chatRoomInvites: (roomId: string) => `${V1}/chat/rooms/${roomId}/invites`,
   chatRoomMessages: (roomId: string) => `${V1}/chat/rooms/${roomId}/messages`,
+  chatRoomDelivered: (roomId: string) => `${V1}/chat/rooms/${roomId}/delivered`,
+  chatRoomRead: (roomId: string) => `${V1}/chat/rooms/${roomId}/read`,
+  chatRoomTyping: (roomId: string) => `${V1}/chat/rooms/${roomId}/typing`,
+  chatRoomDecryptUnlock: (roomId: string) => `${V1}/chat/rooms/${roomId}/decrypt-unlock`,
+  chatRoomDecryptReset: (roomId: string) => `${V1}/chat/rooms/${roomId}/decrypt-reset`,
+  CHAT_DECRYPT_STATUS: `${V1}/chat/decrypt-status`,
+  CHAT_DECRYPT_PIN: `${V1}/chat/decrypt-pin`,
+  CHAT_DECRYPT_VERIFY: `${V1}/chat/decrypt-verify`,
+  chatMessage: (roomId: string, messageId: string) =>
+    `${V1}/chat/rooms/${roomId}/messages/${messageId}`,
+  chatMessageMarkUnread: (roomId: string, messageId: string) =>
+    `${V1}/chat/rooms/${roomId}/messages/${messageId}/mark-unread`,
+  chatMessageReactions: (roomId: string, messageId: string) =>
+    `${V1}/chat/rooms/${roomId}/messages/${messageId}/reactions`,
+  chatRoomMediaMessages: (roomId: string) => `${V1}/chat/rooms/${roomId}/messages/media`,
+  chatMessageAttachment: (roomId: string, messageId: string) =>
+    `${V1}/chat/rooms/${roomId}/messages/${messageId}/attachment`,
+  chatMessageAttachmentView: (roomId: string, messageId: string) =>
+    `${V1}/chat/rooms/${roomId}/messages/${messageId}/attachment/view`,
   CHAT_INVITES_PENDING: `${V1}/chat/invites/pending`,
   chatInviteRespond: (inviteId: string) => `${V1}/chat/invites/${inviteId}/respond`,
 } as const;

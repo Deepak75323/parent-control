@@ -59,6 +59,7 @@ object OemDiagnosticsCollector {
             "oneUiVersion" to getSystemProperty("ro.build.version.oneui"),
             "colorOsVersion" to getSystemProperty("ro.build.version.oplusrom"),
             "batteryExempt" to batteryExempt,
+            "batteryLivePercent" to com.childmonitor.BatteryLevelMonitor.latestPercent(),
             "autostartPromptDone" to autostartPromptDone,
             "oemSetupComplete" to OemSetupValidator.isOemSetupComplete(context),
             "notificationPermissionGranted" to notificationsGranted,

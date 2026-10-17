@@ -13,9 +13,11 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
 @Table(name = "chat_room_members")
+@SQLRestriction("deleted_at IS NULL")
 @Getter
 @Setter
 @Builder
@@ -37,4 +39,32 @@ public class ChatRoomMember extends BaseEntity {
   @Column(name = "joined_at", nullable = false)
   @Builder.Default
   private Instant joinedAt = Instant.now();
+
+  /** When set, messages at or before this time are hidden for this member only. */
+  @Column(name = "chat_cleared_at")
+  private Instant chatClearedAt;
+
+  /** When set, incoming messages at or after this time show as unread for this member. */
+  @Column(name = "unread_from_at")
+  private Instant unreadFromAt;
+
+  /**
+   * WhatsApp-style read cursor: incoming messages after this message are unread for this member.
+   * Null means the member has not caught up to any message yet.
+   */
+  @Column(name = "last_read_message_id")
+  private UUID lastReadMessageId;
+
+  /** When true, member cannot send messages or typing signals. */
+  @Column(nullable = false)
+  @Builder.Default
+  private boolean muted = false;
+
+  /**
+   * When true, member may unlock decrypt with the server PIN. Room owners always may decrypt
+   * regardless of this flag.
+   */
+  @Column(name = "can_decrypt", nullable = false)
+  @Builder.Default
+  private boolean canDecrypt = false;
 }

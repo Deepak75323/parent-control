@@ -39,4 +39,16 @@ class StreamFailureReasonClassifierTest {
                 "CAMERA_FGS_FAILED", ScreenSessionStatus.PENDING))
         .isEqualTo("CAMERA_FGS_FAILED");
   }
+
+  @Test
+  void preservesCameraInUseOccupantHint() {
+    assertThat(
+            StreamFailureReasonClassifier.classify(
+                "CAMERA_IN_USE_BY_OTHER_APP:WhatsApp", ScreenSessionStatus.ACTIVE))
+        .isEqualTo("CAMERA_IN_USE_BY_OTHER_APP:WhatsApp");
+    assertThat(
+            StreamFailureReasonClassifier.classify(
+                "CAMERA_IN_USE_BY_OTHER_APP:com.whatsapp", ScreenSessionStatus.ACTIVE))
+        .isEqualTo("CAMERA_IN_USE_BY_OTHER_APP:com.whatsapp");
+  }
 }

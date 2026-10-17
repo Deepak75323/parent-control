@@ -34,6 +34,7 @@ rsync -az --delete \
 rsync -az \
   -e "${RSYNC_SSH[*]}" \
   "$ROOT/scripts/deploy/oracle-swap-backend.sh" \
+  "$ROOT/scripts/deploy/ensure-chat-decrypt-pin.sh" \
   "$ROOT/scripts/deploy/nginx/pcp-site.conf" \
   "$HOST:${REMOTE_ROOT}/scripts/deploy/"
 
@@ -46,7 +47,9 @@ echo "==> Building image $IMAGE on VM"
 "${SSH[@]}" bash -s <<REMOTE
 set -euo pipefail
 cd ${REMOTE_ROOT}
-chmod +x scripts/deploy/oracle-swap-backend.sh
+chmod +x scripts/deploy/oracle-swap-backend.sh scripts/deploy/ensure-chat-decrypt-pin.sh
+# Create-once PIN at server setup (no-op if already set; prints once when created).
+./scripts/deploy/ensure-chat-decrypt-pin.sh
 podman build -t "$IMAGE" -f backend/Dockerfile backend/
 REMOTE
 

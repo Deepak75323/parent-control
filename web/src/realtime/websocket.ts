@@ -1,6 +1,7 @@
 import {Client, type IMessage} from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import {useAuthStore} from '../auth/authStore';
+import {dispatchChatCallSignal} from '../lib/chatCallSignals';
 import {useRealtimeStore} from './realtimeStore';
 import {
   clearSignalingSubscriptions,
@@ -150,8 +151,116 @@ export function connectWebSocket(): void {
       });
 
       client?.subscribe('/user/queue/chat-messages', msg => {
-        const event = parseJson<ChatMessageItem>(msg);
-        useRealtimeStore.getState().pushLiveChatMessage(event);
+        const event = parseJson<
+          | ChatMessageItem
+          | {eventType: string; roomId: string; messageId?: string}
+        >(msg);
+        if ('eventType' in event && event.eventType === 'MESSAGE_DELETED' && event.messageId) {
+          useRealtimeStore.getState().removeLiveChatMessage(event.messageId);
+          return;
+        }
+        if ('eventType' in event && event.eventType === 'CHAT_CLEARED') {
+          useRealtimeStore.getState().clearLiveChatMessagesForRoom(event.roomId);
+          return;
+        }
+        if (
+          'eventType' in event &&
+          event.eventType === 'MESSAGE_RECEIPT_UPDATED' &&
+          event.messageId &&
+          'receiptStatus' in event
+        ) {
+          useRealtimeStore
+            .getState()
+            .updateLiveChatMessageReceipt(
+              event.messageId,
+              event.receiptStatus as ChatMessageItem['receiptStatus'],
+            );
+          return;
+        }
+        if (
+          'eventType' in event &&
+          event.eventType === 'MESSAGE_REACTIONS_UPDATED' &&
+          event.messageId &&
+          'reactions' in event
+        ) {
+          useRealtimeStore
+            .getState()
+            .updateLiveChatMessageReactions(
+              event.messageId,
+              event.reactions as ChatMessageItem['reactions'],
+            );
+          return;
+        }
+        if (
+          'eventType' in event &&
+          typeof event.eventType === 'string' &&
+          event.eventType.startsWith('CALL_')
+        ) {
+          const callEvent = event as {
+            eventType: string;
+            roomId: string;
+            callId: string;
+            userId?: string;
+            toUserId?: string;
+            messageType?: string;
+            payload?: string;
+            status?: string;
+          };
+          // CALL_SIGNAL must not go through a single React state slot — ICE floods drop OFFER/ANSWER.
+          if (callEvent.eventType === 'CALL_SIGNAL') {
+            dispatchChatCallSignal({...callEvent, seq: 0});
+            return;
+          }
+          useRealtimeStore.getState().pushChatCallEvent(callEvent);
+          return;
+        }
+        if (
+          'eventType' in event &&
+          event.eventType === 'TYPING' &&
+          'userId' in event &&
+          typeof (event as {userId?: string}).userId === 'string'
+        ) {
+          const typingEvent = event as {
+            roomId: string;
+            userId: string;
+            nickname?: string;
+            label?: string;
+            typing?: boolean;
+          };
+          useRealtimeStore.getState().setChatTyping(
+            typingEvent.roomId,
+            {
+              userId: typingEvent.userId,
+              nickname: typingEvent.nickname ?? '',
+              label: typingEvent.label ?? '',
+            },
+            Boolean(typingEvent.typing),
+          );
+          return;
+        }
+        if (
+          'eventType' in event &&
+          event.eventType === 'PRESENCE_UPDATE' &&
+          'userId' in event &&
+          typeof (event as {userId?: string}).userId === 'string' &&
+          typeof (event as {roomId?: string}).roomId === 'string'
+        ) {
+          const presenceEvent = event as {
+            roomId: string;
+            userId: string;
+            online?: boolean;
+            lastSeenAt?: string | null;
+            hidden?: boolean;
+          };
+          useRealtimeStore.getState().upsertPartnerPresence(presenceEvent.roomId, {
+            userId: presenceEvent.userId,
+            online: Boolean(presenceEvent.online),
+            lastSeenAt: presenceEvent.lastSeenAt ?? null,
+            hidden: Boolean(presenceEvent.hidden),
+          });
+          return;
+        }
+        useRealtimeStore.getState().upsertLiveChatMessage(event as ChatMessageItem);
       });
 
       client?.subscribe('/user/queue/chat-invites', msg => {
@@ -159,9 +268,21 @@ export function connectWebSocket(): void {
         useRealtimeStore.getState().bumpChatInvites();
       });
 
+      client?.subscribe('/user/queue/friend-requests', msg => {
+        parseJson<{eventType?: string}>(msg);
+        useRealtimeStore.getState().bumpFriends();
+        useRealtimeStore.getState().bumpChatRooms();
+      });
+
       client?.subscribe('/user/queue/chat-rooms', msg => {
         const event = parseJson<{eventType: string; roomId?: string}>(msg);
         if (event.eventType === 'ROOM_DELETED' && event.roomId) {
+          useRealtimeStore.getState().notifyChatRoomDeleted();
+        } else if (
+          (event.eventType === 'MEMBER_LEFT' || event.eventType === 'MEMBER_REMOVED') &&
+          event.roomId
+        ) {
+          useRealtimeStore.getState().markChatRoomRemoved(event.roomId);
           useRealtimeStore.getState().notifyChatRoomDeleted();
         } else {
           useRealtimeStore.getState().bumpChatRooms();

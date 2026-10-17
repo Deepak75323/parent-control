@@ -14,6 +14,7 @@ public class ChatInviteResponse {
   String roomName;
   UUID inviterUserId;
   String inviterLabel;
+  String inviterNickname;
   String inviteeIdentifier;
   ChatRoomInviteStatus status;
   Instant createdAt;

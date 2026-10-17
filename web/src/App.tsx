@@ -3,6 +3,7 @@ import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';
 import {AppShell} from './components/AppShell';
 import {ProtectedRoute} from './components/ProtectedRoute';
 import {useAuthStore} from './auth/authStore';
+import {useMobileSessionGuard} from './auth/useMobileSessionGuard';
 import {connectWebSocket, disconnectWebSocket} from './realtime/websocket';
 import {LoginPage} from './pages/LoginPage';
 import {DevicesPage} from './pages/DevicesPage';
@@ -14,6 +15,8 @@ import {AuditPage} from './pages/AuditPage';
 import {BillingPage} from './pages/BillingPage';
 import {GeofencesPage} from './pages/GeofencesPage';
 import {ChatPage} from './pages/ChatPage';
+import {ParentsPage} from './pages/ParentsPage';
+import {isParentsTabEnabled} from './lib/chatFriendsFeature';
 import './styles/app.css';
 
 function Bootstrap() {
@@ -24,6 +27,8 @@ function Bootstrap() {
   useEffect(() => {
     hydrate();
   }, [hydrate]);
+
+  useMobileSessionGuard(hydrated && Boolean(accessToken));
 
   useEffect(() => {
     if (!hydrated) {
@@ -67,6 +72,11 @@ function Bootstrap() {
           <Route path="/billing" element={<BillingPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/chat" element={<ChatPage />} />
+          {isParentsTabEnabled() ? (
+            <Route path="/parents" element={<ParentsPage />} />
+          ) : (
+            <Route path="/parents" element={<Navigate to="/devices" replace />} />
+          )}
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>

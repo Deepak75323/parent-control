@@ -56,6 +56,8 @@ Invite by: `@familyHandle` / email / invite link / QR?
 
 ## Proposed v1 (if you approve the defaults)
 
+**Friends graph v1 shipped 2026-09-14** — see `PARENT_FRIENDS_GRAPH_SPEC.md` (request / accept / list / DM on accept). Remaining work below is servers + device ACL.
+
 ### Entities
 - `parent_friendships` — pending / accepted / blocked between two `parent_profiles`
 - `parent_friend_requests` — from → to, message, status

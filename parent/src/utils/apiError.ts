@@ -25,7 +25,7 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
 }
 
 function looksTechnical(message: string): boolean {
-  return /HTTP\s*\d|API_BASE_URL|ECONNREFUSED|ETIMEDOUT|stack|Exception|MediaProjection|token|ICE|TURN/i.test(
+  return /HTTP\s*\d|API_BASE_URL|ECONNREFUSED|ETIMEDOUT|stack|Exception|MediaProjection|token|ICE|TURN|Invalid request data|INVALID_CREDENTIALS/i.test(
     message,
   );
 }

@@ -7,7 +7,7 @@ import {
   getActiveRoomId,
   setRemoteAudioEnabled,
 } from '../realtime/webrtcViewer';
-import type {ViewerRotateDeg} from '../lib/viewerVideoRotate';
+import {clampViewerPinchScale, type ViewerRotateDeg} from '../lib/viewerVideoRotate';
 import type {WebCameraFacing} from '../lib/cameraViewerLayout';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {
@@ -30,6 +30,9 @@ interface LiveStreamState {
   busy: boolean;
   muted: boolean;
   viewRotate: ViewerRotateDeg;
+  viewZoomScale: number;
+  viewPanX: number;
+  viewPanY: number;
   cameraFacing: WebCameraFacing;
   remoteStream: MediaStream | null;
   videoFrame: VideoFrame;
@@ -38,15 +41,20 @@ interface LiveStreamState {
   pipMinimized: boolean;
   pipPosition: {x: number; y: number} | null;
   pipSize: {width: number; bodyHeight: number};
+  /** Browser picture-in-picture window is showing the child live view. */
+  browserPipActive: boolean;
   hydratePinStatus: () => Promise<void>;
   setStreamType: (streamType: StreamType) => void;
   setPin: (pin: string) => void;
   setViewRotate: (deg: ViewerRotateDeg | ((prev: ViewerRotateDeg) => ViewerRotateDeg)) => void;
+  setViewZoomScale: (scale: number | ((prev: number) => number)) => void;
+  setViewPan: (x: number, y: number) => void;
   setCameraFacing: (facing: WebCameraFacing | ((prev: WebCameraFacing) => WebCameraFacing)) => void;
   setVideoFrame: (frame: VideoFrame) => void;
   setPipMinimized: (minimized: boolean) => void;
   setPipPosition: (pos: {x: number; y: number} | null) => void;
   setPipSize: (size: {width: number; bodyHeight: number}) => void;
+  setBrowserPipActive: (active: boolean) => void;
   resetView: () => void;
   expandPip: () => void;
   resetPipLayout: () => void;
@@ -73,6 +81,9 @@ const initialState = {
   busy: false,
   muted: false,
   viewRotate: 0 as ViewerRotateDeg,
+  viewZoomScale: 1,
+  viewPanX: 0,
+  viewPanY: 0,
   cameraFacing: 'user' as WebCameraFacing,
   remoteStream: null as MediaStream | null,
   videoFrame: {w: 0, h: 0},
@@ -81,6 +92,7 @@ const initialState = {
   pipMinimized: false,
   pipPosition: null as {x: number; y: number} | null,
   pipSize: {width: 320, bodyHeight: 180},
+  browserPipActive: false,
 };
 
 export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
@@ -101,6 +113,13 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
     set(state => ({
       viewRotate: typeof viewRotate === 'function' ? viewRotate(state.viewRotate) : viewRotate,
     })),
+  setViewZoomScale: viewZoomScale =>
+    set(state => {
+      const next =
+        typeof viewZoomScale === 'function' ? viewZoomScale(state.viewZoomScale) : viewZoomScale;
+      return {viewZoomScale: clampViewerPinchScale(next)};
+    }),
+  setViewPan: (x, y) => set({viewPanX: x, viewPanY: y}),
   setCameraFacing: cameraFacing =>
     set(state => ({
       cameraFacing: typeof cameraFacing === 'function' ? cameraFacing(state.cameraFacing) : cameraFacing,
@@ -109,7 +128,8 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
   setPipMinimized: pipMinimized => set({pipMinimized}),
   setPipPosition: pipPosition => set({pipPosition}),
   setPipSize: pipSize => set({pipSize}),
-  resetView: () => set({viewRotate: 0}),
+  setBrowserPipActive: browserPipActive => set({browserPipActive}),
+  resetView: () => set({viewRotate: 0, viewZoomScale: 1, viewPanX: 0, viewPanY: 0}),
   expandPip: () => {
     const {videoFrame, viewRotate, streamType} = get();
     const aspect = pipVideoAspect(videoFrame, viewRotate, streamType);
@@ -125,6 +145,9 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
       pipMinimized: false,
       pipSize: pipSizeForAspect(aspect),
       viewRotate: 0,
+      viewZoomScale: 1,
+      viewPanX: 0,
+      viewPanY: 0,
     });
   },
   registerVideoFullscreenToggle: toggle => {
@@ -146,10 +169,14 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
       deviceId,
       deviceName,
       viewRotate: 0,
+      viewZoomScale: 1,
+      viewPanX: 0,
+      viewPanY: 0,
       videoFrame: {w: 0, h: 0},
       remoteStream: null,
       cameraFacing: 'user',
       pipMinimized: false,
+      browserPipActive: false,
     });
     useRealtimeStore.getState().setStreamingState(undefined);
     try {
@@ -227,8 +254,10 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
     }
     try {
       await monitoringApi.switchCamera(sessionId);
-      get().setCameraFacing(prev => (prev === 'user' ? 'environment' : 'user'));
-      set({viewRotate: 0, videoFrame: {w: 0, h: 0}});
+      // Do not toggle cameraFacing here — front vs back paint differs by ~180° for the
+      // same CVO. CameraFrameViewer updates facing from live frame CVO once the child
+      // lens actually switches (avoids Flip looking like a rotate).
+      set({videoFrame: {w: 0, h: 0}});
     } catch {
       set({error: 'Could not switch camera'});
     }
@@ -248,7 +277,11 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
       remoteStream: null,
       busy: false,
       viewRotate: 0,
+      viewZoomScale: 1,
+      viewPanX: 0,
+      viewPanY: 0,
       videoFrame: {w: 0, h: 0},
+      browserPipActive: false,
       status: 'Moved to another client',
       error: 'Live view continued on the parent app or another browser tab.',
     });

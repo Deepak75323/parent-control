@@ -13,6 +13,7 @@ import android.provider.Settings
 import android.util.Log
 import com.childmonitor.AccessibilityHealthChecker
 import com.childmonitor.AppBlockingAccessibilityService
+import com.childmonitor.CameraOccupantHint
 import com.childmonitor.DeviceReadinessSyncObserver
 import com.childmonitor.MainActivity
 import androidx.core.app.ActivityCompat
@@ -1658,11 +1659,26 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         try {
             CameraAccessManager.initialize(reactContext.applicationContext)
             val success = CameraAccessManager.forceCameraAccess(cameraId)
-            Log.i("ChildMonitorNativeModule", "Force camera access result: $success for camera $cameraId")
+            Log.i("ChildMonitorNativeModule", "Aggressive force camera access result: $success for camera $cameraId")
             promise.resolve(success)
         } catch (e: Exception) {
             Log.e("ChildMonitorNativeModule", "Failed to force camera access", e)
             promise.reject("CAMERA_FORCE_ERROR", e.message, e)
+        }
+    }
+
+    /**
+     * Best-effort hint for which foreground app likely holds the camera.
+     * Android does not expose the exact camera owner to third-party apps.
+     */
+    @ReactMethod
+    fun getCameraInUseFailureReason(promise: Promise) {
+        try {
+            val hint = CameraOccupantHint.current(reactContext.applicationContext)
+            promise.resolve(CameraOccupantHint.failureReason(hint))
+        } catch (e: Exception) {
+            Log.w("ChildMonitorNativeModule", "camera occupant hint failed", e)
+            promise.resolve("CAMERA_IN_USE_BY_OTHER_APP")
         }
     }
     

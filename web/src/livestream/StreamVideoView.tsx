@@ -2,14 +2,20 @@ import {useCallback, useEffect, useRef, useState, type CSSProperties} from 'reac
 import {Link} from 'react-router-dom';
 import type {StreamType} from '../types/api';
 import {
+  clampViewerPan,
+  formatViewerZoomLabel,
+  nextPinchScale,
   nextViewerRotateDeg,
+  nudgeViewerZoomPercent,
   prevViewerRotateDeg,
   viewerVideoRotateStyle,
+  VIEWER_ZOOM_STEP_PERCENT,
   type ViewerRotateDeg,
 } from '../lib/viewerVideoRotate';
 import {webCameraObjectFit} from '../lib/cameraViewerLayout';
 import {CameraFrameViewer} from '../components/CameraFrameViewer';
 import {useLiveStreamStore} from './liveStreamStore';
+import {openMeetStylePip} from './meetPipWindow';
 
 const ENABLE_VIEWER_ROTATE =
   (import.meta.env.VITE_ENABLE_VIEWER_ROTATE as string | undefined)?.trim().toLowerCase() !==
@@ -29,9 +35,15 @@ export function StreamVideoView({compact = false}: Props) {
   const remoteStream = useLiveStreamStore(s => s.remoteStream);
   const muted = useLiveStreamStore(s => s.muted);
   const viewRotate = useLiveStreamStore(s => s.viewRotate);
+  const viewZoomScale = useLiveStreamStore(s => s.viewZoomScale);
+  const viewPanX = useLiveStreamStore(s => s.viewPanX);
+  const viewPanY = useLiveStreamStore(s => s.viewPanY);
+  const setViewZoomScale = useLiveStreamStore(s => s.setViewZoomScale);
+  const setViewPan = useLiveStreamStore(s => s.setViewPan);
   const cameraFacing = useLiveStreamStore(s => s.cameraFacing);
   const videoFrame = useLiveStreamStore(s => s.videoFrame);
   const setVideoFrame = useLiveStreamStore(s => s.setVideoFrame);
+  const setCameraFacing = useLiveStreamStore(s => s.setCameraFacing);
 
   const isCameraLive = streamType === 'CAMERA' && Boolean(sessionId);
   const effectiveViewRotate: ViewerRotateDeg = ENABLE_VIEWER_ROTATE ? viewRotate : 0;
@@ -42,6 +54,15 @@ export function StreamVideoView({compact = false}: Props) {
   const onCameraDimensions = useCallback(
     (w: number, h: number) => setVideoFrame({w, h}),
     [setVideoFrame],
+  );
+
+  const onFacingInferred = useCallback(
+    (facing: 'user' | 'environment') => {
+      if (useLiveStreamStore.getState().cameraFacing !== facing) {
+        setCameraFacing(facing);
+      }
+    },
+    [setCameraFacing],
   );
 
   useEffect(() => {
@@ -89,6 +110,157 @@ export function StreamVideoView({compact = false}: Props) {
     void el.play().catch(() => undefined);
   }, [remoteStream, sessionId, streamType]);
 
+  useEffect(() => {
+    const el = videoWrapRef.current;
+    if (!el || !sessionId || streamType === 'AUDIO') {
+      return;
+    }
+
+    const pinchStartScaleRef = {current: 1};
+    const pinchStartDistRef = {current: 0};
+
+    const touchDistance = (touches: TouchList) => {
+      if (touches.length < 2) {
+        return 0;
+      }
+      return Math.hypot(
+        touches[0].clientX - touches[1].clientX,
+        touches[0].clientY - touches[1].clientY,
+      );
+    };
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length === 2) {
+        pinchStartScaleRef.current = useLiveStreamStore.getState().viewZoomScale;
+        pinchStartDistRef.current = touchDistance(event.touches);
+      }
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (event.touches.length !== 2 || pinchStartDistRef.current <= 0) {
+        return;
+      }
+      event.preventDefault();
+      const dist = touchDistance(event.touches);
+      setViewZoomScale(
+        nextPinchScale(pinchStartScaleRef.current, pinchStartDistRef.current, dist),
+      );
+    };
+
+    const onTouchEnd = () => {
+      pinchStartDistRef.current = 0;
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) {
+        return;
+      }
+      event.preventDefault();
+      const delta =
+        event.deltaY < 0 ? VIEWER_ZOOM_STEP_PERCENT : -VIEWER_ZOOM_STEP_PERCENT;
+      const current = useLiveStreamStore.getState().viewZoomScale;
+      setViewZoomScale(nudgeViewerZoomPercent(current, delta));
+    };
+
+    el.addEventListener('touchstart', onTouchStart, {passive: true});
+    el.addEventListener('touchmove', onTouchMove, {passive: false});
+    el.addEventListener('touchend', onTouchEnd);
+    el.addEventListener('touchcancel', onTouchEnd);
+    el.addEventListener('wheel', onWheel, {passive: false});
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [sessionId, streamType, setViewZoomScale]);
+
+  useEffect(() => {
+    const el = videoWrapRef.current;
+    if (!el || !sessionId || streamType === 'AUDIO') {
+      return;
+    }
+    const pointers = new Set<number>();
+    let dragging = false;
+    let pointerId = -1;
+    let lastX = 0;
+    let lastY = 0;
+
+    const onDown = (event: PointerEvent) => {
+      pointers.add(event.pointerId);
+      if (event.button !== 0 || pointers.size > 1) {
+        dragging = false;
+        return;
+      }
+      const target = event.target;
+      if (target instanceof Element && target.closest('button, a, input')) {
+        return;
+      }
+      if (useLiveStreamStore.getState().viewZoomScale <= 1) {
+        return;
+      }
+      dragging = true;
+      pointerId = event.pointerId;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      el.setPointerCapture(event.pointerId);
+    };
+
+    const onMove = (event: PointerEvent) => {
+      if (!dragging || event.pointerId !== pointerId || pointers.size > 1) {
+        return;
+      }
+      const dx = event.clientX - lastX;
+      const dy = event.clientY - lastY;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      const state = useLiveStreamStore.getState();
+      const box = el.getBoundingClientRect();
+      const next = clampViewerPan(
+        {x: state.viewPanX + dx, y: state.viewPanY + dy},
+        state.viewZoomScale,
+        box.width,
+        box.height,
+      );
+      setViewPan(next.x, next.y);
+    };
+
+    const onUp = (event: PointerEvent) => {
+      pointers.delete(event.pointerId);
+      if (event.pointerId === pointerId) {
+        dragging = false;
+      }
+    };
+
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
+    };
+  }, [sessionId, streamType, setViewPan]);
+
+  useEffect(() => {
+    if (!sessionId || streamType === 'AUDIO') {
+      return;
+    }
+    const box = videoWrapRef.current?.getBoundingClientRect();
+    const next = clampViewerPan(
+      {x: viewPanX, y: viewPanY},
+      viewZoomScale,
+      box?.width || wrapSize.w,
+      box?.height || wrapSize.h,
+    );
+    if (next.x !== viewPanX || next.y !== viewPanY) {
+      setViewPan(next.x, next.y);
+    }
+  }, [sessionId, streamType, viewZoomScale, viewPanX, viewPanY, wrapSize.w, wrapSize.h, setViewPan]);
+
   if (!sessionId || streamType === 'AUDIO') {
     return streamType === 'AUDIO' ? (
       <p className="muted center-overlay">Audio-only stream active</p>
@@ -96,11 +268,19 @@ export function StreamVideoView({compact = false}: Props) {
   }
 
   const cameraObjectFit = isCameraLive ? webCameraObjectFit(cameraFacing) : 'contain';
+  const viewPan = clampViewerPan(
+    {x: viewPanX, y: viewPanY},
+    viewZoomScale,
+    wrapSize.w || 640,
+    wrapSize.h || 400,
+  );
   const videoStyle: CSSProperties | undefined = viewerVideoRotateStyle(
     combinedViewerRotate,
     wrapSize.w || 640,
     wrapSize.h || 400,
     isCameraLive ? cameraObjectFit : 'contain',
+    viewZoomScale,
+    viewPan,
   );
   const videoClassName = ['live-video', isCameraLive ? 'live-video--camera' : '']
     .filter(Boolean)
@@ -109,6 +289,23 @@ export function StreamVideoView({compact = false}: Props) {
     isCameraLive && videoFrame.w > 0 && videoFrame.h > 0 && videoFrame.w > videoFrame.h;
 
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [waitingForVideo, setWaitingForVideo] = useState(false);
+
+  const hasVideoTrack = Boolean(remoteStream?.getVideoTracks().length);
+  const hasVideoFrame = videoFrame.w > 0 && videoFrame.h > 0;
+
+  useEffect(() => {
+    if (!isCameraLive || !sessionId) {
+      setWaitingForVideo(false);
+      return;
+    }
+    if (hasVideoFrame) {
+      setWaitingForVideo(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setWaitingForVideo(true), 1500);
+    return () => window.clearTimeout(timer);
+  }, [isCameraLive, sessionId, hasVideoFrame, remoteStream]);
 
   useEffect(() => {
     const onChange = () => {
@@ -148,16 +345,21 @@ export function StreamVideoView({compact = false}: Props) {
         isCameraLive ? 'video-wrap--camera' : '',
         cameraLandscape ? 'video-wrap--camera-landscape' : '',
         isFullscreen ? 'video-wrap--fullscreen' : '',
+        viewZoomScale > 1 ? 'video-wrap--zoomed' : '',
       ]
         .filter(Boolean)
-        .join(' ')}>
+        .join(' ')}
+      title={viewZoomScale > 1 ? 'Drag to see the rest of the zoomed picture' : undefined}>
       {isCameraLive ? (
         <CameraFrameViewer
           stream={remoteStream}
           objectFit={cameraObjectFit}
           canvasClassName={videoClassName}
           viewerRotate={effectiveViewRotate}
-          frontCamera={cameraFacing === 'user'}
+          viewZoomScale={viewZoomScale}
+          viewPan={viewPan}
+          facingHint={cameraFacing}
+          onFacingInferred={onFacingInferred}
           onVideoDimensions={onCameraDimensions}
         />
       ) : (
@@ -178,6 +380,12 @@ export function StreamVideoView({compact = false}: Props) {
           </button>
         </div>
       ) : null}
+      {isCameraLive && waitingForVideo && !hasVideoFrame ? (
+        <p className="muted center-overlay">Waiting for camera feed…</p>
+      ) : null}
+      {isCameraLive && !hasVideoTrack && !waitingForVideo ? (
+        <p className="muted center-overlay">Connecting camera…</p>
+      ) : null}
     </div>
   );
 }
@@ -197,7 +405,9 @@ export function StreamControls({
   const busy = useLiveStreamStore(s => s.busy);
   const muted = useLiveStreamStore(s => s.muted);
   const viewRotate = useLiveStreamStore(s => s.viewRotate);
+  const viewZoomScale = useLiveStreamStore(s => s.viewZoomScale);
   const setViewRotate = useLiveStreamStore(s => s.setViewRotate);
+  const setViewZoomScale = useLiveStreamStore(s => s.setViewZoomScale);
   const resetView = useLiveStreamStore(s => s.resetView);
   const expandPip = useLiveStreamStore(s => s.expandPip);
   const resetPipLayout = useLiveStreamStore(s => s.resetPipLayout);
@@ -208,6 +418,7 @@ export function StreamControls({
 
   const showLayout = compact && !layoutInToolbar;
   const showRotate = streamType !== 'AUDIO' && ENABLE_VIEWER_ROTATE;
+  const showZoom = streamType !== 'AUDIO';
 
   if (!sessionId) {
     return null;
@@ -229,6 +440,11 @@ export function StreamControls({
       {!compact ? (
         <button type="button" className="btn ghost sm" onClick={toggleVideoFullscreen}>
           Full screen
+        </button>
+      ) : null}
+      {!compact && streamType !== 'AUDIO' ? (
+        <button type="button" className="btn ghost sm" onClick={() => void openMeetStylePip()}>
+          Picture in picture
         </button>
       ) : null}
       {showLayout ? (
@@ -254,6 +470,27 @@ export function StreamControls({
           </button>
         </>
       ) : null}
+      {showZoom ? (
+        <>
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={() =>
+              setViewZoomScale(s => nudgeViewerZoomPercent(s, -VIEWER_ZOOM_STEP_PERCENT))
+            }>
+            −{VIEWER_ZOOM_STEP_PERCENT}%
+          </button>
+          <span className="stream-zoom-label">{formatViewerZoomLabel(viewZoomScale)}</span>
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={() =>
+              setViewZoomScale(s => nudgeViewerZoomPercent(s, VIEWER_ZOOM_STEP_PERCENT))
+            }>
+            +{VIEWER_ZOOM_STEP_PERCENT}%
+          </button>
+        </>
+      ) : null}
       {!compact && streamType !== 'AUDIO' ? (
         <button type="button" className="btn ghost sm" onClick={resetView}>
           Reset view
@@ -264,15 +501,27 @@ export function StreamControls({
 }
 
 export function StreamPipToolbar() {
+  const streamType = useLiveStreamStore(s => s.streamType);
+  const viewRotate = useLiveStreamStore(s => s.viewRotate);
+  const setViewRotate = useLiveStreamStore(s => s.setViewRotate);
   const resetView = useLiveStreamStore(s => s.resetView);
   const expandPip = useLiveStreamStore(s => s.expandPip);
   const resetPipLayout = useLiveStreamStore(s => s.resetPipLayout);
+  const showRotate = streamType !== 'AUDIO' && ENABLE_VIEWER_ROTATE;
 
   return (
     <div className="stream-pip-toolbar">
       <button type="button" className="btn ghost sm" onClick={expandPip}>
         Large
       </button>
+      {showRotate ? (
+        <button
+          type="button"
+          className="btn ghost sm"
+          onClick={() => setViewRotate(deg => nextViewerRotateDeg(deg))}>
+          Rotate {viewRotate}°
+        </button>
+      ) : null}
       <button type="button" className="btn ghost sm" onClick={resetView}>
         Reset view
       </button>

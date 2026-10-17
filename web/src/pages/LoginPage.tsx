@@ -37,10 +37,21 @@ export function LoginPage() {
       connectWebSocket();
       navigate('/devices', {replace: true});
     } catch (err: unknown) {
-      const msg =
-        (err as {response?: {data?: {message?: string}}})?.response?.data?.message ??
-        'Could not sign in. Check email, password, and that the API is reachable.';
-      setError(msg);
+      const raw =
+        (err as {response?: {data?: {message?: string; code?: string}}})?.response?.data;
+      const code = raw?.code;
+      const msg = raw?.message;
+      if (
+        code === 'INVALID_CREDENTIALS' ||
+        msg === 'Invalid request data' ||
+        msg === 'INVALID_CREDENTIALS'
+      ) {
+        setError('Invalid email or password');
+      } else {
+        setError(
+          msg ?? 'Could not sign in. Check email, password, and that the API is reachable.',
+        );
+      }
     } finally {
       setLoading(false);
     }

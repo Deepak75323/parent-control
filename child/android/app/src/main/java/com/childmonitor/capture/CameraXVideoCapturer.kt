@@ -192,7 +192,7 @@ class CameraXVideoCapturer(
         return wm.defaultDisplay.rotation
     }
 
-    /** Portrait-locked stream; landscape physical tilt changes CVO. */
+    /** Physical tilt updates WebRTC CVO; CameraX stays at ROTATION_0 (MIUI-safe). */
     private fun applyStreamRotation(helper: SurfaceTextureHelper, streamSurface: Int) {
         if (appliedSurfaceRotation.get() == streamSurface) {
             return
@@ -315,10 +315,10 @@ class CameraXVideoCapturer(
     private fun bindPreview(helper: SurfaceTextureHelper) {
         val provider = cameraProvider ?: return
         provider.unbindAll()
-        // Keep CameraX buffer at ROTATION_0 — setTargetRotation + CVO double-applies on MIUI.
-        val cameraXRotation = Surface.ROTATION_0
         val streamRotation =
             CameraOrientationHelper.streamSurfaceRotation(currentDisplaySurfaceRotation())
+        // Keep CameraX at ROTATION_0 — orientation goes out via WebRTC CVO only (MIUI-safe).
+        val cameraXRotation = Surface.ROTATION_0
         val (targetWidth, targetHeight) = widestFovCaptureDimensions(captureWidth, captureHeight)
         val previewBuilder = Preview.Builder()
             .setResolutionSelector(buildPreviewResolutionSelector())

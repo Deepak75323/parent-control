@@ -1,20 +1,29 @@
-import {useRef, useState, useEffect, type PointerEvent as ReactPointerEvent} from 'react';
+import {useRef, useState, useEffect, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent} from 'react';
+import {createPortal} from 'react-dom';
 import {useLocation} from 'react-router-dom';
-import {useLiveStreamStore, PIP_SIZE_LIMITS} from './liveStreamStore';
-import {pipSizeFromBodyHeight, pipSizeFromWidth, pipVideoAspect} from './pipLayout';
+import {useLiveStreamStore} from './liveStreamStore';
+import {
+  clampPipPosition,
+  isPipDragBlockedTarget,
+  startPipDragSession,
+  type PipDragSession,
+} from './pipDrag';
+import {
+  getPipSizeLimits,
+  isMobilePipViewport,
+  pipSizeForAspect,
+  pipSizeFromBodyHeight,
+  pipSizeFromWidth,
+  pipVideoAspect,
+} from './pipLayout';
 import {PipDeviceLink, StreamControls, StreamPipToolbar, StreamVideoView} from './StreamVideoView';
 
-const PIP_MIN_WIDTH = PIP_SIZE_LIMITS.minWidth;
-const PIP_MAX_WIDTH = PIP_SIZE_LIMITS.maxWidth;
-const PIP_MIN_BODY = PIP_SIZE_LIMITS.minBodyHeight;
-const PIP_MAX_BODY = PIP_SIZE_LIMITS.maxBodyHeight;
 /** Header + toolbar + footer (px) — body height is resized separately. */
 const PIP_CHROME_HEIGHT = 152;
+const PIP_CHROME_HEIGHT_MOBILE = 108;
 const DOCK_INSET = 12;
 
 type DragState = {
-  startX: number;
-  startY: number;
   originX: number;
   originY: number;
 };
@@ -50,7 +59,8 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function panelHeight(bodyHeight: number) {
-  return bodyHeight + PIP_CHROME_HEIGHT;
+  const chrome = isMobilePipViewport() ? PIP_CHROME_HEIGHT_MOBILE : PIP_CHROME_HEIGHT;
+  return bodyHeight + chrome;
 }
 
 function applyPipResize(
@@ -65,6 +75,7 @@ function applyPipResize(
   x: number;
   y: number;
 } {
+  const limits = getPipSizeLimits();
   const widthSign = corner.includes('w') ? -1 : corner.includes('e') ? 1 : 0;
   const heightSign = corner.includes('n') ? -1 : corner.includes('s') ? 1 : 0;
 
@@ -72,13 +83,13 @@ function applyPipResize(
   let nextBodyHeight = origin.originBodyHeight;
 
   if (widthSign !== 0) {
-    nextWidth = clamp(origin.originWidth + widthSign * dx, PIP_MIN_WIDTH, PIP_MAX_WIDTH);
+    nextWidth = clamp(origin.originWidth + widthSign * dx, limits.minWidth, limits.maxWidth);
   }
   if (heightSign !== 0) {
     nextBodyHeight = clamp(
       origin.originBodyHeight + heightSign * dy,
-      PIP_MIN_BODY,
-      PIP_MAX_BODY,
+      limits.minBodyHeight,
+      limits.maxBodyHeight,
     );
   }
 
@@ -112,14 +123,17 @@ function applyPipResize(
 
   if (corner.includes('w')) {
     size = {...size, width: Math.min(size.width, origin.originX + origin.originWidth - x)};
-    size = pipSizeFromWidth(clamp(size.width, PIP_MIN_WIDTH, PIP_MAX_WIDTH), aspect);
+    size = pipSizeFromWidth(clamp(size.width, limits.minWidth, limits.maxWidth), aspect);
   }
   if (corner.includes('n')) {
     size = {
       ...size,
       bodyHeight: Math.min(size.bodyHeight, origin.originY + origin.originBodyHeight - y),
     };
-    size = pipSizeFromBodyHeight(clamp(size.bodyHeight, PIP_MIN_BODY, PIP_MAX_BODY), aspect);
+    size = pipSizeFromBodyHeight(
+      clamp(size.bodyHeight, limits.minBodyHeight, limits.maxBodyHeight),
+      aspect,
+    );
   }
 
   return {width: size.width, bodyHeight: size.bodyHeight, x, y};
@@ -168,26 +182,57 @@ export function FloatingStreamPip() {
   const stop = useLiveStreamStore(s => s.stop);
 
   const dragRef = useRef<DragState | null>(null);
+  const dragSessionRef = useRef<PipDragSession | null>(null);
   const resizeRef = useRef<ResizeState | null>(null);
   const videoAspectRef = useRef(16 / 10);
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
   const pipSizedForFrame = useRef(false);
+  const leftDevicePageRef = useRef(false);
+  const panelSizeRef = useRef({width: 320, height: 288});
 
   const videoAspect = pipVideoAspect(videoFrame, viewRotate, streamType);
   videoAspectRef.current = videoAspect;
+
+  const onActiveDevicePage =
+    deviceId != null && location.pathname === `/devices/${deviceId}`;
+
+  useEffect(() => {
+    if (onActiveDevicePage) {
+      leftDevicePageRef.current = false;
+      return;
+    }
+    if (!sessionId || leftDevicePageRef.current || !isMobilePipViewport()) {
+      return;
+    }
+    leftDevicePageRef.current = true;
+    pipSizedForFrame.current = true;
+    setPipSize(pipSizeForAspect(videoAspect, getPipSizeLimits().default));
+    setPipPosition(null);
+  }, [
+    onActiveDevicePage,
+    sessionId,
+    videoAspect,
+    setPipSize,
+    setPipPosition,
+  ]);
 
   useEffect(() => {
     if (videoFrame.w <= 0 || videoFrame.h <= 0 || pipSizedForFrame.current) {
       return;
     }
     pipSizedForFrame.current = true;
-    setPipSize(pipSizeFromWidth(pipSize.width, videoAspect));
+    const limits = getPipSizeLimits();
+    const seed = isMobilePipViewport()
+      ? limits.default
+      : {width: pipSize.width, bodyHeight: pipSize.bodyHeight};
+    setPipSize(pipSizeFromWidth(seed.width, videoAspect));
   }, [videoFrame.w, videoFrame.h, videoAspect, pipSize.width, setPipSize]);
 
   useEffect(() => {
     if (!sessionId) {
       pipSizedForFrame.current = false;
+      leftDevicePageRef.current = false;
     }
   }, [sessionId]);
 
@@ -206,6 +251,13 @@ export function FloatingStreamPip() {
     prevViewRotate.current = viewRotate;
     setPipSize(pipSizeFromWidth(pipSize.width, videoAspect));
   }, [viewRotate, videoAspect, videoFrame.w, pipSize.width, setPipSize]);
+
+  useEffect(() => {
+    return () => {
+      dragSessionRef.current?.cleanup();
+      dragSessionRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!resizing) {
@@ -237,63 +289,86 @@ export function FloatingStreamPip() {
     };
   }, [resizing, setPipPosition, setPipSize]);
 
-  const onActiveDevicePage =
-    deviceId != null && location.pathname === `/devices/${deviceId}`;
-
   if (!sessionId || onActiveDevicePage) {
     return null;
   }
 
+  const mobile = isMobilePipViewport();
   const panelWidth = pipSize.width;
   const panelHeightPx = panelHeight(pipSize.bodyHeight);
-  const defaultX =
-    typeof window !== 'undefined' ? window.innerWidth - panelWidth - 24 : 24;
-  const defaultY =
-    typeof window !== 'undefined' ? window.innerHeight - panelHeightPx - 24 : 24;
+  panelSizeRef.current = {width: panelWidth, height: panelHeightPx};
+  const defaultX = mobile
+    ? Math.max(8, window.innerWidth - panelWidth - 12)
+    : window.innerWidth - panelWidth - 24;
+  const defaultY = mobile
+    ? Math.max(8, window.innerHeight - panelHeightPx - 72)
+    : window.innerHeight - panelHeightPx - 24;
   const x = pipPosition?.x ?? defaultX;
   const y = pipPosition?.y ?? defaultY;
+
+  const beginDrag = (
+    clientX: number,
+    clientY: number,
+    pointerId?: number,
+    captureTarget?: HTMLElement | null,
+  ) => {
+    dragSessionRef.current?.cleanup();
+    dragRef.current = {originX: x, originY: y};
+    setDragging(true);
+    dragSessionRef.current = startPipDragSession({
+      startX: clientX,
+      startY: clientY,
+      originX: x,
+      originY: y,
+      pointerId,
+      captureTarget,
+      onMove: (dx, dy) => {
+        const origin = dragRef.current;
+        if (!origin) {
+          return;
+        }
+        const next = clampPipPosition(
+          origin.originX + dx,
+          origin.originY + dy,
+          panelSizeRef.current.width,
+          panelSizeRef.current.height,
+        );
+        setPipPosition(next);
+      },
+      onEnd: () => {
+        dragRef.current = null;
+        dragSessionRef.current = null;
+        setDragging(false);
+      },
+    });
+  };
 
   const onDragPointerDown = (event: ReactPointerEvent) => {
     if (event.button !== 0) {
       return;
     }
-    if ((event.target as HTMLElement).closest('button, a, .stream-pip-resize')) {
+    if (mobile && event.pointerType === 'touch') {
       return;
     }
-    const target = event.currentTarget as HTMLElement;
-    target.setPointerCapture(event.pointerId);
-    dragRef.current = {
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: x,
-      originY: y,
-    };
-    setDragging(true);
+    if (isPipDragBlockedTarget(event.target)) {
+      return;
+    }
+    beginDrag(event.clientX, event.clientY, event.pointerId, event.currentTarget as HTMLElement);
     event.preventDefault();
+    event.stopPropagation();
   };
 
-  const onDragPointerMove = (event: ReactPointerEvent) => {
-    if (!dragRef.current) {
+  const onDragTouchStart = (event: ReactTouchEvent) => {
+    if (!mobile || event.touches.length !== 1) {
       return;
     }
-    const dx = event.clientX - dragRef.current.startX;
-    const dy = event.clientY - dragRef.current.startY;
-    const maxX = Math.max(8, window.innerWidth - panelWidth - 8);
-    const maxY = Math.max(8, window.innerHeight - panelHeightPx - 8);
-    setPipPosition({
-      x: Math.min(maxX, Math.max(8, dragRef.current.originX + dx)),
-      y: Math.min(maxY, Math.max(8, dragRef.current.originY + dy)),
-    });
-  };
-
-  const endDrag = (event: ReactPointerEvent) => {
-    dragRef.current = null;
-    setDragging(false);
-    try {
-      (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
-    } catch {
-      /* ignore */
+    if (isPipDragBlockedTarget(event.target)) {
+      return;
     }
+    const touch = event.touches[0];
+    beginDrag(touch.clientX, touch.clientY);
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   const onResizeStart =
@@ -321,10 +396,14 @@ export function FloatingStreamPip() {
   const closeStream = () => void stop();
 
   if (pipMinimized) {
-    return (
+    const dock = (
       <div
-        className="stream-pip-dock"
-        style={{top: DOCK_INSET, right: DOCK_INSET}}>
+        className="stream-pip-dock stream-pip-dock--mobile"
+        style={{
+          top: mobile ? undefined : DOCK_INSET,
+          bottom: mobile ? DOCK_INSET + 56 : undefined,
+          right: DOCK_INSET,
+        }}>
         <button
           type="button"
           className="stream-pip-dock-main"
@@ -343,22 +422,22 @@ export function FloatingStreamPip() {
         </button>
       </div>
     );
+    return createPortal(dock, document.body);
   }
 
-  return (
+  const pip = (
     <div
-      className={`stream-pip${dragging ? ' dragging' : ''}${resizing ? ' resizing' : ''}`}
+      className={`stream-pip${mobile ? ' stream-pip--mobile' : ''}${dragging ? ' dragging' : ''}${resizing ? ' resizing' : ''}`}
       style={{
         left: x,
         top: y,
         width: pipSize.width,
-      }}>
+      }}
+      onPointerDownCapture={mobile ? onDragPointerDown : undefined}
+      onTouchStartCapture={mobile ? onDragTouchStart : undefined}>
       <header
         className="stream-pip-head"
-        onPointerDown={onDragPointerDown}
-        onPointerMove={onDragPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}>
+        onPointerDown={mobile ? undefined : onDragPointerDown}>
         <span className="stream-pip-dot" />
         <span className="stream-pip-title">{deviceName ?? 'Live stream'}</span>
         <span className="stream-pip-status">{status}</span>
@@ -392,10 +471,12 @@ export function FloatingStreamPip() {
         <StreamVideoView compact />
       </div>
       <div className="stream-pip-foot">
-        <PipDeviceLink />
-        <StreamControls compact layoutInToolbar />
+        {!mobile ? <PipDeviceLink /> : null}
+        <StreamControls compact layoutInToolbar={!mobile} />
       </div>
-      <PipResizeHandles onResizeStart={onResizeStart} />
+      {!mobile ? <PipResizeHandles onResizeStart={onResizeStart} /> : null}
     </div>
   );
+
+  return createPortal(pip, document.body);
 }

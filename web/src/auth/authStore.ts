@@ -1,5 +1,7 @@
 import {create} from 'zustand';
 import type {ParentProfile} from '../types/api';
+import {wipeChatDecryptCredentials} from '../lib/chatDecryptSession';
+import {clearMobileSessionEndedMark, wasMobileSessionEnded} from './mobileSession';
 
 const ACCESS_KEY = 'pcp_web_access';
 const REFRESH_KEY = 'pcp_web_refresh';
@@ -41,6 +43,7 @@ interface AuthState {
   hydrate: () => void;
   clear: () => void;
   isAuthenticated: () => boolean;
+  patchProfile: (patch: Partial<ParentProfile>) => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -50,6 +53,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   profile: null,
   hydrated: false,
   setTokens: (access, refresh, email, profile) => {
+    clearMobileSessionEndedMark();
     writeSession(ACCESS_KEY, access);
     writeSession(REFRESH_KEY, refresh);
     if (email != null) {
@@ -66,6 +70,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }));
   },
   hydrate: () => {
+    if (wasMobileSessionEnded()) {
+      writeSession(ACCESS_KEY, null);
+      writeSession(REFRESH_KEY, null);
+      writeSession(EMAIL_KEY, null);
+      writeSession(PROFILE_KEY, null);
+      set({
+        accessToken: null,
+        refreshToken: null,
+        email: null,
+        profile: null,
+        hydrated: true,
+      });
+      return;
+    }
     const accessToken = readSession(ACCESS_KEY);
     const refreshToken = readSession(REFRESH_KEY);
     const email = readSession(EMAIL_KEY);
@@ -85,6 +103,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     writeSession(REFRESH_KEY, null);
     writeSession(EMAIL_KEY, null);
     writeSession(PROFILE_KEY, null);
+    wipeChatDecryptCredentials();
     set({
       accessToken: null,
       refreshToken: null,
@@ -93,4 +112,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
   },
   isAuthenticated: () => Boolean(get().accessToken && get().refreshToken),
+  patchProfile: patch => {
+    set(state => {
+      if (!state.profile) {
+        return state;
+      }
+      const profile = {...state.profile, ...patch};
+      writeSession(PROFILE_KEY, JSON.stringify(profile));
+      return {profile};
+    });
+  },
 }));

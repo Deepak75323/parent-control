@@ -59,6 +59,10 @@ public final class StreamFailureReasonClassifier {
 
   private static boolean looksLikeStructuredCode(String raw) {
     String t = raw.trim();
+    // Allow CAMERA_IN_USE_BY_OTHER_APP:WhatsApp / :com.whatsapp occupant hints.
+    if (t.startsWith("CAMERA_IN_USE_BY_OTHER_APP")) {
+      return t.length() <= 96 && !t.contains(" ");
+    }
     if (t.length() > 64 || t.contains(" ")) {
       return false;
     }

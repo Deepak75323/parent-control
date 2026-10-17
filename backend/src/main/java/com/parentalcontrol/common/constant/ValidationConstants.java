@@ -11,6 +11,8 @@ public final class ValidationConstants {
   public static final int PAIRING_CODE_LENGTH = 8;
   public static final int RECOVERY_CODE_LENGTH = 6;
   public static final int DEVICE_NAME_MAX_LENGTH = 100;
+  /** Stored chat message / caption body (sealed text from the portal). */
+  public static final int CHAT_MESSAGE_BODY_MAX_LENGTH = 32768;
 
   public static final String EMAIL_REGEX = RegexConstants.EMAIL;
 

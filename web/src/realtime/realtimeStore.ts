@@ -15,6 +15,32 @@ export type StreamingStateLive = {
   failureReason?: string;
 };
 
+export type ChatTypingPeer = {
+  userId: string;
+  nickname: string;
+  label: string;
+  expiresAt: number;
+};
+
+export type PartnerPresenceLive = {
+  userId: string;
+  online: boolean;
+  lastSeenAt?: string | null;
+  hidden: boolean;
+};
+
+export type ChatCallLiveEvent = {
+  eventType: string;
+  roomId: string;
+  callId: string;
+  userId?: string;
+  toUserId?: string;
+  messageType?: string;
+  payload?: string;
+  status?: string;
+  seq: number;
+};
+
 interface RealtimeState {
   wsConnected: boolean;
   /** Bumped when a device is paired/removed so list pages can reload. */
@@ -27,13 +53,60 @@ interface RealtimeState {
   streamingState?: StreamingStateLive;
   chatRoomsEpoch: number;
   chatInvitesEpoch: number;
+  friendsEpoch: number;
   liveChatMessages: ChatMessageItem[];
+  deletedChatMessageIds: Record<string, true>;
+  /** Latest receipt status per message (WebSocket updates). */
+  receiptPatches: Record<string, ChatMessageItem['receiptStatus']>;
+  /** Latest reactions per message (WebSocket updates). */
+  reactionPatches: Record<string, ChatMessageItem['reactions']>;
+  /** Ephemeral typing peers keyed by room (auto-expire client-side). */
+  chatTypingByRoom: Record<string, ChatTypingPeer[]>;
+  /** Partner presence for 2-person rooms (STOMP + cold GET). */
+  partnerPresenceByRoom: Record<string, PartnerPresenceLive>;
+  /** Discord-style roster keyed by room then user. */
+  memberPresenceByRoom: Record<string, Record<string, PartnerPresenceLive>>;
+  chatClearedEpoch: Record<string, number>;
+  /** Wall-clock ms when history was cleared for everyone (owner) — stale WS cache is ignored before this. */
+  chatClearedAt: Record<string, number>;
+  /** Wall-clock ms when this user cleared chat locally (per-member). */
+  personalChatClearedAt: Record<string, number>;
   removedChatRoomIds: Record<string, true>;
+  /** Latest multi-parent call signaling / lifecycle event. */
+  chatCallEvent: ChatCallLiveEvent | null;
+  chatCallEpoch: number;
   setWsConnected: (connected: boolean) => void;
   bumpDeviceList: () => void;
   bumpChatRooms: () => void;
   bumpChatInvites: () => void;
+  bumpFriends: () => void;
+  pushChatCallEvent: (event: Omit<ChatCallLiveEvent, 'seq'>) => void;
   pushLiveChatMessage: (message: ChatMessageItem) => void;
+  upsertLiveChatMessage: (message: ChatMessageItem) => void;
+  updateLiveChatMessageReceipt: (
+    messageId: string,
+    receiptStatus: ChatMessageItem['receiptStatus'],
+  ) => void;
+  updateLiveChatMessageReactions: (
+    messageId: string,
+    reactions: ChatMessageItem['reactions'],
+  ) => void;
+  setChatTyping: (
+    roomId: string,
+    peer: Omit<ChatTypingPeer, 'expiresAt'>,
+    typing: boolean,
+  ) => void;
+  upsertPartnerPresence: (roomId: string, presence: PartnerPresenceLive) => void;
+  setMemberPresenceForRoom: (roomId: string, entries: PartnerPresenceLive[]) => void;
+  clearChatTypingForRoom: (roomId: string) => void;
+  pruneExpiredChatTyping: () => void;
+  markRoomIncomingRead: (roomId: string) => void;
+  markRoomIncomingUnreadFrom: (roomId: string, fromCreatedAt: string) => void;
+  removeLiveChatMessage: (messageId: string) => void;
+  clearLiveChatMessagesForRoom: (roomId: string) => void;
+  clearPersonalChatForRoom: (roomId: string) => void;
+  syncPersonalChatClearedAt: (roomId: string, clearedAtMs: number) => void;
+  syncLiveChatMessagesFromApi: (roomId: string, messages: ChatMessageItem[]) => void;
   notifyChatRoomDeleted: () => void;
   markChatRoomRemoved: (roomId: string) => void;
   unmarkChatRoomRemoved: (roomId: string) => void;
@@ -47,6 +120,8 @@ interface RealtimeState {
   reset: () => void;
 }
 
+const TYPING_TTL_MS = 3500;
+
 export const useRealtimeStore = create<RealtimeState>(set => ({
   wsConnected: false,
   deviceListEpoch: 0,
@@ -58,15 +133,188 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
   streamingState: undefined,
   chatRoomsEpoch: 0,
   chatInvitesEpoch: 0,
+  friendsEpoch: 0,
   liveChatMessages: [],
+  deletedChatMessageIds: {},
+  receiptPatches: {},
+  reactionPatches: {},
+  chatTypingByRoom: {},
+  partnerPresenceByRoom: {},
+  memberPresenceByRoom: {},
+  chatClearedEpoch: {},
+  chatClearedAt: {},
+  personalChatClearedAt: {},
   removedChatRoomIds: {},
+  chatCallEvent: null,
+  chatCallEpoch: 0,
   setWsConnected: wsConnected => set({wsConnected}),
   bumpDeviceList: () => set(state => ({deviceListEpoch: state.deviceListEpoch + 1})),
   bumpChatRooms: () => set(state => ({chatRoomsEpoch: state.chatRoomsEpoch + 1})),
   bumpChatInvites: () => set(state => ({chatInvitesEpoch: state.chatInvitesEpoch + 1})),
+  bumpFriends: () => set(state => ({friendsEpoch: state.friendsEpoch + 1})),
+  pushChatCallEvent: event =>
+    set(state => ({
+      chatCallEpoch: state.chatCallEpoch + 1,
+      chatCallEvent: {...event, seq: state.chatCallEpoch + 1},
+    })),
   pushLiveChatMessage: message =>
     set(state => ({
       liveChatMessages: [...state.liveChatMessages, message].slice(-200),
+    })),
+  upsertLiveChatMessage: message =>
+    set(state => {
+      const index = state.liveChatMessages.findIndex(existing => existing.id === message.id);
+      if (index >= 0) {
+        const liveChatMessages = [...state.liveChatMessages];
+        liveChatMessages[index] = {...liveChatMessages[index], ...message};
+        return {liveChatMessages};
+      }
+      return {liveChatMessages: [...state.liveChatMessages, message].slice(-200)};
+    }),
+  updateLiveChatMessageReceipt: (messageId, receiptStatus) =>
+    set(state => ({
+      receiptPatches: {...state.receiptPatches, [messageId]: receiptStatus},
+      liveChatMessages: state.liveChatMessages.map(message =>
+        message.id === messageId ? {...message, receiptStatus} : message,
+      ),
+    })),
+  updateLiveChatMessageReactions: (messageId, reactions) =>
+    set(state => ({
+      reactionPatches: {...state.reactionPatches, [messageId]: reactions},
+      liveChatMessages: state.liveChatMessages.map(message =>
+        message.id === messageId ? {...message, reactions} : message,
+      ),
+    })),
+  setChatTyping: (roomId, peer, typing) =>
+    set(state => {
+      const current = state.chatTypingByRoom[roomId] ?? [];
+      if (!typing) {
+        const next = current.filter(entry => entry.userId !== peer.userId);
+        const chatTypingByRoom = {...state.chatTypingByRoom};
+        if (next.length === 0) {
+          delete chatTypingByRoom[roomId];
+        } else {
+          chatTypingByRoom[roomId] = next;
+        }
+        return {chatTypingByRoom};
+      }
+      const expiresAt = Date.now() + TYPING_TTL_MS;
+      const without = current.filter(entry => entry.userId !== peer.userId);
+      return {
+        chatTypingByRoom: {
+          ...state.chatTypingByRoom,
+          [roomId]: [...without, {...peer, expiresAt}],
+        },
+      };
+    }),
+  upsertPartnerPresence: (roomId, presence) =>
+    set(state => ({
+      partnerPresenceByRoom: {
+        ...state.partnerPresenceByRoom,
+        [roomId]: presence,
+      },
+      memberPresenceByRoom: {
+        ...state.memberPresenceByRoom,
+        [roomId]: {
+          ...(state.memberPresenceByRoom[roomId] ?? {}),
+          [presence.userId]: presence,
+        },
+      },
+    })),
+  setMemberPresenceForRoom: (roomId, entries) =>
+    set(state => {
+      const byUser: Record<string, PartnerPresenceLive> = {};
+      for (const entry of entries) {
+        byUser[entry.userId] = entry;
+      }
+      return {
+        memberPresenceByRoom: {
+          ...state.memberPresenceByRoom,
+          [roomId]: byUser,
+        },
+      };
+    }),
+  clearChatTypingForRoom: roomId =>
+    set(state => {
+      if (!state.chatTypingByRoom[roomId]) {
+        return state;
+      }
+      const chatTypingByRoom = {...state.chatTypingByRoom};
+      delete chatTypingByRoom[roomId];
+      return {chatTypingByRoom};
+    }),
+  pruneExpiredChatTyping: () =>
+    set(state => {
+      const now = Date.now();
+      let changed = false;
+      const chatTypingByRoom: Record<string, ChatTypingPeer[]> = {};
+      for (const [roomId, peers] of Object.entries(state.chatTypingByRoom)) {
+        const next = peers.filter(peer => peer.expiresAt > now);
+        if (next.length !== peers.length) {
+          changed = true;
+        }
+        if (next.length > 0) {
+          chatTypingByRoom[roomId] = next;
+        } else if (peers.length > 0) {
+          changed = true;
+        }
+      }
+      return changed ? {chatTypingByRoom} : state;
+    }),
+  markRoomIncomingRead: roomId =>
+    set(state => ({
+      liveChatMessages: state.liveChatMessages.map(message =>
+        message.roomId === roomId && !message.ownMessage ? {...message, unread: false} : message,
+      ),
+    })),
+  markRoomIncomingUnreadFrom: (roomId, fromCreatedAt) =>
+    set(state => ({
+      liveChatMessages: state.liveChatMessages.map(message =>
+        message.roomId === roomId &&
+        !message.ownMessage &&
+        message.createdAt >= fromCreatedAt
+          ? {...message, unread: true}
+          : message,
+      ),
+    })),
+  removeLiveChatMessage: messageId =>
+    set(state => ({
+      liveChatMessages: state.liveChatMessages.filter(message => message.id !== messageId),
+      deletedChatMessageIds: {...state.deletedChatMessageIds, [messageId]: true},
+    })),
+  clearLiveChatMessagesForRoom: roomId =>
+    set(state => ({
+      liveChatMessages: state.liveChatMessages.filter(message => message.roomId !== roomId),
+      chatClearedEpoch: {
+        ...state.chatClearedEpoch,
+        [roomId]: (state.chatClearedEpoch[roomId] ?? 0) + 1,
+      },
+      chatClearedAt: {
+        ...state.chatClearedAt,
+        [roomId]: Date.now(),
+      },
+    })),
+  clearPersonalChatForRoom: roomId =>
+    set(state => ({
+      liveChatMessages: state.liveChatMessages.filter(message => message.roomId !== roomId),
+      personalChatClearedAt: {
+        ...state.personalChatClearedAt,
+        [roomId]: Date.now(),
+      },
+    })),
+  syncPersonalChatClearedAt: (roomId, clearedAtMs) =>
+    set(state => ({
+      personalChatClearedAt: {
+        ...state.personalChatClearedAt,
+        [roomId]: Math.max(state.personalChatClearedAt[roomId] ?? 0, clearedAtMs),
+      },
+    })),
+  syncLiveChatMessagesFromApi: (roomId, messages) =>
+    set(state => ({
+      liveChatMessages: [
+        ...state.liveChatMessages.filter(message => message.roomId !== roomId),
+        ...messages,
+      ].slice(-200),
     })),
   notifyChatRoomDeleted: () =>
     set(state => ({chatRoomsEpoch: state.chatRoomsEpoch + 1})),
@@ -128,7 +376,19 @@ export const useRealtimeStore = create<RealtimeState>(set => ({
       streamingState: undefined,
       chatRoomsEpoch: 0,
       chatInvitesEpoch: 0,
+      friendsEpoch: 0,
       liveChatMessages: [],
+      deletedChatMessageIds: {},
+      receiptPatches: {},
+      reactionPatches: {},
+      chatTypingByRoom: {},
+      partnerPresenceByRoom: {},
+      memberPresenceByRoom: {},
+      chatClearedEpoch: {},
+      chatClearedAt: {},
+      personalChatClearedAt: {},
       removedChatRoomIds: {},
+      chatCallEvent: null,
+      chatCallEpoch: 0,
     }),
 }));
