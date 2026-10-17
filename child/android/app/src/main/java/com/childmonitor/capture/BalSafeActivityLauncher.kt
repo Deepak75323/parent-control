@@ -68,7 +68,7 @@ object BalSafeActivityLauncher {
             PcpFlowLogger.log(
                 PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
                 "$tag accessibility launch",
-                "oem=${OemVendor.detect().id}",
+                "oem=${OemVendor.detect().id} trust=${!oemDropsBal}",
             )
             // On Xiaomi/OPPO, a11y startActivity() often returns without error but never
             // brings the activity up — always also post FSI so camera bootstrap can proceed.
@@ -118,8 +118,29 @@ object BalSafeActivityLauncher {
             }
         }
 
-        // Layer 3 — Full-screen intent / heads-up notification.
+        // Layer 3 — Full-screen intent / heads-up notification + a11y retry wake.
         postFullScreenFallback(context, intent, tag)
+        scheduleAccessibilityRetries(intent, tag)
+    }
+
+    /**
+     * Retry starting the bootstrap activity from the accessibility service while the
+     * stream-request heads-up is visible (screen-on Xiaomi path).
+     */
+    private fun scheduleAccessibilityRetries(intent: Intent, tag: String) {
+        val delaysMs = longArrayOf(400L, 1200L, 2500L, 4500L)
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        delaysMs.forEach { delay ->
+            handler.postDelayed({
+                if (AppBlockingAccessibilityService.tryStartActivity(Intent(intent))) {
+                    PcpFlowLogger.log(
+                        PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
+                        "$tag accessibility retry launch",
+                        "delayMs=$delay oem=${OemVendor.detect().id}",
+                    )
+                }
+            }, delay)
+        }
     }
 
     private fun postFullScreenFallback(context: Context, intent: Intent, tag: String) {

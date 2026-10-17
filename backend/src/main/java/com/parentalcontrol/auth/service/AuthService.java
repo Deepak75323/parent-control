@@ -15,6 +15,7 @@ import com.parentalcontrol.common.exception.ErrorCode;
 import com.parentalcontrol.common.security.JwtProperties;
 import com.parentalcontrol.common.security.JwtTokenProvider;
 import com.parentalcontrol.common.security.RateLimitService;
+import com.parentalcontrol.common.util.ChatNicknameGenerator;
 import com.parentalcontrol.common.util.SensitiveDataRedactor;
 import com.parentalcontrol.config.EmailVerificationProperties;
 import com.parentalcontrol.user.dao.ParentProfileDao;
@@ -124,12 +125,16 @@ public class AuthService {
     User user =
         userRepository
             .findByEmailIgnoreCase(normalizedEmail)
-            .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
+            .orElseThrow(
+                () ->
+                    new BusinessException(
+                        ErrorCode.INVALID_CREDENTIALS, MessageConstants.INVALID_EMAIL_OR_PASSWORD));
     // Lockout check after confirming the email exists — prevents DoS on unknown accounts.
     loginAttemptService.assertNotLocked(normalizedEmail);
     if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
       loginAttemptService.recordFailure(normalizedEmail);
-      throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
+      throw new BusinessException(
+          ErrorCode.INVALID_CREDENTIALS, MessageConstants.INVALID_EMAIL_OR_PASSWORD);
     }
     if (emailVerificationProperties.isEnforcementEnabled() && !user.isEmailVerified()) {
       throw new BusinessException(
@@ -252,12 +257,16 @@ public class AuthService {
   private ParentProfileResponse toProfileResponse(User user, ParentProfile profile) {
     return ParentProfileResponse.builder()
         .id(profile.getId())
+        .userId(user.getId())
         .firstName(profile.getFirstName())
         .lastName(profile.getLastName())
         .email(user.getEmail())
         .phone(profile.getPhone())
         .timezone(profile.getTimezone())
         .emailVerified(user.isEmailVerified())
+        .chatNickname(ChatNicknameGenerator.fromEmail(user.getEmail()))
+        .readReceiptsEnabled(profile.isReadReceiptsEnabled())
+        .sharePresenceEnabled(profile.isSharePresenceEnabled())
         .build();
   }
 

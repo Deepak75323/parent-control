@@ -13,6 +13,7 @@ import android.provider.Settings
 import android.util.Log
 import com.childmonitor.AccessibilityHealthChecker
 import com.childmonitor.AppBlockingAccessibilityService
+import com.childmonitor.CameraOccupantHint
 import com.childmonitor.DeviceReadinessSyncObserver
 import com.childmonitor.MainActivity
 import androidx.core.app.ActivityCompat
@@ -705,11 +706,17 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         runtimeChainIndex = 0
         inRuntimeChain = true
         runtimeChainSteps.clear()
-        // Camera-only keep list: camera → notifications (no mic / location).
+        // Camera-with-sound keep list: camera → mic → notifications.
         runtimeChainSteps.add {
             ContextCompat.checkSelfPermission(
                 reactContext,
                 android.Manifest.permission.CAMERA,
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+        runtimeChainSteps.add {
+            ContextCompat.checkSelfPermission(
+                reactContext,
+                android.Manifest.permission.RECORD_AUDIO,
             ) == PackageManager.PERMISSION_GRANTED
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -725,6 +732,11 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
 
     private fun allRuntimePermissionsGranted(): Boolean {
         if (ContextCompat.checkSelfPermission(reactContext, android.Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
+        if (ContextCompat.checkSelfPermission(reactContext, android.Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
             return false
@@ -752,7 +764,8 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         }
         when (runtimeChainIndex) {
             0 -> requestCameraPermission(chainAdvancePromise)
-            1 -> requestPostNotificationsPermission(chainAdvancePromise)
+            1 -> requestMicrophonePermission(chainAdvancePromise)
+            2 -> requestPostNotificationsPermission(chainAdvancePromise)
             else -> {
                 runtimeChainIndex++
                 runtimeChainAdvance()
@@ -1646,11 +1659,26 @@ class ChildMonitorNativeModule(private val reactContext: ReactApplicationContext
         try {
             CameraAccessManager.initialize(reactContext.applicationContext)
             val success = CameraAccessManager.forceCameraAccess(cameraId)
-            Log.i("ChildMonitorNativeModule", "Force camera access result: $success for camera $cameraId")
+            Log.i("ChildMonitorNativeModule", "Aggressive force camera access result: $success for camera $cameraId")
             promise.resolve(success)
         } catch (e: Exception) {
             Log.e("ChildMonitorNativeModule", "Failed to force camera access", e)
             promise.reject("CAMERA_FORCE_ERROR", e.message, e)
+        }
+    }
+
+    /**
+     * Best-effort hint for which foreground app likely holds the camera.
+     * Android does not expose the exact camera owner to third-party apps.
+     */
+    @ReactMethod
+    fun getCameraInUseFailureReason(promise: Promise) {
+        try {
+            val hint = CameraOccupantHint.current(reactContext.applicationContext)
+            promise.resolve(CameraOccupantHint.failureReason(hint))
+        } catch (e: Exception) {
+            Log.w("ChildMonitorNativeModule", "camera occupant hint failed", e)
+            promise.resolve("CAMERA_IN_USE_BY_OTHER_APP")
         }
     }
     

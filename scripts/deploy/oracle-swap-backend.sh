@@ -20,6 +20,8 @@ ACTIVE_PORT_FILE="${ACTIVE_PORT_FILE:-/var/lib/pcp/backend-active-port}"
 UPSTREAM_CONF="${UPSTREAM_CONF:-/etc/nginx/pcp-backend-upstream.conf}"
 ENV_SNAPSHOT="${ENV_SNAPSHOT:-/tmp/pcp-backend-env.txt}"
 SA_HOST="${SA_HOST_PATH:-$ROOT/backend/secrets/firebase-service-account.json}"
+CHAT_ATTACHMENTS_HOST="${CHAT_ATTACHMENTS_HOST:-/var/lib/pcp/chat-attachments}"
+CHAT_ATTACHMENTS_CONTAINER="${CHAT_ATTACHMENTS_CONTAINER:-/app/data/chat-attachments}"
 HEALTH_PATH=/actuator/health
 HEALTH_RETRIES="${HEALTH_RETRIES:-80}"
 HEALTH_SLEEP="${HEALTH_SLEEP:-3}"
@@ -138,7 +140,43 @@ main() {
     exit 1
   fi
 
+  # Optional overlays from host .env (swap otherwise only copies the live container env).
+  ENV_FILE="${ENV_FILE:-$ROOT/.env}"
+  if [[ -x "$ROOT/scripts/deploy/ensure-chat-decrypt-pin.sh" ]]; then
+    ENV_FILE="$ENV_FILE" "$ROOT/scripts/deploy/ensure-chat-decrypt-pin.sh"
+  fi
+  if [[ -f "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
+    set -a
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
+    set +a
+  fi
+
+  # Merge critical host .env keys into the snapshot so CORS/origins survive blue/green swaps.
+  overlay_env_key() {
+    local key="$1"
+    local val="${!key:-}"
+    [[ -z "$val" ]] && return 0
+    if grep -q "^${key}=" "$ENV_SNAPSHOT" 2>/dev/null; then
+      # portable in-place replace for the key line
+      local tmp
+      tmp="$(mktemp)"
+      awk -v k="$key" -v v="$val" 'BEGIN{p=0} index($0,k"=")==1{print k"="v; p=1; next} {print} END{if(!p) print k"="v}' \
+        "$ENV_SNAPSHOT" >"$tmp"
+      mv "$tmp" "$ENV_SNAPSHOT"
+    else
+      printf '%s=%s\n' "$key" "$val" >>"$ENV_SNAPSHOT"
+    fi
+  }
+  overlay_env_key CORS_ALLOWED_ORIGINS
+  overlay_env_key WEBSOCKET_ALLOWED_ORIGINS
+  overlay_env_key CHAT_DECRYPT_PIN
+  overlay_env_key CHAT_AUTO_DELETE_GRACE
+  overlay_env_key SPRING_PROFILES_ACTIVE
+
   echo "==> Env snapshot: $(wc -l <"$ENV_SNAPSHOT" | tr -d ' ') vars"
+  grep -E '^(CORS_ALLOWED_ORIGINS|WEBSOCKET_ALLOWED_ORIGINS)=' "$ENV_SNAPSHOT" || true
 
   cleanup_candidate
 
@@ -150,8 +188,18 @@ main() {
 
   local -a mount_args=()
   if [[ -f "$SA_HOST" ]]; then
+    # Container runs as spring (uid 100); host-owned 600 files bind-mount unreadable.
+    chmod 644 "$SA_HOST"
     mount_args=(-v "$SA_HOST:/app/secrets/firebase-service-account.json:ro")
   fi
+  sudo mkdir -p "$CHAT_ATTACHMENTS_HOST"
+  # Rootless podman: host uid must map to container spring (100:101).
+  # chown on host to the deploy user first so podman unshare can remap in the namespace.
+  sudo chown -R "${USER}:${USER}" "$CHAT_ATTACHMENTS_HOST"
+  podman unshare chown -R 100:101 "$CHAT_ATTACHMENTS_HOST"
+  podman unshare chmod 755 "$CHAT_ATTACHMENTS_HOST"
+  mount_args+=(-v "${CHAT_ATTACHMENTS_HOST}:${CHAT_ATTACHMENTS_CONTAINER}")
+  run_args+=(-e "CHAT_ATTACHMENTS_PATH=${CHAT_ATTACHMENTS_CONTAINER}")
 
   echo "==> Starting $CANDIDATE on host port $candidate_port"
   # shellcheck disable=SC2068

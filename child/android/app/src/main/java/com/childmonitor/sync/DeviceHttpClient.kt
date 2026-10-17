@@ -38,12 +38,23 @@ object DeviceHttpClient {
      */
     private fun hasActiveNetwork(context: Context): Boolean {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        
+
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val network = connectivityManager.activeNetwork ?: return false
-            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            // Do not trust only activeNetwork — Xiaomi often keeps an IMS/cell network
+            // as "active" without INTERNET while Wi‑Fi is the real path. Scan all nets.
+            var hasInternet = false
+            for (network in connectivityManager.allNetworks) {
+                val capabilities = connectivityManager.getNetworkCapabilities(network) ?: continue
+                if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    continue
+                }
+                hasInternet = true
+                if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                    return true
+                }
+            }
+            // During wifi↔cell flaps VALIDATED can lag; allow the HTTP attempt anyway.
+            hasInternet
         } else {
             @Suppress("DEPRECATION")
             val activeNetwork = connectivityManager.activeNetworkInfo

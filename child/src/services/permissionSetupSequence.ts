@@ -33,11 +33,12 @@ export async function loadSetupPermissionSteps(): Promise<SetupPermissionStep[]>
   const steps: SetupPermissionStep[] = [
     {
       key: 'camera',
-      title: 'Camera',
-      check: () => nativeModules.isCameraGranted(),
+      title: 'Camera & microphone',
+      check: async () =>
+        (await nativeModules.isCameraGranted()) && (await nativeModules.isMicGranted()),
       open: async () => ({
         mode: 'in_app',
-        granted: await nativeModules.requestCameraPermission(),
+        granted: await nativeModules.requestCameraAndMicPermissions(),
       }),
       inApp: true,
     },
@@ -167,7 +168,7 @@ export async function confirmOemBackgroundSetup(): Promise<boolean> {
   return nativeModules.isOemAutostartPromptDone();
 }
 
-/** Camera-only + tamper — every required setup permission must be granted. */
+/** Camera-with-sound + tamper — every required setup permission must be granted. */
 export async function isSetupPermissionsComplete(): Promise<boolean> {
   const requiresOem = await nativeModules.requiresOemBackgroundSetup();
   const [camera, accessibility, overlay, battery, oemBackground, deviceAdmin] =

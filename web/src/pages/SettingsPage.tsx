@@ -5,8 +5,14 @@ import {
   authApi,
   familyHandleApi,
   parentPinApi,
+  readReceiptsApi,
+  sharePresenceApi,
 } from '../api/services';
 import {useAuthStore} from '../auth/authStore';
+import {useLogout} from '../auth/useLogout';
+import {useConfirmDialog} from '../hooks/useConfirmDialog';
+import {chatDisplayNickname} from '../lib/chatDisplayNickname';
+import {FingerprintSettingsCard} from '../components/ParentWebAuthnSetup';
 import {disconnectWebSocket} from '../realtime/websocket';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 
@@ -15,22 +21,34 @@ export function SettingsPage() {
   const email = useAuthStore(s => s.email);
   const clear = useAuthStore(s => s.clear);
   const navigate = useNavigate();
+  const onLogout = useLogout();
+  const accountEmail = profile?.email ?? email ?? '';
+  const chatNickname =
+    profile?.chatNickname?.trim() ||
+    (accountEmail ? chatDisplayNickname(accountEmail) : 'Unknown Parent');
 
   const [pinConfigured, setPinConfigured] = useState(false);
   const [pin, setPin] = useState('');
   const [pinMsg, setPinMsg] = useState<string | null>(null);
   const [handle, setHandle] = useState('');
   const [handleStatus, setHandleStatus] = useState<string | null>(null);
+  const [readReceiptsEnabled, setReadReceiptsEnabled] = useState(true);
+  const [readReceiptsMsg, setReadReceiptsMsg] = useState<string | null>(null);
+  const [sharePresenceEnabled, setSharePresenceEnabled] = useState(true);
+  const [sharePresenceMsg, setSharePresenceMsg] = useState<string | null>(null);
   const [deletePassword, setDeletePassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const {confirm, dialog: confirmDialog} = useConfirmDialog(busy);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [pinRes, handleRes] = await Promise.all([
+      const [pinRes, handleRes, receiptsRes, presenceRes] = await Promise.all([
         parentPinApi.status(),
         familyHandleApi.status(),
+        readReceiptsApi.status(),
+        sharePresenceApi.status(),
       ]);
       setPinConfigured(Boolean(pinRes.data.data?.pinConfigured));
       setHandle(handleRes.data.data?.familyHandle ?? '');
@@ -39,6 +57,8 @@ export function SettingsPage() {
           ? `Configured: ${handleRes.data.data.familyHandle}`
           : 'Not configured',
       );
+      setReadReceiptsEnabled(receiptsRes.data.data?.enabled !== false);
+      setSharePresenceEnabled(presenceRes.data.data?.enabled !== false);
     } catch {
       setError('Failed to load settings');
     }
@@ -100,9 +120,62 @@ export function SettingsPage() {
     }
   };
 
+  const onToggleReadReceipts = async () => {
+    const next = !readReceiptsEnabled;
+    setBusy(true);
+    setReadReceiptsMsg(null);
+    try {
+      const {data} = await readReceiptsApi.setEnabled(next);
+      const enabled = data.data?.enabled !== false;
+      setReadReceiptsEnabled(enabled);
+      useAuthStore.getState().patchProfile({readReceiptsEnabled: enabled});
+      setReadReceiptsMsg(
+        enabled
+          ? 'Read receipts are on — green ticks when messages are read.'
+          : 'Read receipts are off — green read ticks hidden for you and others.',
+      );
+    } catch {
+      setReadReceiptsMsg('Could not update read receipt setting');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onToggleSharePresence = async () => {
+    const next = !sharePresenceEnabled;
+    setBusy(true);
+    setSharePresenceMsg(null);
+    try {
+      const {data} = await sharePresenceApi.setEnabled(next);
+      const enabled = data.data?.enabled !== false;
+      setSharePresenceEnabled(enabled);
+      useAuthStore.getState().patchProfile({sharePresenceEnabled: enabled});
+      setSharePresenceMsg(
+        enabled
+          ? 'Partners can see when you are Online or Last seen.'
+          : 'Online / Last seen hidden from chat partners.',
+      );
+    } catch {
+      setSharePresenceMsg('Could not update share presence setting');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onDeleteAccount = async (e: FormEvent) => {
     e.preventDefault();
-    if (!deletePassword || !window.confirm('Permanently delete this parent account?')) {
+    if (!deletePassword) {
+      return;
+    }
+    if (
+      !(await confirm({
+        title: 'Delete account',
+        message:
+          'Permanently delete this parent account? Devices, chat history, and settings cannot be recovered.',
+        confirmLabel: 'Delete account',
+        danger: true,
+      }))
+    ) {
       return;
     }
     setBusy(true);
@@ -121,10 +194,11 @@ export function SettingsPage() {
 
   return (
     <div className="page">
+      {confirmDialog}
       <div className="page-header">
         <div>
           <h1>Settings</h1>
-          <p className="muted">Account, parent PIN, and family handle.</p>
+          <p className="muted">Account, parent PIN, family handle, and chat nickname.</p>
         </div>
       </div>
       {error ? <div className="error">{error}</div> : null}
@@ -146,7 +220,14 @@ export function SettingsPage() {
             <dt>Email verified</dt>
             <dd>{profile?.emailVerified ? 'Yes' : 'No'}</dd>
           </div>
+          <div>
+            <dt>Chat nickname</dt>
+            <dd>{chatNickname}</dd>
+          </div>
         </dl>
+        <p className="muted tiny">
+          Assigned from your email — unique and stable. Shown in chat instead of your @handle.
+        </p>
       </div>
 
       <div className="card">
@@ -180,6 +261,8 @@ export function SettingsPage() {
         </form>
       </div>
 
+      <FingerprintSettingsCard />
+
       <div className="card">
         <h2>Family handle</h2>
         <p className="muted">{handleStatus}</p>
@@ -192,6 +275,50 @@ export function SettingsPage() {
             Save handle
           </button>
         </form>
+      </div>
+
+      <div className="card">
+        <h2>Chat read receipts</h2>
+        <p className="muted">
+          When on, others see when you read their messages and you see when they read yours —
+          like WhatsApp. Turn off and neither side gets green read ticks.
+        </p>
+        <div className="btn-row">
+          <button
+            type="button"
+            className={`btn ${readReceiptsEnabled ? 'primary' : 'ghost'}`}
+            disabled={busy}
+            onClick={() => void onToggleReadReceipts()}>
+            {readReceiptsEnabled ? 'Read receipts: On' : 'Read receipts: Off'}
+          </button>
+        </div>
+        {readReceiptsMsg ? <p className="muted">{readReceiptsMsg}</p> : null}
+      </div>
+
+      <div className="card">
+        <h2>Share presence</h2>
+        <p className="muted">
+          When on, your partner in a 2-person chat can see Online or Last seen. Turn off to hide
+          that from them.
+        </p>
+        <div className="btn-row">
+          <button
+            type="button"
+            className={`btn ${sharePresenceEnabled ? 'primary' : 'ghost'}`}
+            disabled={busy}
+            onClick={() => void onToggleSharePresence()}>
+            {sharePresenceEnabled ? 'Share presence: On' : 'Share presence: Off'}
+          </button>
+        </div>
+        {sharePresenceMsg ? <p className="muted">{sharePresenceMsg}</p> : null}
+      </div>
+
+      <div className="card">
+        <h2>Session</h2>
+        <p className="muted">Sign out of the web portal on this browser.</p>
+        <button type="button" className="btn ghost" onClick={() => void onLogout()}>
+          Log out
+        </button>
       </div>
 
       <div className="card danger-zone">

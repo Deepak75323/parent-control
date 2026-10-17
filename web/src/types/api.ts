@@ -6,12 +6,17 @@ export interface ApiResponse<T> {
 
 export interface ParentProfile {
   id: string;
+  /** Auth user id — use for chat/calls (not profile.id). */
+  userId?: string;
   firstName: string;
   lastName: string;
   email: string;
   phone?: string;
   timezone?: string;
   emailVerified?: boolean;
+  chatNickname?: string;
+  readReceiptsEnabled?: boolean;
+  sharePresenceEnabled?: boolean;
 }
 
 export interface AuthResponse {
@@ -187,14 +192,67 @@ export interface PlanInfo {
 
 export type StreamType = 'SCREEN' | 'CAMERA' | 'AUDIO';
 
+export interface ChatChannelItem {
+  id: string;
+  roomId: string;
+  name: string;
+  channelType: 'TEXT' | 'VOICE';
+  position: number;
+  createdAt: string;
+}
+
 export interface ChatRoomSummary {
   id: string;
   name: string;
   ownerUserId: string;
   owner: boolean;
+  myRole?: 'OWNER' | 'ADMIN' | 'MEMBER';
+  muted?: boolean;
+  canDecrypt?: boolean;
   memberCount: number;
+  /** True for friend DMs; false/absent for ordinary servers (even with 2 members). */
+  directMessage?: boolean;
+  /**
+   * Owner shares the Members roster with other members. Non-owners see older help UI when false.
+   */
+  membersPanelShared?: boolean;
   createdAt: string;
   updatedAt: string;
+  /** When set, messages before this time are hidden for this user only. */
+  chatClearedAt?: string;
+  /** WhatsApp-style read cursor for this member. */
+  lastReadMessageId?: string | null;
+  /** Incoming messages after lastReadMessageId. */
+  unreadCount?: number;
+  /** Text and voice channels in this server. */
+  channels?: ChatChannelItem[];
+}
+
+export interface ChatMemberItem {
+  userId: string;
+  label: string;
+  nickname?: string;
+  role: 'OWNER' | 'ADMIN' | 'MEMBER';
+  joinedAt: string;
+  muted?: boolean;
+  canDecrypt?: boolean;
+}
+
+export interface ChatCallParticipant {
+  userId: string;
+  label: string;
+  nickname?: string;
+  joinedAt: string;
+}
+
+export interface ChatCallItem {
+  id: string;
+  roomId: string;
+  channelId?: string | null;
+  startedByUserId: string;
+  status: 'ACTIVE' | 'ENDED';
+  createdAt: string;
+  participants: ChatCallParticipant[];
 }
 
 export interface ChatInviteItem {
@@ -203,17 +261,54 @@ export interface ChatInviteItem {
   roomName: string;
   inviterUserId: string;
   inviterLabel: string;
+  inviterNickname?: string;
   inviteeIdentifier: string;
   status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED';
   createdAt: string;
 }
 
+export interface ChatMessageReplyPreview {
+  messageId: string;
+  senderLabel: string;
+  senderNickname?: string;
+  messageType?: 'TEXT' | 'IMAGE' | 'VIDEO';
+  bodyPreview: string;
+  deleted: boolean;
+}
+
+export interface ChatMessageReactionSummary {
+  emoji: string;
+  count: number;
+  reactedByMe: boolean;
+  reactorLabels: string[];
+}
+
 export interface ChatMessageItem {
   id: string;
   roomId: string;
+  channelId?: string | null;
   senderUserId: string;
   senderLabel: string;
+  senderNickname?: string;
+  messageType?: 'TEXT' | 'IMAGE' | 'VIDEO';
   body: string;
+  attachmentUrl?: string | null;
+  attachmentMimeType?: string | null;
+  attachmentFileName?: string | null;
+  attachmentSizeBytes?: number | null;
+  attachmentViewOnce?: boolean;
+  attachmentConsumed?: boolean;
+  ownMessage?: boolean;
+  canViewAttachment?: boolean;
   createdAt: string;
+  editedAt?: string | null;
+  receiptStatus?: 'SENT' | 'DELIVERED' | 'READ';
+  /** Incoming messages not yet read by this user. */
+  unread?: boolean;
+  /** Deleted for everyone. The notice stays until this time, or until an unread recipient reads it. */
+  deleted?: boolean;
+  /** When the "This note is deleted" notice leaves. Omitted while the recipient has not read it. */
+  deletedVisibleUntil?: string | null;
+  replyTo?: ChatMessageReplyPreview | null;
+  reactions?: ChatMessageReactionSummary[];
 }
-

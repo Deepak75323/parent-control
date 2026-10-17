@@ -2,6 +2,7 @@ import {useCallback, useEffect, useMemo, useState} from 'react';
 import type {FormEvent} from 'react';
 import {Link, useSearchParams} from 'react-router-dom';
 import {deviceApi, monitoringApi, policiesApi} from '../api/services';
+import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import type {DeviceSummary, GeofenceZone} from '../types/api';
 
 export function GeofencesPage() {
@@ -14,6 +15,7 @@ export function GeofencesPage() {
   const [lat, setLat] = useState('');
   const [lng, setLng] = useState('');
   const [radius, setRadius] = useState('200');
+  const {confirm, dialog: confirmDialog} = useConfirmDialog(busy);
 
   const deviceId = params.get('deviceId') ?? devices[0]?.id ?? '';
   const selected = useMemo(
@@ -96,8 +98,15 @@ export function GeofencesPage() {
     }
   };
 
-  const onDelete = async (policyId: string) => {
-    if (!window.confirm('Delete this geofence?')) {
+  const onDelete = async (policyId: string, zoneName: string) => {
+    if (
+      !(await confirm({
+        title: 'Delete geofence',
+        message: `Delete "${zoneName}"? Alerts for this zone will stop.`,
+        confirmLabel: 'Delete',
+        danger: true,
+      }))
+    ) {
       return;
     }
     setBusy(true);
@@ -113,6 +122,7 @@ export function GeofencesPage() {
 
   return (
     <div className="page">
+      {confirmDialog}
       <div className="page-header">
         <div>
           <h1>Geofences</h1>
@@ -151,7 +161,7 @@ export function GeofencesPage() {
                       type="button"
                       className="btn ghost"
                       disabled={busy}
-                      onClick={() => void onDelete(z.policyId)}>
+                      onClick={() => void onDelete(z.policyId, z.name)}>
                       Delete
                     </button>
                   </div>

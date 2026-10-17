@@ -1,4 +1,4 @@
-import {api} from './client';
+import {api, postMultipart} from './client';
 import {ApiPaths} from './paths';
 import type {
   ApiResponse,
@@ -20,7 +20,11 @@ import type {
   UsageStatsItem,
   ChatRoomSummary,
   ChatInviteItem,
+  ChatMemberItem,
+  ChatCallItem,
+  ChatChannelItem,
   ChatMessageItem,
+  ChatMessageReactionSummary,
 } from '../types/api';
 
 export const authApi = {
@@ -150,6 +154,58 @@ export const familyHandleApi = {
     ),
 };
 
+export const readReceiptsApi = {
+  status: () =>
+    api.get<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_READ_RECEIPTS_STATUS),
+  setEnabled: (enabled: boolean) =>
+    api.post<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_READ_RECEIPTS, {enabled}),
+};
+
+export const sharePresenceApi = {
+  status: () =>
+    api.get<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_SHARE_PRESENCE_STATUS),
+  setEnabled: (enabled: boolean) =>
+    api.post<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_SHARE_PRESENCE, {enabled}),
+};
+
+export type FriendRequestItem = {
+  id: string;
+  requesterUserId: string;
+  addresseeUserId: string;
+  status: string;
+  identifier: string;
+  counterpartLabel?: string;
+  counterpartNickname?: string;
+  dmRoomId?: string | null;
+  createdAt?: string;
+};
+
+export type FriendSummaryItem = {
+  friendshipId: string;
+  userId: string;
+  label: string;
+  nickname: string;
+  dmRoomId?: string | null;
+};
+
+export const friendsApi = {
+  list: () => api.get<ApiResponse<FriendSummaryItem[]>>(ApiPaths.PARENT_FRIENDS),
+  pendingIncoming: () =>
+    api.get<ApiResponse<FriendRequestItem[]>>(ApiPaths.PARENT_FRIENDS_PENDING),
+  pendingOutgoing: () =>
+    api.get<ApiResponse<FriendRequestItem[]>>(ApiPaths.PARENT_FRIENDS_OUTGOING),
+  sendRequest: (identifier: string) =>
+    api.post<ApiResponse<FriendRequestItem>>(ApiPaths.PARENT_FRIENDS_REQUESTS, {identifier}),
+  respond: (requestId: string, accept: boolean) =>
+    api.post<ApiResponse<FriendRequestItem>>(ApiPaths.friendRequestRespond(requestId), {
+      accept,
+    }),
+  openDm: (friendUserId: string) =>
+    api.post<ApiResponse<FriendSummaryItem>>(ApiPaths.friendOpenDm(friendUserId)),
+  remove: (friendUserId: string) =>
+    api.delete<ApiResponse<void>>(ApiPaths.friendRemove(friendUserId)),
+};
+
 export const policiesApi = {
   list: (type?: string) =>
     api.get<ApiResponse<PolicySummary[]>>(ApiPaths.POLICIES, {params: type ? {type} : {}}),
@@ -178,21 +234,163 @@ export const policiesApi = {
   delete: (policyId: string) => api.delete(ApiPaths.policy(policyId)),
 };
 
+export type ChatMessageDeleteScope = 'FOR_ME' | 'FOR_EVERYONE';
+
 export const chatApi = {
   listRooms: () => api.get<ApiResponse<ChatRoomSummary[]>>(ApiPaths.CHAT_ROOMS),
   createRoom: (name: string) =>
     api.post<ApiResponse<ChatRoomSummary>>(ApiPaths.CHAT_ROOMS, {name}),
   deleteRoom: (roomId: string) => api.delete<ApiResponse<void>>(ApiPaths.chatRoom(roomId)),
+  clearHistory: (roomId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomClearHistory(roomId), {}),
+  clearChat: (roomId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomClearChat(roomId), {}),
+  leaveRoom: (roomId: string) => api.post<ApiResponse<void>>(ApiPaths.chatRoomLeave(roomId), {}),
+  listMembers: (roomId: string) =>
+    api.get<ApiResponse<ChatMemberItem[]>>(ApiPaths.chatRoomMembers(roomId)),
+  partnerPresence: (roomId: string) =>
+    api.get<
+      ApiResponse<{
+        userId?: string | null;
+        online: boolean;
+        lastSeenAt?: string | null;
+        hidden: boolean;
+      }>
+    >(ApiPaths.chatRoomPresence(roomId)),
+  membersPresence: (roomId: string) =>
+    api.get<
+      ApiResponse<
+        Array<{
+          userId: string;
+          online: boolean;
+          lastSeenAt?: string | null;
+          hidden: boolean;
+        }>
+      >
+    >(ApiPaths.chatRoomMembersPresence(roomId)),
+  removeMember: (roomId: string, userId: string) =>
+    api.delete<ApiResponse<void>>(ApiPaths.chatRoomMember(roomId, userId)),
+  updateMember: (
+    roomId: string,
+    userId: string,
+    body: {role?: 'ADMIN' | 'MEMBER'; muted?: boolean; canDecrypt?: boolean},
+  ) => api.patch<ApiResponse<ChatMemberItem>>(ApiPaths.chatRoomMember(roomId, userId), body),
+  transferOwnership: (roomId: string, userId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomTransferOwnership(roomId), {userId}),
+  setMembersPanelShared: (roomId: string, shared: boolean) =>
+    api.patch<ApiResponse<ChatRoomSummary>>(ApiPaths.chatRoomMembersPanelShare(roomId), {
+      shared,
+    }),
+  listChannels: (roomId: string) =>
+    api.get<ApiResponse<ChatChannelItem[]>>(ApiPaths.chatRoomChannels(roomId)),
+  createChannel: (roomId: string, name: string, channelType: 'TEXT' | 'VOICE') =>
+    api.post<ApiResponse<ChatChannelItem>>(ApiPaths.chatRoomChannels(roomId), {
+      name,
+      channelType,
+    }),
+  startCall: (roomId: string, channelId?: string) =>
+    api.post<ApiResponse<ChatCallItem>>(ApiPaths.chatRoomCalls(roomId), {
+      ...(channelId ? {channelId} : {}),
+    }),
+  getActiveCall: (roomId: string, channelId?: string) =>
+    api.get<ApiResponse<ChatCallItem | null>>(ApiPaths.chatRoomActiveCall(roomId), {
+      params: channelId ? {channelId} : undefined,
+    }),
+  joinCall: (roomId: string, callId: string) =>
+    api.post<ApiResponse<ChatCallItem>>(ApiPaths.chatRoomCallJoin(roomId, callId), {}),
+  leaveCall: (roomId: string, callId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomCallLeave(roomId, callId), {}),
+  endCall: (roomId: string, callId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomCallEnd(roomId, callId), {}),
+  signalCall: (
+    roomId: string,
+    callId: string,
+    body: {toUserId: string; messageType: 'OFFER' | 'ANSWER' | 'ICE'; payload: string},
+  ) => api.post<ApiResponse<void>>(ApiPaths.chatRoomCallSignal(roomId, callId), body),
   listPendingInvites: () =>
     api.get<ApiResponse<ChatInviteItem[]>>(ApiPaths.CHAT_INVITES_PENDING),
   invite: (roomId: string, identifier: string) =>
     api.post<ApiResponse<ChatInviteItem>>(ApiPaths.chatRoomInvites(roomId), {identifier}),
   respondInvite: (inviteId: string, accept: boolean) =>
     api.post<ApiResponse<ChatInviteItem>>(ApiPaths.chatInviteRespond(inviteId), {accept}),
-  listMessages: (roomId: string, page = 0, size = 50) =>
+  listMessages: (
+    roomId: string,
+    page = 0,
+    size = 50,
+    channelId?: string,
+    includeDeleted = false,
+  ) =>
     api.get<ApiResponse<ChatMessageItem[]>>(ApiPaths.chatRoomMessages(roomId), {
-      params: {page, size},
+      params: {
+        page,
+        size,
+        ...(channelId ? {channelId} : {}),
+        ...(includeDeleted ? {includeDeleted: true} : {}),
+      },
     }),
-  sendMessage: (roomId: string, body: string) =>
-    api.post<ApiResponse<ChatMessageItem>>(ApiPaths.chatRoomMessages(roomId), {body}),
+  sendMessage: (roomId: string, body: string, replyToMessageId?: string, channelId?: string) =>
+    api.post<ApiResponse<ChatMessageItem>>(ApiPaths.chatRoomMessages(roomId), {
+      body,
+      ...(replyToMessageId ? {replyToMessageId} : {}),
+      ...(channelId ? {channelId} : {}),
+    }),
+  deleteMessage: (roomId: string, messageId: string, scope: ChatMessageDeleteScope = 'FOR_ME') =>
+    api.delete<ApiResponse<void>>(ApiPaths.chatMessage(roomId, messageId), {params: {scope}}),
+  editMessage: (roomId: string, messageId: string, body: string) =>
+    api.patch<ApiResponse<ChatMessageItem>>(ApiPaths.chatMessage(roomId, messageId), {body}),
+  sendMediaMessage: (
+    roomId: string,
+    file: File,
+    caption?: string,
+    replyToMessageId?: string,
+    channelId?: string,
+  ) =>
+    postMultipart<ApiResponse<ChatMessageItem>>(
+      ApiPaths.chatRoomMediaMessages(roomId),
+      () => {
+        const form = new FormData();
+        form.append('file', file, file.name);
+        if (caption?.trim()) {
+          form.append('caption', caption.trim());
+        }
+        if (replyToMessageId) {
+          form.append('replyToMessageId', replyToMessageId);
+        }
+        if (channelId) {
+          form.append('channelId', channelId);
+        }
+        return form;
+      },
+    ),
+  viewOnceAttachment: (roomId: string, messageId: string) =>
+    api.post<ArrayBuffer>(ApiPaths.chatMessageAttachmentView(roomId, messageId), null, {
+      responseType: 'arraybuffer',
+    }),
+  markDelivered: (roomId: string, messageIds: string[]) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomDelivered(roomId), {messageIds}),
+  markRead: (roomId: string, lastMessageId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomRead(roomId), {lastMessageId}),
+  unlockDecrypt: (roomId: string, pin: string) =>
+    api.post<ApiResponse<{cryptoSalt: string}>>(ApiPaths.chatRoomDecryptUnlock(roomId), {pin}),
+  decryptStatus: () =>
+    api.get<ApiResponse<{configured: boolean; cryptoSalt?: string | null}>>(
+      ApiPaths.CHAT_DECRYPT_STATUS,
+    ),
+  createDecryptPin: (pin: string) =>
+    api.post<ApiResponse<{cryptoSalt: string}>>(ApiPaths.CHAT_DECRYPT_PIN, {pin}),
+  verifyDecryptPin: (pin: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.CHAT_DECRYPT_VERIFY, {pin}),
+  resetDecryptPin: (roomId: string, newPin: string) =>
+    api.post<ApiResponse<{cryptoSalt: string}>>(ApiPaths.chatRoomDecryptReset(roomId), {
+      newPin,
+    }),
+  notifyTyping: (roomId: string, typing: boolean) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatRoomTyping(roomId), {typing}),
+  markUnread: (roomId: string, messageId: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.chatMessageMarkUnread(roomId, messageId)),
+  setMessageReaction: (roomId: string, messageId: string, emoji: string) =>
+    api.put<ApiResponse<ChatMessageReactionSummary[]>>(
+      ApiPaths.chatMessageReactions(roomId, messageId),
+      {emoji},
+    ),
 };

@@ -34,7 +34,7 @@ import {streamStateTransition, resetStreamState} from '../utils/streamStateMachi
 import {getWebSocketClient} from '../services/websocketService';
 import {getIceConnectionState} from '../services/webrtcService';
 import {LiveStreamViewport} from '../components/liveMonitoring/LiveStreamViewport';
-import type {CameraFacing} from '../components/liveMonitoring/remoteControlCoords';
+import {cameraFacingFromStream, type CameraFacing} from '../components/liveMonitoring/remoteControlCoords';
 import {RemoteControlActionModals} from '../components/liveMonitoring/RemoteControlActionModals';
 import {PreSessionLauncher} from '../components/liveMonitoring/PreSessionLauncher';
 import {STREAM_COLORS} from '../components/liveMonitoring/layout';
@@ -91,6 +91,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   const [recordingIncludedAudio, setRecordingIncludedAudio] = useState(false);
   /** Child CameraX defaults to front; toggled when parent requests flip. */
   const [cameraFacing, setCameraFacing] = useState<CameraFacing>('user');
+  const [cameraFacingEpoch, setCameraFacingEpoch] = useState(0);
   const recordingSupported = isStreamRecordingSupported();
   const autoStartDone = useRef(false);
 
@@ -354,9 +355,9 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         setRemoteStream(null);
         setConnecting(true);
         track(TelemetryEvents.STREAM_START, {stream_type: type});
-        // Camera is video-only — keep remote audio muted (no child mic on camera).
-        setAudioMuted(true);
-        setRemoteAudioEnabled(false);
+        // Camera starts unmuted so parents hear the child mic immediately; Mute still works.
+        setAudioMuted(false);
+        setRemoteAudioEnabled(true);
         if (s.captureMode === 'NATIVE') setPinUnlocked(true);
         setTraceState('WEBRTC_CONNECT');
         traceLog('WebRTC', 'connectParentViewer', 'Connecting parent viewer', {
@@ -468,21 +469,26 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     slog('UI', 'flip camera clicked', {sessionId: session.sessionId});
     try {
       await monitoringApi.switchCamera(session.sessionId);
-      setCameraFacing(f => (f === 'user' ? 'environment' : 'user'));
+      const fromStream = cameraFacingFromStream(remoteStream);
+      if (fromStream) {
+        setCameraFacing(fromStream);
+      }
+      // Re-read track settings after the child lens rebinds (same track id).
+      setCameraFacingEpoch(n => n + 1);
       slog('UI', 'flip camera requested');
     } catch (err) {
       slog('UI', 'flip camera failed', String(err));
       appAlert('Error', 'Couldn’t switch camera. Please try again.');
     }
-  }, [session]);
+  }, [session, remoteStream]);
 
-  const [audioMuted, setAudioMuted] = useState(true);
+  const [audioMuted, setAudioMuted] = useState(false);
 
-  // Camera is video-only — keep remote audio disabled for the camera-only build.
-  useEffect(() => {
-    setAudioMuted(true);
-    setRemoteAudioEnabled(false);
-  }, []);
+  const toggleAudioMute = useCallback(() => {
+    const next = !audioMuted;
+    setAudioMuted(next);
+    setRemoteAudioEnabled(!next);
+  }, [audioMuted]);
 
   const toggleRecording = useCallback(async () => {
     if (!recordingSupported) {
@@ -619,6 +625,13 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
     wasEverLive,
   );
 
+  const guardedToggleAudioMute = useCallback(() => {
+    if (!isLive) {
+      return;
+    }
+    toggleAudioMute();
+  }, [isLive, toggleAudioMute]);
+
   // PiP camera during screen share needs a second concurrent session (not yet supported server-side).
   const pipStream: MediaStream | null = null;
 
@@ -639,8 +652,8 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           onBack={handleBack}
           onStop={stop}
           onSwitchCamera={streamType === 'CAMERA' ? switchCamera : undefined}
-          audioMuted={undefined}
-          onToggleAudioMute={undefined}
+          audioMuted={streamType !== 'AUDIO' ? audioMuted : undefined}
+          onToggleAudioMute={streamType !== 'AUDIO' ? guardedToggleAudioMute : undefined}
           onTogglePip={() => setPipVisible(v => !v)}
           remoteControlEnabled={remoteControlEnabled}
           onToggleRemoteControl={toggleRemoteControl}
@@ -660,6 +673,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           topInset={insets.top}
           bottomInset={insets.bottom}
           cameraFacing={streamType === 'CAMERA' ? cameraFacing : undefined}
+          cameraFacingEpoch={streamType === 'CAMERA' ? cameraFacingEpoch : undefined}
         />
       ) : (
         <PreSessionLauncher

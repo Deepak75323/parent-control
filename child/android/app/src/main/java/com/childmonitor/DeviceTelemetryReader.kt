@@ -2,7 +2,6 @@ package com.childmonitor
 
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
@@ -28,32 +27,55 @@ object DeviceTelemetryReader {
         )
     }
 
+    /**
+     * Prefer live [BatteryLevelMonitor] updates, then sticky [Intent.ACTION_BATTERY_CHANGED],
+     * then [BatteryManager.BATTERY_PROPERTY_CAPACITY]. Xiaomi/HyperOS often freezes CAPACITY
+     * (and sometimes the sticky snapshot) while live broadcasts still track the real level.
+     */
     private fun readBattery(context: Context): Pair<Int?, Boolean> {
+        BatteryLevelMonitor.start(context)
         val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-        var pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        if (pct !in 0..100) {
-            val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-            if (intent != null) {
-                val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1)
-                pct = ((level * 100f) / scale).toInt().coerceIn(0, 100)
-            } else {
-                pct = lastKnownBatteryLevel ?: -1
-            }
-        }
-        val charging = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            bm.isCharging
-        } else {
-            val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-            val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-            status == BatteryManager.BATTERY_STATUS_CHARGING
-                || status == BatteryManager.BATTERY_STATUS_FULL
-        }
-        val normalized = pct.takeIf { it in 0..100 }
+        val sticky = BatteryLevelMonitor.queryStickyBatteryIntent(context)
+        val livePercent = BatteryLevelMonitor.latestPercent()
+        val stickyPercent = percentFromBatteryIntent(sticky)
+        val capacityProperty = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        val normalized =
+            resolveBatteryPercent(livePercent, stickyPercent, capacityProperty, lastKnownBatteryLevel)
         if (normalized != null) {
             lastKnownBatteryLevel = normalized
         }
+
+        val charging = chargingFromSources(bm, sticky)
         return normalized to charging
+    }
+
+    internal fun percentFromBatteryIntent(intent: Intent?): Int? {
+        if (intent == null) return null
+        val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        if (level < 0 || scale <= 0) return null
+        return ((level * 100f) / scale).toInt().coerceIn(0, 100)
+    }
+
+    internal fun resolveBatteryPercent(
+        livePercent: Int?,
+        stickyPercent: Int?,
+        capacityProperty: Int,
+        lastKnown: Int?,
+    ): Int? {
+        livePercent?.takeIf { it in 0..100 }?.let { return it }
+        stickyPercent?.takeIf { it in 0..100 }?.let { return it }
+        if (capacityProperty in 0..100) return capacityProperty
+        return lastKnown?.takeIf { it in 0..100 }
+    }
+
+    private fun chargingFromSources(bm: BatteryManager, sticky: Intent?): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && bm.isCharging) {
+            return true
+        }
+        val status = sticky?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        return status == BatteryManager.BATTERY_STATUS_CHARGING
+            || status == BatteryManager.BATTERY_STATUS_FULL
     }
 
     private fun readNetworkType(context: Context): String {

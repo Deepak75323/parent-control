@@ -10,11 +10,10 @@ import org.webrtc.VideoTrack
 
 /**
  * Inserts a [RotatingVideoSink] between a [VideoTrack] and [WebRTCView]'s
- * [org.webrtc.SurfaceViewRenderer], rewriting [VideoFrame.rotation] so a portrait-held
- * child phone renders upright — matching the web portal.
+ * [org.webrtc.SurfaceViewRenderer], applying tilt correction to match the web portal.
  *
- * [WebRTCView] re-attaches its renderer directly to the track whenever the track is re-set,
- * which silently restores the uncorrected path, so the detach is re-asserted on every scan.
+ * Uses [SurfaceViewRenderer.setRotation] when available so mid-stream CVO changes take effect;
+ * frames are always delivered with rotation 0 so RTP metadata does not fight the renderer.
  */
 object CameraFrameSinkHijacker {
     private const val TAG = "CameraFrameSink"
@@ -30,27 +29,40 @@ object CameraFrameSinkHijacker {
         @Volatile var frontCamera: Boolean = true
         private var frameCount = 0
         private var lastLoggedCvo = Int.MIN_VALUE
+        private var lastAppliedRotation = Int.MIN_VALUE
+        private var delegateHasSetRotation = false
 
         override fun onFrame(frame: VideoFrame) {
             val w = frame.buffer.width
             val h = frame.buffer.height
             val computed =
-                CameraFrameRotation.rendererRotationDegrees(frame.rotation, manualRotationDeg)
+                CameraFrameRotation.rendererRotationDegrees(
+                    frame.rotation,
+                    manualRotationDeg,
+                    frontCamera,
+                )
             val override = rotationOverride()
             val outputRotation = override ?: computed
 
-            // A tilt can start and end between periodic samples, so log every orientation change.
             val cvoChanged = frame.rotation != lastLoggedCvo
             if (frameCount++ % LOG_EVERY_FRAMES == 0 || cvoChanged) {
                 lastLoggedCvo = frame.rotation
                 Log.i(
                     TAG,
                     "frame #$frameCount cvo=${frame.rotation} computed=$computed " +
-                        "override=$override -> renderer=$outputRotation buffer=${w}x$h",
+                        "override=$override -> renderer=$outputRotation buffer=${w}x$h " +
+                        "setRotation=$delegateHasSetRotation",
                 )
             }
 
-            if (outputRotation == frame.rotation) {
+            if (outputRotation != lastAppliedRotation) {
+                lastAppliedRotation = outputRotation
+                delegateHasSetRotation = applyDelegateRotation(delegate, outputRotation)
+            }
+
+            if (delegateHasSetRotation) {
+                delegate.onFrame(VideoFrame(frame.buffer, 0, frame.timestampNs))
+            } else if (outputRotation == frame.rotation) {
                 delegate.onFrame(frame)
             } else {
                 delegate.onFrame(VideoFrame(frame.buffer, outputRotation, frame.timestampNs))
@@ -68,6 +80,16 @@ object CameraFrameSinkHijacker {
 
     @Volatile private var cachedOverride: Int? = null
     @Volatile private var overrideCheckedAtMs = 0L
+
+    /** Returns true when [SurfaceViewRenderer.setRotation] was invoked successfully. */
+    private fun applyDelegateRotation(renderer: VideoSink, degrees: Int): Boolean =
+        try {
+            val method = renderer.javaClass.getMethod("setRotation", Int::class.javaPrimitiveType)
+            method.invoke(renderer, degrees)
+            true
+        } catch (_: Exception) {
+            false
+        }
 
     private fun rotationOverride(): Int? {
         if (!BuildConfig.DEBUG) {

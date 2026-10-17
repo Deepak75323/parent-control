@@ -5,15 +5,16 @@ function normalizeDegrees(degrees: number): ViewerRotateDeg {
 }
 
 /**
- * Rotation the parent viewer should apply to remote camera frames.
- *
- * The child captures through CameraX, whose Preview use case bakes the target rotation into
- * the output surface, so pixels arrive already upright. The frame's CVO tag (270 in portrait)
- * is redundant — applying it a second time tips the image on its side, which is exactly what
- * the parent app did before. Only the viewer's manual rotate is applied.
+ * Rotation the parent viewer should apply (iOS). Android uses CameraFrameRotation natively.
+ * Child bakes device tilt into CameraX pixels; CVO is always 0 for front camera.
  */
 export function cameraUprightRotateDeg(
+  _cvo: number = 0,
   manualRotate: ViewerRotateDeg = 0,
+  frontCamera = true,
 ): ViewerRotateDeg {
+  if (!frontCamera) {
+    return normalizeDegrees(_cvo + manualRotate);
+  }
   return normalizeDegrees(manualRotate);
 }

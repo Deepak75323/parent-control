@@ -29,12 +29,12 @@ const mockNative = nativeModules as unknown as {
   isDeviceAdminActive: jest.Mock;
 };
 
-describe('isSetupPermissionsComplete (camera-only, no mic)', () => {
+describe('isSetupPermissionsComplete (camera-with-sound)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockNative.requiresOemBackgroundSetup.mockResolvedValue(false);
     mockNative.isCameraGranted.mockResolvedValue(true);
-    mockNative.isMicGranted.mockResolvedValue(false);
+    mockNative.isMicGranted.mockResolvedValue(true);
     mockNative.isPostNotificationsGranted.mockResolvedValue(true);
     mockNative.isAccessibilityEnabled.mockResolvedValue(true);
     mockNative.isAccessibilityServiceConnected.mockResolvedValue(true);
@@ -44,9 +44,14 @@ describe('isSetupPermissionsComplete (camera-only, no mic)', () => {
     mockNative.isDeviceAdminActive.mockResolvedValue(true);
   });
 
-  it('is complete without microphone', async () => {
+  it('is complete when camera and microphone are granted', async () => {
     await expect(isSetupPermissionsComplete()).resolves.toBe(true);
-    expect(mockNative.isMicGranted).not.toHaveBeenCalled();
+    expect(mockNative.isMicGranted).toHaveBeenCalled();
+  });
+
+  it('is incomplete without microphone', async () => {
+    mockNative.isMicGranted.mockResolvedValue(false);
+    await expect(isSetupPermissionsComplete()).resolves.toBe(false);
   });
 
   it('is complete without notification permission', async () => {

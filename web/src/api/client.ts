@@ -14,7 +14,6 @@ const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.repla
 export const api = axios.create({
   baseURL: apiBase,
   timeout: 30000,
-  headers: {'Content-Type': 'application/json'},
 });
 
 type RetriableConfig = InternalAxiosRequestConfig & {_retry?: boolean};
@@ -62,13 +61,19 @@ api.interceptors.request.use(req => {
   if (token) {
     req.headers.Authorization = `Bearer ${token}`;
   }
+  const isFormData =
+    typeof FormData !== 'undefined' && req.data instanceof FormData;
+  if (!isFormData && req.data !== undefined && req.data !== null) {
+    req.headers.set('Content-Type', 'application/json');
+  }
   const method = (req.method ?? 'get').toUpperCase();
   if (
     isApiPayloadEncryptionConfigured() &&
     method !== 'GET' &&
     method !== 'HEAD' &&
     req.data !== undefined &&
-    req.data !== null
+    req.data !== null &&
+    !isFormData
   ) {
     const data = req.data;
     const alreadyWrapped =
@@ -110,4 +115,41 @@ api.interceptors.response.use(
 
 export function getApiBaseUrl(): string {
   return apiBase;
+}
+
+/** Multipart POST via fetch — axios mishandles FormData Content-Type. */
+export async function postMultipart<T>(
+  path: string,
+  buildForm: () => FormData,
+): Promise<{data: T}> {
+  const url = `${apiBase}${path}`;
+
+  const send = async (accessToken: string | null) => {
+    const headers: HeadersInit = {};
+    if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+    return fetch(url, {method: 'POST', headers, body: buildForm()});
+  };
+
+  let response = await send(useAuthStore.getState().accessToken);
+  if (response.status === 401) {
+    const refresh = await refreshAccessToken();
+    if (refresh.status !== 'ok') {
+      useAuthStore.getState().clear();
+      redirectToLogin();
+      throw new Error('Authentication required');
+    }
+    response = await send(refresh.accessToken);
+  }
+
+  const payload = unwrapResponseData(await response.json()) as T;
+  if (!response.ok) {
+    const error = new Error('Multipart upload failed') as Error & {
+      response?: {status: number; data: T};
+    };
+    error.response = {status: response.status, data: payload};
+    throw error;
+  }
+  return {data: payload};
 }

@@ -91,10 +91,8 @@ describe('remoteControlCoords', () => {
 });
 
 describe('resolveCameraObjectFit', () => {
-  it('always uses cover for Discord-style remote camera', () => {
-    expect(resolveCameraObjectFit('user', 1)).toBe('cover');
-    expect(resolveCameraObjectFit('environment', 1)).toBe('cover');
-    expect(resolveCameraObjectFit('user', 1.5)).toBe('cover');
-    expect(resolveCameraObjectFit('environment', 2)).toBe('cover');
+  it('uses contain so tilt rotation is not cropped away', () => {
+    expect(resolveCameraObjectFit('user', 1)).toBe('contain');
+    expect(resolveCameraObjectFit('environment', 1.5)).toBe('contain');
   });
 });

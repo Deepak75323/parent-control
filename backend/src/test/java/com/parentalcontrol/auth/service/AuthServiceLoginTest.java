@@ -115,6 +115,9 @@ class AuthServiceLoginTest {
 
     assertThat(response.getAccessToken()).isEqualTo("test-access-token");
     assertThat(response.getRefreshToken()).isEqualTo("test-refresh-token");
+    assertThat(response.getProfile()).isNotNull();
+    assertThat(response.getProfile().getId()).isEqualTo(profile.getId());
+    assertThat(response.getProfile().getUserId()).isEqualTo(user.getId());
   }
 
   @Test
@@ -188,9 +191,11 @@ class AuthServiceLoginTest {
     assertThatThrownBy(() -> authService.login(loginRequest(EMAIL, PASSWORD)))
         .isInstanceOf(BusinessException.class)
         .satisfies(
-            ex ->
-                assertThat(((BusinessException) ex).getErrorCode())
-                    .isEqualTo(ErrorCode.INVALID_CREDENTIALS));
+            ex -> {
+              BusinessException be = (BusinessException) ex;
+              assertThat(be.getErrorCode()).isEqualTo(ErrorCode.INVALID_CREDENTIALS);
+              assertThat(be.getMessage()).isEqualTo("Invalid email or password");
+            });
 
     verify(loginAttemptService).recordFailure(EMAIL);
     verify(loginAttemptService, never()).recordSuccess(any());

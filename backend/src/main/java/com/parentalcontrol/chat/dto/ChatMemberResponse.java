@@ -11,6 +11,9 @@ import lombok.Value;
 public class ChatMemberResponse {
   UUID userId;
   String label;
+  String nickname;
   ChatRoomMemberRole role;
   Instant joinedAt;
+  boolean muted;
+  boolean canDecrypt;
 }

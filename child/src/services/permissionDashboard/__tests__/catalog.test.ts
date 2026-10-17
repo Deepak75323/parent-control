@@ -31,7 +31,6 @@ describe('camera-only permission catalog', () => {
     expect(OPTIONAL_PERMISSION_IDS).toEqual(
       expect.arrayContaining([
         'location',
-        'microphone',
         'usageStats',
         'notificationAccess',
         'fullScreenIntent',
@@ -42,7 +41,7 @@ describe('camera-only permission catalog', () => {
     expect(OPTIONAL_PERMISSION_IDS).not.toContain('overlay');
   });
 
-  it('builds dashboard groups without location, usage, or screen share', () => {
+  it('builds dashboard groups with camera and microphone', () => {
     const groups = buildPermissionGroups(true);
     const ids = groups.flatMap(g => g.permissionIds);
     expect(ids).toEqual(
@@ -55,7 +54,6 @@ describe('camera-only permission catalog', () => {
         'deviceAdmin',
       ]),
     );
-    expect(ids).not.toContain('microphone');
     expect(ids).not.toContain('location');
     expect(ids).not.toContain('screenCapture');
     expect(ids).not.toContain('usageStats');

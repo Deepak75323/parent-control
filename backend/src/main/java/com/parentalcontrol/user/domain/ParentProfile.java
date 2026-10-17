@@ -50,6 +50,18 @@ public class ParentProfile extends BaseEntity {
   @Column(name = "family_handle", length = 32)
   private String familyHandle;
 
+  /** When false, this parent neither sends nor receives green read ticks (WhatsApp-style). */
+  @Column(name = "read_receipts_enabled", nullable = false)
+  @Builder.Default
+  private boolean readReceiptsEnabled = true;
+
+  /**
+   * When false, this parent does not share Online / Last seen with 2-person chat partners.
+   */
+  @Column(name = "share_presence_enabled", nullable = false)
+  @Builder.Default
+  private boolean sharePresenceEnabled = true;
+
   public UUID getUserId() {
     return user != null ? user.getId() : null;
   }

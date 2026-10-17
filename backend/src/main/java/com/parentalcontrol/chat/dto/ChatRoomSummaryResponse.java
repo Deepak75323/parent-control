@@ -1,6 +1,8 @@
 package com.parentalcontrol.chat.dto;
 
+import com.parentalcontrol.chat.domain.ChatRoomMemberRole;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Value;
@@ -12,7 +14,27 @@ public class ChatRoomSummaryResponse {
   String name;
   UUID ownerUserId;
   boolean owner;
+  /** Current viewer's membership role in this room. */
+  ChatRoomMemberRole myRole;
+  /** Current viewer cannot send when true. */
+  boolean muted;
+  /** Current viewer may unlock decrypt (owners always true). */
+  boolean canDecrypt;
   int memberCount;
+  /** Friend DM (not a 2-person server like Notes). */
+  boolean directMessage;
+  /**
+   * Owner shares the Members roster with other members. Non-owners see older help UI when false.
+   */
+  boolean membersPanelShared;
   Instant createdAt;
   Instant updatedAt;
+  /** Per-member: local clear-chat timestamp (messages before this are hidden for this user). */
+  Instant chatClearedAt;
+  /** WhatsApp-style read cursor for this member in the room. */
+  UUID lastReadMessageId;
+  /** Incoming messages after {@link #lastReadMessageId} (excludes own). */
+  int unreadCount;
+  /** Text and voice channels in this server (room). */
+  List<ChatChannelResponse> channels;
 }

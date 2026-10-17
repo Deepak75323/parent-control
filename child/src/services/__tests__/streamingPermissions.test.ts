@@ -34,20 +34,23 @@ describe('ensurePermissionsForStream CAMERA', () => {
     jest.clearAllMocks();
   });
 
-  it('requires camera only — not microphone', async () => {
+  it('requires camera and microphone', async () => {
     mockNative.isCameraGranted.mockResolvedValue(true);
-    mockNative.isMicGranted.mockResolvedValue(false);
+    mockNative.isMicGranted.mockResolvedValue(true);
     await expect(ensurePermissionsForStream('CAMERA')).resolves.toBeUndefined();
-    expect(mockNative.isMicGranted).not.toHaveBeenCalled();
+    expect(mockNative.isMicGranted).toHaveBeenCalled();
     expect(mockNative.requestCameraAndMicPermissions).not.toHaveBeenCalled();
   });
 
-  it('requests camera permission when missing', async () => {
+  it('requests camera and mic when either is missing', async () => {
     mockNative.isCameraGranted
+      .mockResolvedValueOnce(true)
+      .mockResolvedValue(true);
+    mockNative.isMicGranted
       .mockResolvedValueOnce(false)
       .mockResolvedValue(true);
-    mockNative.requestCameraPermission.mockResolvedValue(true);
+    mockNative.requestCameraAndMicPermissions.mockResolvedValue(true);
     await expect(ensurePermissionsForStream('CAMERA')).resolves.toBeUndefined();
-    expect(mockNative.requestCameraPermission).toHaveBeenCalled();
+    expect(mockNative.requestCameraAndMicPermissions).toHaveBeenCalled();
   });
 });

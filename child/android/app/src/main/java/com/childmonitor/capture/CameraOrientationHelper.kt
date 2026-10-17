@@ -5,12 +5,8 @@ import android.view.Surface
 /**
  * Single source of truth for remote-camera orientation on the child device.
  *
- * Stream policy: portrait-upright is locked while the phone is held normally.
- * CVO only changes when the display rotates to landscape (horizontal tilt with
- * auto-rotate) — not on table props, pick-up motion, or accelerometer jitter.
- * Manual viewer rotate is handled on the parent/web UI.
- *
- * CVO matches [org.webrtc.Camera2Session]. Mirroring is a separate viewer concern.
+ * Stream policy: portrait-upright while held normally; CVO changes on horizontal tilt.
+ * CameraX stays at ROTATION_0 — orientation is sent via WebRTC CVO (MIUI-safe).
  */
 object CameraOrientationHelper {
 
