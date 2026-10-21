@@ -201,6 +201,22 @@ public final class MessageConstants {
 
   public static final String PARENT_PIN_REQUIRED_FOR = "Parent PIN required for ";
 
+  public static final String DELETED_MESSAGES_PIN_NOT_SET =
+      "Deleted messages PIN is not set. Open Settings to create one.";
+
+  public static final String DELETED_MESSAGES_PIN_INVALID = "Invalid deleted messages PIN";
+
+  public static final String DELETED_MESSAGES_PIN_ALREADY_SET =
+      "Deleted messages PIN is already set. Enter the current PIN to change it.";
+
+  public static final String DELETED_MESSAGES_PIN_MISMATCH = "New PIN and confirmation do not match";
+
+  public static final String DELETED_MESSAGES_PIN_MUST_BE_DIGITS =
+      "Deleted messages PIN must be 4–8 digits";
+
+  public static final String DELETED_MESSAGES_PIN_REQUIRED =
+      "Enter your deleted messages PIN to review deleted notes";
+
   public static final String PARENT_ACCOUNT_NOT_FOUND = "Parent account not found";
 
   public static final String

@@ -3,6 +3,7 @@ import type {FormEvent} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {
   authApi,
+  deletedMessagesPinApi,
   familyHandleApi,
   parentPinApi,
   readReceiptsApi,
@@ -12,6 +13,7 @@ import {useAuthStore} from '../auth/authStore';
 import {useLogout} from '../auth/useLogout';
 import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {chatDisplayNickname} from '../lib/chatDisplayNickname';
+import {validateDeletedMessagesPinForm} from '../lib/deletedMessagesPin';
 import {FingerprintSettingsCard} from '../components/ParentWebAuthnSetup';
 import {disconnectWebSocket} from '../realtime/websocket';
 import {useRealtimeStore} from '../realtime/realtimeStore';
@@ -30,6 +32,12 @@ export function SettingsPage() {
   const [pinConfigured, setPinConfigured] = useState(false);
   const [pin, setPin] = useState('');
   const [pinMsg, setPinMsg] = useState<string | null>(null);
+  const [deletedPinConfigured, setDeletedPinConfigured] = useState(false);
+  const [deletedPinForgot, setDeletedPinForgot] = useState(false);
+  const [deletedCurrentPin, setDeletedCurrentPin] = useState('');
+  const [deletedPin, setDeletedPin] = useState('');
+  const [deletedConfirmPin, setDeletedConfirmPin] = useState('');
+  const [deletedPinMsg, setDeletedPinMsg] = useState<string | null>(null);
   const [handle, setHandle] = useState('');
   const [handleStatus, setHandleStatus] = useState<string | null>(null);
   const [readReceiptsEnabled, setReadReceiptsEnabled] = useState(true);
@@ -44,13 +52,15 @@ export function SettingsPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [pinRes, handleRes, receiptsRes, presenceRes] = await Promise.all([
+      const [pinRes, deletedPinRes, handleRes, receiptsRes, presenceRes] = await Promise.all([
         parentPinApi.status(),
+        deletedMessagesPinApi.status(),
         familyHandleApi.status(),
         readReceiptsApi.status(),
         sharePresenceApi.status(),
       ]);
       setPinConfigured(Boolean(pinRes.data.data?.pinConfigured));
+      setDeletedPinConfigured(Boolean(deletedPinRes.data.data?.pinConfigured));
       setHandle(handleRes.data.data?.familyHandle ?? '');
       setHandleStatus(
         handleRes.data.data?.configured
@@ -99,6 +109,65 @@ export function SettingsPage() {
       setPinMsg(data.data?.verified ? 'PIN verified' : 'Incorrect PIN');
     } catch {
       setPinMsg('Verify failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onSaveDeletedMessagesPin = async (e: FormEvent) => {
+    e.preventDefault();
+    const mode = deletedPinForgot ? 'reset' : deletedPinConfigured ? 'change' : 'create';
+    const validation = validateDeletedMessagesPinForm(mode, {
+      currentPin: deletedCurrentPin,
+      pin: deletedPin,
+      confirmPin: deletedConfirmPin,
+    });
+    if (validation) {
+      setDeletedPinMsg(validation);
+      return;
+    }
+    if (mode === 'reset') {
+      const ok = await confirm({
+        title: 'Reset deleted messages PIN?',
+        message:
+          'This permanently clears deleted note history in notebooks you own, then sets your new PIN. This cannot be undone.',
+        confirmLabel: 'Clear history and reset PIN',
+        danger: true,
+      });
+      if (!ok) {
+        return;
+      }
+    }
+    setBusy(true);
+    setDeletedPinMsg(null);
+    try {
+      if (mode === 'create') {
+        await deletedMessagesPinApi.create(deletedPin.trim(), deletedConfirmPin.trim());
+        setDeletedPinMsg('Deleted messages PIN saved');
+      } else if (mode === 'change') {
+        await deletedMessagesPinApi.change(
+          deletedCurrentPin.trim(),
+          deletedPin.trim(),
+          deletedConfirmPin.trim(),
+        );
+        setDeletedPinMsg('Deleted messages PIN updated');
+      } else {
+        await deletedMessagesPinApi.reset(deletedPin.trim(), deletedConfirmPin.trim());
+        setDeletedPinMsg('PIN reset after clearing deleted history');
+        setDeletedPinForgot(false);
+      }
+      setDeletedPinConfigured(true);
+      setDeletedCurrentPin('');
+      setDeletedPin('');
+      setDeletedConfirmPin('');
+    } catch {
+      setDeletedPinMsg(
+        mode === 'change'
+          ? 'Could not change PIN — check the current PIN'
+          : mode === 'reset'
+            ? 'Could not reset PIN'
+            : 'Could not save PIN',
+      );
     } finally {
       setBusy(false);
     }
@@ -258,6 +327,79 @@ export function SettingsPage() {
             </button>
           </div>
           {pinMsg ? <p className="muted">{pinMsg}</p> : null}
+        </form>
+      </div>
+
+      <div className="card">
+        <h2>Deleted messages PIN</h2>
+        <p className="muted">
+          {deletedPinConfigured
+            ? deletedPinForgot
+              ? 'Forgot PIN clears deleted note history in notebooks you own, then lets you set a new PIN.'
+              : 'Required to review deleted notes as a notebook owner. Enter the current PIN to change it.'
+            : 'Create a PIN before you can review deleted notes. First time: new PIN and confirm.'}
+        </p>
+        <form className="form-row" onSubmit={e => void onSaveDeletedMessagesPin(e)}>
+          {deletedPinConfigured && !deletedPinForgot ? (
+            <label>
+              Current PIN
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                value={deletedCurrentPin}
+                onChange={e => setDeletedCurrentPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                maxLength={8}
+              />
+            </label>
+          ) : null}
+          <label>
+            {deletedPinConfigured ? 'New PIN (4–8 digits)' : 'PIN (4–8 digits)'}
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              value={deletedPin}
+              onChange={e => setDeletedPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+              maxLength={8}
+            />
+          </label>
+          <label>
+            Confirm PIN
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              value={deletedConfirmPin}
+              onChange={e => setDeletedConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+              maxLength={8}
+            />
+          </label>
+          <div className="btn-row">
+            <button type="submit" className="btn primary" disabled={busy}>
+              {deletedPinForgot
+                ? 'Clear history and reset PIN'
+                : deletedPinConfigured
+                  ? 'Change PIN'
+                  : 'Set PIN'}
+            </button>
+            {deletedPinConfigured ? (
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={busy}
+                onClick={() => {
+                  setDeletedPinForgot(forgot => !forgot);
+                  setDeletedPinMsg(null);
+                  setDeletedCurrentPin('');
+                  setDeletedPin('');
+                  setDeletedConfirmPin('');
+                }}>
+                {deletedPinForgot ? 'Cancel forgot' : 'Forgot PIN'}
+              </button>
+            ) : null}
+          </div>
+          {deletedPinMsg ? <p className="muted">{deletedPinMsg}</p> : null}
         </form>
       </div>
 

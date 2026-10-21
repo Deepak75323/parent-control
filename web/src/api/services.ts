@@ -142,6 +142,28 @@ export const parentPinApi = {
     ),
 };
 
+export type DeletedMessagesPinStatus = {
+  pinConfigured: boolean;
+  unlocked: boolean;
+  verified?: boolean;
+};
+
+export const deletedMessagesPinApi = {
+  status: () =>
+    api.get<ApiResponse<DeletedMessagesPinStatus>>(ApiPaths.PARENT_DELETED_MESSAGES_PIN_STATUS),
+  create: (pin: string, confirmPin: string) =>
+    api.post(ApiPaths.PARENT_DELETED_MESSAGES_PIN, {pin, confirmPin}),
+  change: (currentPin: string, pin: string, confirmPin: string) =>
+    api.put(ApiPaths.PARENT_DELETED_MESSAGES_PIN, {currentPin, pin, confirmPin}),
+  verify: (pin: string) =>
+    api.post<ApiResponse<DeletedMessagesPinStatus>>(ApiPaths.PARENT_DELETED_MESSAGES_PIN_VERIFY, {
+      pin,
+    }),
+  lock: () => api.post(ApiPaths.PARENT_DELETED_MESSAGES_PIN_LOCK),
+  reset: (pin: string, confirmPin: string) =>
+    api.post(ApiPaths.PARENT_DELETED_MESSAGES_PIN_RESET, {pin, confirmPin}),
+};
+
 export const familyHandleApi = {
   setHandle: (familyHandle: string) =>
     api.post<ApiResponse<{configured: boolean; familyHandle: string | null}>>(
