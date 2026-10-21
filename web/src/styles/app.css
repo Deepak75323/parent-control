@@ -6129,6 +6129,38 @@ body.chat-resizing * {
   overflow: hidden;
 }
 
+.chat-compose-preview--multi {
+  flex-wrap: wrap;
+  max-height: none;
+  overflow: visible;
+  gap: 0.5rem 0.75rem;
+}
+
+.chat-compose-preview-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.chat-compose-preview-item {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.chat-compose-preview-item .chat-compose-preview-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  background: var(--gp-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
 .chat-compose-footer {
   display: flex;
   flex-direction: column;
@@ -7491,6 +7523,12 @@ body.stream-pip-dragging * {
 
 .stream-pip-controls {
   margin: 0;
+}
+
+.stream-recording-active {
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.45);
+  background: rgba(254, 226, 226, 0.9);
 }
 
 @media (max-width: 760px) {
