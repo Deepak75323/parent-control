@@ -68,7 +68,7 @@ object BalSafeActivityLauncher {
             PcpFlowLogger.log(
                 PcpFlowLogger.Category.SCREEN_SHARE_FLOW,
                 "$tag accessibility launch",
-                "oem=${OemVendor.detect().id} trust=${!oemDropsBal}",
+                "oem=${OemVendor.detect().id} trust=${!oemDrops}",
             )
             // On Xiaomi/OPPO, a11y startActivity() often returns without error but never
             // brings the activity up — always also post FSI so camera bootstrap can proceed.

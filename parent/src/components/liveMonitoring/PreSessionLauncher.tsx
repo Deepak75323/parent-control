@@ -1,11 +1,10 @@
 import React from 'react';
-import {View, Text, StyleSheet, Pressable, ActivityIndicator} from 'react-native';
+import {View, Text, StyleSheet, Pressable, ActivityIndicator, TextInput} from 'react-native';
 import {STREAM_COLORS} from './layout';
 
 type Props = {
   deviceName: string;
   loading: boolean;
-  /** Set when auto-start / retry failed so user can try again */
   errorMessage?: string | null;
   needsPin: boolean;
   pinInput: string;
@@ -20,19 +19,22 @@ type Props = {
   accessibilityEnabled?: boolean;
 };
 
-/**
- * Camera-only branch: no Screen/Audio chooser.
- * Spinner while connecting; Start/Retry when idle or after failure.
- */
 export function PreSessionLauncher({
   deviceName,
   loading,
   errorMessage,
+  needsPin,
+  pinInput,
+  onPinChange,
   onStart,
   onBack,
   topInset,
   bottomInset,
+  screenShareCapable,
+  screenShareBlockedReason,
+  accessibilityEnabled = true,
 }: Props) {
+  const needsChildSetup = accessibilityEnabled === false;
   return (
     <View style={styles.root}>
       <View style={[styles.top, {paddingTop: topInset + 8}]}>
@@ -46,33 +48,77 @@ export function PreSessionLauncher({
       </View>
 
       <View style={styles.center}>
-        {loading ? (
-          <>
-            <ActivityIndicator size="large" color={STREAM_COLORS.accent} />
-            <Text style={styles.hint}>Connecting to camera…</Text>
-            <Text style={styles.subHint}>Keep Clock Time open on the child phone</Text>
-          </>
-        ) : errorMessage ? (
-          <>
-            <Text style={styles.errorTitle}>Couldn’t start camera</Text>
-            <Text style={styles.errorBody}>{errorMessage}</Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.hint}>Live Camera</Text>
-            <Text style={styles.subHint}>Tap below to view the child phone camera</Text>
-          </>
-        )}
+        <Text style={styles.hint}>Choose what to monitor</Text>
+        {errorMessage ? <Text style={styles.blockedHint}>{errorMessage}</Text> : null}
+        {needsChildSetup && screenShareBlockedReason ? (
+          <Text style={styles.blockedHint}>{screenShareBlockedReason}</Text>
+        ) : null}
+        {needsPin ? (
+          <View style={styles.pinRow}>
+            <TextInput
+              style={styles.pinInput}
+              value={pinInput}
+              onChangeText={onPinChange}
+              placeholder="Parent password"
+              placeholderTextColor={STREAM_COLORS.textMuted}
+              secureTextEntry
+              keyboardType="number-pad"
+              maxLength={8}
+            />
+          </View>
+        ) : null}
       </View>
 
       <View style={[styles.actions, {paddingBottom: bottomInset + 16}]}>
-        {!loading ? (
-          <Pressable style={styles.retryBtn} onPress={() => onStart('CAMERA')}>
-            <Text style={styles.retryLabel}>{errorMessage ? 'Try again' : 'Start camera'}</Text>
-          </Pressable>
-        ) : null}
+        <LauncherBtn
+          icon="📺"
+          label="Screen"
+          onPress={() => onStart('SCREEN')}
+          disabled={loading}
+          subtitle={needsChildSetup ? 'May ask on child phone' : undefined}
+        />
+        <LauncherBtn
+          icon="📷"
+          label="Camera"
+          onPress={() => onStart('CAMERA')}
+          disabled={loading}
+        />
+        <LauncherBtn
+          icon="🎙️"
+          label="Audio"
+          onPress={() => onStart('AUDIO')}
+          disabled={loading}
+        />
+        {loading ? <ActivityIndicator color={STREAM_COLORS.accent} style={{marginTop: 12}} /> : null}
       </View>
     </View>
+  );
+}
+
+function LauncherBtn({
+  icon,
+  label,
+  onPress,
+  disabled,
+  subtitle,
+}: {
+  icon: string;
+  label: string;
+  onPress: () => void;
+  disabled: boolean;
+  subtitle?: string;
+}) {
+  return (
+    <Pressable
+      style={[styles.launchBtn, disabled && styles.launchBtnDisabled]}
+      onPress={onPress}
+      disabled={disabled}>
+      <Text style={styles.launchIcon}>{icon}</Text>
+      <View style={styles.launchTextCol}>
+        <Text style={[styles.launchLabel, disabled && styles.launchLabelDisabled]}>{label}</Text>
+        {subtitle ? <Text style={styles.launchSubtitle}>{subtitle}</Text> : null}
+      </View>
+    </Pressable>
   );
 }
 
@@ -109,48 +155,67 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 28,
-    gap: 12,
+    paddingHorizontal: 24,
   },
   hint: {
-    color: STREAM_COLORS.text,
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 8,
-  },
-  subHint: {
     color: STREAM_COLORS.textMuted,
-    fontSize: 13,
-    textAlign: 'center',
+    fontSize: 15,
   },
-  errorTitle: {
-    color: STREAM_COLORS.text,
-    fontSize: 17,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  errorBody: {
+  blockedHint: {
+    marginTop: 12,
     color: STREAM_COLORS.textMuted,
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
   },
+  pinRow: {
+    marginTop: 16,
+    width: '100%',
+    maxWidth: 220,
+  },
+  pinInput: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: STREAM_COLORS.text,
+    fontSize: 16,
+    textAlign: 'center',
+  },
   actions: {
     paddingHorizontal: 20,
     gap: 10,
   },
-  retryBtn: {
+  launchBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(56, 189, 248, 0.28)',
+    gap: 10,
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 14,
     paddingVertical: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.55)',
+    paddingHorizontal: 16,
   },
-  retryLabel: {
+  launchBtnDisabled: {
+    opacity: 0.5,
+  },
+  launchIcon: {
+    fontSize: 22,
+  },
+  launchLabel: {
     color: STREAM_COLORS.text,
     fontSize: 16,
     fontWeight: '600',
+  },
+  launchLabelDisabled: {
+    color: STREAM_COLORS.textMuted,
+  },
+  launchTextCol: {
+    alignItems: 'flex-start',
+  },
+  launchSubtitle: {
+    color: STREAM_COLORS.textMuted,
+    fontSize: 12,
+    marginTop: 2,
   },
 });

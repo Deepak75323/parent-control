@@ -249,7 +249,6 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   );
 
   const openRemoteView = (initialStream?: 'SCREEN' | 'CAMERA' | 'AUDIO') => {
-    // Camera-only build: always open Live Monitoring on CAMERA.
     navigation.navigate('LiveMonitoring', {
       deviceId,
       initialStream: initialStream ?? 'CAMERA',
@@ -477,16 +476,30 @@ export function DeviceDetailScreen({navigation, route}: Props) {
               </View>
             ) : null}
 
-            {/* Live view — camera only on this branch */}
+            {/* Live view — screen, camera, or one-way listen */}
             <View style={sc.section}>
               <Text style={sc.sectionTitle}>Live View</Text>
               <View style={sc.liveTilesRow}>
                 <Pressable
-                  style={[sc.liveTile, sc.liveTileCamera, {flex: 1}]}
+                  style={[sc.liveTile, sc.liveTileScreen]}
+                  onPress={() => openRemoteView('SCREEN')}>
+                  <Text style={sc.liveTileIcon}>📺</Text>
+                  <Text style={sc.liveTileLabel}>Screen</Text>
+                  <Text style={sc.liveTileSub}>Remote view</Text>
+                </Pressable>
+                <Pressable
+                  style={[sc.liveTile, sc.liveTileCamera]}
                   onPress={() => openRemoteView('CAMERA')}>
                   <Text style={sc.liveTileIcon}>📷</Text>
                   <Text style={sc.liveTileLabelOnDark}>Camera</Text>
                   <Text style={sc.liveTileSubOnDark}>Remote view</Text>
+                </Pressable>
+                <Pressable
+                  style={[sc.liveTile, sc.liveTileAudio]}
+                  onPress={() => openRemoteView('AUDIO')}>
+                  <Text style={sc.liveTileIcon}>🎧</Text>
+                  <Text style={sc.liveTileLabelOnDark}>Audio</Text>
+                  <Text style={sc.liveTileSubOnDark}>One-way listen</Text>
                 </Pressable>
               </View>
             </View>

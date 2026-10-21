@@ -11,6 +11,12 @@ import {clampViewerPinchScale, type ViewerRotateDeg} from '../lib/viewerVideoRot
 import type {WebCameraFacing} from '../lib/cameraViewerLayout';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {
+  discardLocalStreamRecording,
+  isLocalStreamRecordingSupported,
+  startLocalStreamRecording,
+  stopLocalStreamRecordingAndDownload,
+} from '../lib/streamLocalRecording';
+import {
   largePipSize,
   pipSizeForAspect,
   pipVideoAspect,
@@ -43,6 +49,9 @@ interface LiveStreamState {
   pipSize: {width: number; bodyHeight: number};
   /** Browser picture-in-picture window is showing the child live view. */
   browserPipActive: boolean;
+  /** Local MediaRecorder capture for download on this device. */
+  recording: boolean;
+  recordingSupported: boolean;
   hydratePinStatus: () => Promise<void>;
   setStreamType: (streamType: StreamType) => void;
   setPin: (pin: string) => void;
@@ -64,6 +73,7 @@ interface LiveStreamState {
   stop: () => Promise<void>;
   flipCamera: () => Promise<void>;
   toggleMute: () => void;
+  toggleRecording: () => Promise<void>;
   releaseFromTakeover: () => void;
   reset: () => void;
 }
@@ -93,6 +103,8 @@ const initialState = {
   pipPosition: null as {x: number; y: number} | null,
   pipSize: {width: 320, bodyHeight: 180},
   browserPipActive: false,
+  recording: false,
+  recordingSupported: isLocalStreamRecordingSupported(),
 };
 
 export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
@@ -162,6 +174,7 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
     if (busy) {
       return;
     }
+    discardLocalStreamRecording();
     set({
       busy: true,
       error: null,
@@ -177,6 +190,7 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
       cameraFacing: 'user',
       pipMinimized: false,
       browserPipActive: false,
+      recording: false,
     });
     useRealtimeStore.getState().setStreamingState(undefined);
     try {
@@ -232,6 +246,7 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
     }
     set({busy: true});
     try {
+      discardLocalStreamRecording();
       if (sessionId) {
         await monitoringApi.stopScreenShare(sessionId).catch(() => undefined);
       }
@@ -241,6 +256,7 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
         ...initialState,
         pinNeeded: get().pinNeeded,
         streamType: get().streamType,
+        recordingSupported: isLocalStreamRecordingSupported(),
       });
     } finally {
       set({busy: false});
@@ -269,13 +285,56 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
     setRemoteAudioEnabled(!muted);
   },
 
+  toggleRecording: async () => {
+    const {recording, remoteStream, streamType, sessionId} = get();
+    if (!isLocalStreamRecordingSupported()) {
+      set({error: 'This browser cannot record live video.'});
+      return;
+    }
+    if (!sessionId || !remoteStream) {
+      set({error: 'Wait until the stream is live before recording.'});
+      return;
+    }
+    if (recording) {
+      try {
+        const result = await stopLocalStreamRecordingAndDownload();
+        set({
+          recording: false,
+          status: result.includedAudio
+            ? `Saved ${result.filename} (video + sound)`
+            : `Saved ${result.filename}`,
+          error: null,
+        });
+      } catch (err: unknown) {
+        discardLocalStreamRecording();
+        set({
+          recording: false,
+          error: err instanceof Error ? err.message : 'Could not save the recording.',
+        });
+      }
+      return;
+    }
+    try {
+      startLocalStreamRecording(remoteStream, streamType);
+      set({recording: true, error: null, status: 'Recording…'});
+    } catch (err: unknown) {
+      discardLocalStreamRecording();
+      set({
+        recording: false,
+        error: err instanceof Error ? err.message : 'Could not start recording.',
+      });
+    }
+  },
+
   releaseFromTakeover: () => {
+    discardLocalStreamRecording();
     void disconnectBrowserViewer();
     roomIdRef = null;
     set({
       sessionId: null,
       remoteStream: null,
       busy: false,
+      recording: false,
       viewRotate: 0,
       viewZoomScale: 1,
       viewPanX: 0,
@@ -288,8 +347,13 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
   },
 
   reset: () => {
+    discardLocalStreamRecording();
     roomIdRef = null;
-    set({...initialState, pinNeeded: get().pinNeeded});
+    set({
+      ...initialState,
+      pinNeeded: get().pinNeeded,
+      recordingSupported: isLocalStreamRecordingSupported(),
+    });
   },
 }));
 

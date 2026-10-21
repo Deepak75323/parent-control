@@ -3,6 +3,7 @@ import {
   RTCSessionDescription,
   RTCIceCandidate,
   MediaStream,
+  MediaStreamTrack,
 } from 'react-native-webrtc';
 import {monitoringApi, signalingApi} from './api';
 import {slog, flowLog} from './streamDebug';
@@ -741,10 +742,39 @@ export function getVideoTrackRecordingInfo(): {
   return {peerConnectionId, trackId: video.id};
 }
 
-/** True when the remote stream has a live, enabled audio track (parent hears sound). */
+/**
+ * True when the remote stream has a live audio track that can be muxed into the recording.
+ * Tracks may be temporarily disabled for speaker mute — still recordable once re-enabled.
+ */
 export function isRemoteAudioEnabledForRecording(): boolean {
   if (!remoteStream) return false;
-  return remoteStream.getAudioTracks().some(t => t.enabled && t.readyState === 'live');
+  return remoteStream.getAudioTracks().some(t => t.readyState === 'live');
+}
+
+/** Enable live remote audio tracks for the duration of a local recording (speakers may unmute). */
+export function enableRemoteAudioTracksForRecording(): Array<{track: MediaStreamTrack; enabled: boolean}> {
+  if (!remoteStream) {
+    return [];
+  }
+  return remoteStream.getAudioTracks().map(track => {
+    const enabled = track.enabled;
+    if (track.readyState === 'live') {
+      track.enabled = true;
+    }
+    return {track, enabled};
+  });
+}
+
+export function restoreRemoteAudioTrackEnabled(
+  snapshots: Array<{track: MediaStreamTrack; enabled: boolean}>,
+): void {
+  for (const snap of snapshots) {
+    try {
+      snap.track.enabled = snap.enabled;
+    } catch {
+      /* track may already be ended */
+    }
+  }
 }
 
 export function getIceConnectionState(): string | null {

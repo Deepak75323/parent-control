@@ -122,11 +122,6 @@ class StreamBootstrapActivity : Activity() {
         super.onStop()
     }
 
-    override fun onStop() {
-        AppForegroundState.onActivityHidden()
-        super.onStop()
-    }
-
     private fun startStreamAfterFgs(kind: StreamKind, intent: Intent) {
         val roomId = intent.getStringExtra(EXTRA_ROOM_ID).orEmpty()
         val sessionId = intent.getStringExtra(EXTRA_SESSION_ID).orEmpty()
