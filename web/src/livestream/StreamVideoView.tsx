@@ -415,6 +415,9 @@ export function StreamControls({
   const stop = useLiveStreamStore(s => s.stop);
   const flipCamera = useLiveStreamStore(s => s.flipCamera);
   const toggleMute = useLiveStreamStore(s => s.toggleMute);
+  const recording = useLiveStreamStore(s => s.recording);
+  const recordingSupported = useLiveStreamStore(s => s.recordingSupported);
+  const toggleRecording = useLiveStreamStore(s => s.toggleRecording);
 
   const showLayout = compact && !layoutInToolbar;
   const showRotate = streamType !== 'AUDIO' && ENABLE_VIEWER_ROTATE;
@@ -437,6 +440,20 @@ export function StreamControls({
       <button type="button" className="btn ghost sm" onClick={toggleMute}>
         {muted ? 'Unmute' : 'Mute'}
       </button>
+      {recordingSupported ? (
+        <button
+          type="button"
+          className={`btn ghost sm${recording ? ' stream-recording-active' : ''}`}
+          disabled={busy}
+          onClick={() => void toggleRecording()}
+          title={
+            recording
+              ? 'Stop and download the recording to this device'
+              : 'Record live video and sound, then download to this device'
+          }>
+          {recording ? '⏹ Save' : '⏺ Rec'}
+        </button>
+      ) : null}
       {!compact ? (
         <button type="button" className="btn ghost sm" onClick={toggleVideoFullscreen}>
           Full screen
@@ -544,7 +561,7 @@ export function StreamTypePicker({disabled}: {disabled?: boolean}) {
           className={`btn ${streamType === t ? 'primary' : 'ghost'}`}
           disabled={disabled}
           onClick={() => setStreamType(t)}>
-          {t === 'SCREEN' ? 'Screen' : t === 'CAMERA' ? 'Camera' : 'Audio'}
+          {t === 'SCREEN' ? 'Screen' : t === 'CAMERA' ? 'Camera' : 'Audio (listen)'}
         </button>
       ))}
     </div>

@@ -1,17 +1,19 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {AlertButton, StatusBar, StyleSheet, View} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {MediaStream} from 'react-native-webrtc';
+import {MediaStream, MediaStreamTrack} from 'react-native-webrtc';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {deviceApi, monitoringApi, parentPinApi, ScreenShareSession} from '../services/api';
 import {
   connectParentViewer,
   disconnectViewer,
+  enableRemoteAudioTracksForRecording,
   getVideoTrackRecordingInfo,
   isRemoteAudioEnabledForRecording,
   reconnectParentViewer,
   registerStreamListeners,
+  restoreRemoteAudioTrackEnabled,
   setRemoteAudioEnabled,
 } from '../services/webrtcService';
 import {stopBackendStreamSession} from '../services/streamAuthTeardown';
@@ -93,6 +95,7 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   const [cameraFacing, setCameraFacing] = useState<CameraFacing>('user');
   const [cameraFacingEpoch, setCameraFacingEpoch] = useState(0);
   const recordingSupported = isStreamRecordingSupported();
+  const recordingAudioSnapshots = useRef<Array<{track: MediaStreamTrack; enabled: boolean}>>([]);
   const autoStartDone = useRef(false);
 
   useEffect(() => {
@@ -397,16 +400,19 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
   );
 
   useEffect(() => {
-    if (session || autoStartDone.current) return;
-    // Camera-only build: auto-start CAMERA once on mount.
+    if (session || autoStartDone.current || loading) {
+      return;
+    }
+    const target = initialStream ?? null;
+    if (!target) {
+      return;
+    }
+    if (target === 'SCREEN' && needsPinForScreen && !pinInput) {
+      return;
+    }
     autoStartDone.current = true;
-    void start('CAMERA');
-  }, [session, start]);
-
-  const retryCamera = useCallback(() => {
-    autoStartDone.current = true;
-    void start('CAMERA');
-  }, [start]);
+    void start(target);
+  }, [initialStream, session, loading, needsPinForScreen, pinInput, start]);
 
   const teardownSession = useCallback(async () => {
     if (!session) return;
@@ -513,6 +519,9 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         const msg =
           e instanceof Error ? e.message : 'Couldn’t save the recording. Please try again.';
         appAlert('Recording', msg);
+      } finally {
+        restoreRemoteAudioTrackEnabled(recordingAudioSnapshots.current);
+        recordingAudioSnapshots.current = [];
       }
       return;
     }
@@ -524,11 +533,18 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
         return;
       }
       const includeRemoteAudio =
-        streamType !== 'AUDIO' && isRemoteAudioEnabledForRecording();
+        streamType === 'AUDIO' || isRemoteAudioEnabledForRecording();
+      if (includeRemoteAudio && streamType !== 'AUDIO') {
+        recordingAudioSnapshots.current = enableRemoteAudioTracksForRecording();
+      } else {
+        recordingAudioSnapshots.current = [];
+      }
       await startStreamRecording(streamType, videoTrack, includeRemoteAudio);
       setRecordingIncludedAudio(includeRemoteAudio);
       setRecording(true);
     } catch (e: unknown) {
+      restoreRemoteAudioTrackEnabled(recordingAudioSnapshots.current);
+      recordingAudioSnapshots.current = [];
       const msg =
         e instanceof Error ? e.message : 'Couldn’t start recording. Please try again.';
       appAlert('Recording', msg);
@@ -680,15 +696,20 @@ export function LiveMonitoringScreen({navigation, route}: Props) {
           deviceName={deviceName}
           loading={loading}
           errorMessage={startError}
-          needsPin={false}
+          needsPin={needsPinForScreen}
           pinInput={pinInput}
           onPinChange={setPinInput}
-          onStart={retryCamera}
+          onStart={type => {
+            autoStartDone.current = true;
+            setStartError(null);
+            void start(type);
+          }}
           onBack={() => navigation.goBack()}
           topInset={insets.top}
           bottomInset={insets.bottom}
           screenShareCapable={screenShareCapable}
           accessibilityEnabled={accessibilityEnabled}
+          screenShareBlockedReason={screenShareBlockedReason}
         />
       )}
       <RemoteControlActionModals

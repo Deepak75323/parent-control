@@ -151,6 +151,9 @@ export function MeetStylePip({onClose}: Props) {
   const streamType = useLiveStreamStore(s => s.streamType);
   const muted = useLiveStreamStore(s => s.muted);
   const toggleMute = useLiveStreamStore(s => s.toggleMute);
+  const recording = useLiveStreamStore(s => s.recording);
+  const recordingSupported = useLiveStreamStore(s => s.recordingSupported);
+  const toggleRecording = useLiveStreamStore(s => s.toggleRecording);
   const stop = useLiveStreamStore(s => s.stop);
   const viewRotate = useLiveStreamStore(s => s.viewRotate);
   const setViewRotate = useLiveStreamStore(s => s.setViewRotate);
@@ -1573,6 +1576,20 @@ export function MeetStylePip({onClose}: Props) {
           onClick={toggleMute}>
           <MicIcon off={muted} />
         </button>
+        {recordingSupported ? (
+          <button
+            type="button"
+            className={`meet-ctl${recording ? ' hot' : ''}`}
+            aria-label={recording ? 'Stop and download recording' : 'Record video and sound'}
+            title={
+              recording
+                ? 'Stop and download the recording to this device'
+                : 'Record live video and sound, then download to this device'
+            }
+            onClick={() => void toggleRecording()}>
+            {recording ? '⏹' : '⏺'}
+          </button>
+        ) : null}
         <button
           type="button"
           className={`meet-ctl${cameraHidden ? ' hot' : ''}`}
