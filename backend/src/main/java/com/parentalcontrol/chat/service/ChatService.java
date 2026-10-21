@@ -40,6 +40,7 @@ import com.parentalcontrol.user.dao.ParentProfileDao;
 import com.parentalcontrol.user.dao.UserDao;
 import com.parentalcontrol.user.domain.ParentProfile;
 import com.parentalcontrol.user.domain.User;
+import com.parentalcontrol.user.service.DeletedMessagesPinService;
 import com.parentalcontrol.user.service.FamilyHandleService;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -84,6 +85,7 @@ public class ChatService {
   private final ParentProfileDao parentProfileDao;
   private final UserDao userDao;
   private final ChatChannelService channelService;
+  private final DeletedMessagesPinService deletedMessagesPinService;
 
   @Transactional
   public ChatRoomSummaryResponse createRoom(CreateChatRoomRequest request) {
@@ -705,6 +707,9 @@ public class ChatService {
 
     boolean ownerDeletedView =
         ChatRoomModerationRules.mayIncludeDeletedMessages(includeDeleted, member);
+    if (ownerDeletedView) {
+      deletedMessagesPinService.requireUnlockedForDeletedView();
+    }
     Page<ChatMessage> messages =
         ownerDeletedView
             ? messageRepository.findForOwnerIncludingDeletedInChannel(

@@ -98,48 +98,6 @@ export function DevicesPage() {
     }
   }, [isMobile]);
 
-  const dismissPairingIfComplete = useCallback(
-    async (list: DeviceSummary[]) => {
-      const code = pairingCode;
-      const baseline = pairingBaselineRef.current;
-      if (!code || !baseline) {
-        return false;
-      }
-      try {
-        const {data} = await deviceApi.pairingCodeStatus(code);
-        if (
-          shouldDismissPairingSession(
-            data.data,
-            list,
-            baseline.ids,
-            baseline.statuses,
-            baseline.startedAt,
-          )
-        ) {
-          setPairingCode(null);
-          pairingBaselineRef.current = null;
-          return true;
-        }
-      } catch {
-        if (
-          shouldDismissPairingSession(
-            null,
-            list,
-            baseline.ids,
-            baseline.statuses,
-            baseline.startedAt,
-          )
-        ) {
-          setPairingCode(null);
-          pairingBaselineRef.current = null;
-          return true;
-        }
-      }
-      return false;
-    },
-    [pairingCode],
-  );
-
   useEffect(() => {
     if (!pairingCode) {
       return;

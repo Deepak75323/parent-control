@@ -1,6 +1,7 @@
 import {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type PointerEvent as ReactPointerEvent} from 'react';
 import {useAuthStore} from '../auth/authStore';
-import {chatApi} from '../api/services';
+import {chatApi, deletedMessagesPinApi} from '../api/services';
+import {isDeletedMessagesPinDigits} from '../lib/deletedMessagesPin';
 import {decodeIncomingChatBody, encodeOutgoingChatBody, openChatDecryptSession} from '../lib/chatDecryptSession';
 import {resolveChatDisplayNickname} from '../lib/chatDisplayNickname';
 import {canClearHistoryForEveryone, type ChatMemberRole} from '../lib/chatMemberPermissions';
@@ -176,6 +177,9 @@ export function MeetStylePip({onClose}: Props) {
   const [pin, setPin] = useState('');
   const [pinMode, setPinMode] = useState<'unlock' | 'create'>('unlock');
   const [pinBusy, setPinBusy] = useState(false);
+  const [deletedPinOpen, setDeletedPinOpen] = useState(false);
+  const [deletedPin, setDeletedPin] = useState('');
+  const [deletedPinBusy, setDeletedPinBusy] = useState(false);
   const [cameraHidden, setCameraHidden] = useState(false);
   const [members, setMembers] = useState<ChatMemberItem[]>([]);
   const [cursor, setCursor] = useState(0);
@@ -1048,7 +1052,28 @@ export function MeetStylePip({onClose}: Props) {
                 <button
                   type="button"
                   role="menuitem"
-                  onMouseDown={pressMenu(() => setShowDeletedMessagesForOwner(!showDeletedMessages))}>
+                  onMouseDown={pressMenu(() => {
+                    if (showDeletedMessages) {
+                      setShowDeletedMessagesForOwner(false);
+                      void deletedMessagesPinApi.lock().catch(() => undefined);
+                      return;
+                    }
+                    void deletedMessagesPinApi
+                      .status()
+                      .then(({data}) => {
+                        if (!data.data?.pinConfigured) {
+                          setNotice('Set a deleted messages PIN in Settings first');
+                          return;
+                        }
+                        if (data.data.unlocked) {
+                          setShowDeletedMessagesForOwner(true);
+                          return;
+                        }
+                        setDeletedPin('');
+                        setDeletedPinOpen(true);
+                      })
+                      .catch(() => setNotice('Could not check deleted messages PIN'));
+                  })}>
                   {showDeletedMessages ? 'Hide deleted messages' : 'Show deleted messages'}
                 </button>
               ) : null}
@@ -1131,6 +1156,54 @@ export function MeetStylePip({onClose}: Props) {
           />
           <button type="submit" disabled={pinBusy || pin.trim().length < 4}>
             {pinMode === 'create' ? 'Create' : 'Unlock'}
+          </button>
+        </form>
+      ) : null}
+      {deletedPinOpen ? (
+        <form
+          className="meet-pin"
+          onSubmit={event => {
+            event.preventDefault();
+            if (!isDeletedMessagesPinDigits(deletedPin) || deletedPinBusy) {
+              return;
+            }
+            setDeletedPinBusy(true);
+            setNotice(null);
+            void deletedMessagesPinApi
+              .verify(deletedPin.trim())
+              .then(({data}) => {
+                if (!data.data?.verified) {
+                  setNotice('Incorrect deleted messages PIN');
+                  return;
+                }
+                setDeletedPinOpen(false);
+                setDeletedPin('');
+                setShowDeletedMessagesForOwner(true);
+              })
+              .catch(() => setNotice('Could not verify deleted messages PIN'))
+              .finally(() => setDeletedPinBusy(false));
+          }}>
+          <input
+            type="password"
+            inputMode="numeric"
+            autoComplete="off"
+            value={deletedPin}
+            maxLength={8}
+            placeholder="Deleted messages PIN"
+            aria-label="Deleted messages PIN"
+            onChange={event => setDeletedPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
+          />
+          <button type="submit" disabled={deletedPinBusy || !isDeletedMessagesPinDigits(deletedPin)}>
+            Unlock
+          </button>
+          <button
+            type="button"
+            onMouseDown={event => event.preventDefault()}
+            onClick={() => {
+              setDeletedPinOpen(false);
+              setDeletedPin('');
+            }}>
+            Cancel
           </button>
         </form>
       ) : null}
