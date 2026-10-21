@@ -45,7 +45,7 @@ import {CHAT_MESSAGE_BODY_MAX} from '../lib/chatMessageLimits';
 import {chatMessageTooLongAfterSealingError} from '../lib/chatMessageSealedLength';
 import {formatPartnerPresenceLabel} from '../lib/parentPresence';
 import {isChatDmsEnabled, isChatFriendsEnabled} from '../lib/chatFriendsFeature';
-import {validateChatMediaFile} from '../lib/chatMediaUpload';
+import {acceptChatMediaFiles} from '../lib/chatMediaUpload';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {ChatMessageMedia} from '../components/ChatMessageMedia';
 import {ChatInviteBar} from '../components/chat/ChatInviteBar';
@@ -120,8 +120,8 @@ export function ChatPage() {
   const [apiMessages, setApiMessages] = useState<ChatMessageItem[]>([]);
   const [messagesLoadedAt, setMessagesLoadedAt] = useState<Record<string, number>>({});
   const [draft, setDraft] = useState('');
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingPreviewUrls, setPendingPreviewUrls] = useState<string[]>([]);
   const [newRoomName, setNewRoomName] = useState('');
   const [inviteIdentifier, setInviteIdentifier] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -1733,45 +1733,49 @@ export function ChatPage() {
   }, [visibleMessages]);
 
   useEffect(() => {
-    if (!pendingFile) {
-      setPendingPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(pendingFile);
-    setPendingPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [pendingFile]);
+    const urls = pendingFiles.map(file => URL.createObjectURL(file));
+    setPendingPreviewUrls(urls);
+    return () => {
+      urls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [pendingFiles]);
 
-  function clearPendingFile() {
-    setPendingFile(null);
+  function clearPendingFiles() {
+    setPendingFiles([]);
     if (composerFileInputRef.current) {
       composerFileInputRef.current.value = '';
     }
   }
 
-  const acceptPendingMediaFile = useCallback(
-    (file: File) => {
-      const validationError = validateChatMediaFile(file);
-      if (validationError) {
-        setError(validationError);
-        clearPendingFile();
-        return;
-      }
-      setError(null);
-      setPendingFile(file);
-      window.requestAnimationFrame(() => {
-        composerTextareaRef.current?.focus();
-      });
-    },
-    [],
-  );
+  function removePendingFile(index: number) {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index));
+    if (composerFileInputRef.current) {
+      composerFileInputRef.current.value = '';
+    }
+  }
 
-  function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) {
+  const pendingFilesRef = useRef(pendingFiles);
+  pendingFilesRef.current = pendingFiles;
+
+  const acceptPendingMediaFiles = useCallback((files: File[]) => {
+    if (files.length === 0) {
       return;
     }
-    acceptPendingMediaFile(file);
+    const result = acceptChatMediaFiles(files, pendingFilesRef.current);
+    setPendingFiles(result.files);
+    setError(result.error);
+    window.requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus();
+    });
+  }, []);
+
+  function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length === 0) {
+      return;
+    }
+    acceptPendingMediaFiles(files);
+    event.target.value = '';
   }
 
   async function handleCreateRoom(event: FormEvent) {
@@ -2084,14 +2088,14 @@ export function ChatPage() {
       return;
     }
     const body = draft.trim();
-    if (!body && !pendingFile) {
+    if (!body && pendingFiles.length === 0) {
       return;
     }
-    if (pendingFile && pendingFile.size === 0) {
+    if (pendingFiles.some(file => file.size === 0)) {
       setError('Selected file is empty — pick the image again');
       return;
     }
-    if ((body || pendingFile) && !requireDecryptToSend()) {
+    if ((body || pendingFiles.length > 0) && !requireDecryptToSend()) {
       return;
     }
     if (body && rejectIfDecryptCodeInDraft(body)) {
@@ -2101,33 +2105,52 @@ export function ChatPage() {
     setBusy(true);
     setError(null);
     const replyId = replyingTo?.id;
-    const fileToSend = pendingFile;
+    const filesToSend = [...pendingFiles];
     // Clear composer immediately so focus stays usable for the next message.
     setDraft('');
     stopTypingSignal();
     setReplyingTo(null);
-    if (fileToSend) {
-      clearPendingFile();
+    if (filesToSend.length > 0) {
+      clearPendingFiles();
     }
     try {
-      if (fileToSend) {
+      if (filesToSend.length > 0) {
         const caption = body ? await sealOutgoingBody(body) : undefined;
         if (caption && caption.length > CHAT_MESSAGE_BODY_MAX) {
           setError(chatMessageTooLongAfterSealingError(body));
           setDraft(body);
+          setPendingFiles(filesToSend);
           return;
         }
-        const {data} = await chatApi.sendMediaMessage(
-          selectedRoomId,
-          fileToSend,
-          caption,
-          replyId,
-          selectedChannelId ?? undefined,
-        );
-        if (data.data) {
-          setApiMessages(prev =>
-            prev.some(message => message.id === data.data!.id) ? prev : [...prev, data.data!],
-          );
+        // Each photo/video is its own view-once message (backend: one attachment per message).
+        for (let index = 0; index < filesToSend.length; index += 1) {
+          const file = filesToSend[index]!;
+          try {
+            const {data} = await chatApi.sendMediaMessage(
+              selectedRoomId,
+              file,
+              index === 0 ? caption : undefined,
+              index === 0 ? replyId : undefined,
+              selectedChannelId ?? undefined,
+            );
+            if (data.data) {
+              setApiMessages(prev =>
+                prev.some(message => message.id === data.data!.id) ? prev : [...prev, data.data!],
+              );
+            }
+          } catch {
+            const remaining = filesToSend.slice(index);
+            setPendingFiles(remaining);
+            setError(
+              remaining.length === filesToSend.length
+                ? 'Could not send media'
+                : `Sent ${filesToSend.length - remaining.length} of ${filesToSend.length} — rest failed`,
+            );
+            if (index === 0) {
+              setDraft(body);
+            }
+            return;
+          }
         }
       } else {
         const sealedBody = await sealOutgoingBody(body);
@@ -2154,11 +2177,8 @@ export function ChatPage() {
       lastReadMarkedRef.current = null;
       setAtBottom(true);
     } catch {
-      setError(fileToSend ? 'Could not send media' : 'Could not send message');
+      setError('Could not send message');
       setDraft(body);
-      if (fileToSend) {
-        setPendingFile(fileToSend);
-      }
     } finally {
       setBusy(false);
       window.requestAnimationFrame(() => {
@@ -2993,7 +3013,7 @@ export function ChatPage() {
             ) : (
               <ChatFileDropZone
                 enabled={!busy && !editingMessageId}
-                onFile={acceptPendingMediaFile}>
+                onFiles={acceptPendingMediaFiles}>
                 <ChatInviteBar
                   visible={showInvite}
                   identifier={inviteIdentifier}
@@ -3203,36 +3223,55 @@ export function ChatPage() {
                 </div>
 
                 <div className="chat-compose-footer">
-                {pendingFile ? (
-                  <div className="chat-compose-preview">
-                    {pendingPreviewUrl && pendingFile.type.startsWith('video/') ? (
-                      <video
-                        className="chat-compose-preview-media"
-                        src={pendingPreviewUrl}
-                        muted
-                        playsInline
-                        preload="metadata"
-                        aria-label={pendingFile.name}
-                      />
-                    ) : pendingPreviewUrl ? (
-                      <img
-                        className="chat-compose-preview-media"
-                        src={pendingPreviewUrl}
-                        alt={pendingFile.name}
-                      />
-                    ) : (
-                      <div className="chat-compose-preview-media chat-compose-preview-media--placeholder" />
-                    )}
+                {pendingFiles.length > 0 ? (
+                  <div className="chat-compose-preview chat-compose-preview--multi">
+                    <div className="chat-compose-preview-strip" role="list" aria-label="View-once attachments">
+                      {pendingFiles.map((file, index) => {
+                        const previewUrl = pendingPreviewUrls[index];
+                        return (
+                          <div key={`${file.name}-${file.size}-${index}`} className="chat-compose-preview-item" role="listitem">
+                            {previewUrl && file.type.startsWith('video/') ? (
+                              <video
+                                className="chat-compose-preview-media"
+                                src={previewUrl}
+                                muted
+                                playsInline
+                                preload="metadata"
+                                aria-label={file.name}
+                              />
+                            ) : previewUrl ? (
+                              <img
+                                className="chat-compose-preview-media"
+                                src={previewUrl}
+                                alt={file.name}
+                              />
+                            ) : (
+                              <div className="chat-compose-preview-media chat-compose-preview-media--placeholder" />
+                            )}
+                            <button
+                              type="button"
+                              className="chat-compose-preview-remove"
+                              disabled={busy}
+                              aria-label={`Remove ${file.name}`}
+                              onClick={() => removePendingFile(index)}>
+                              ×
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                     <div className="chat-compose-preview-meta">
-                      <span className="chat-compose-preview-name" title={pendingFile.name}>
-                        {pendingFile.name}
+                      <span className="chat-compose-preview-name">
+                        {pendingFiles.length === 1
+                          ? pendingFiles[0]!.name
+                          : `${pendingFiles.length} view-once photos/videos`}
                       </span>
                       <button
                         type="button"
                         className="chat-compose-preview-remove"
                         disabled={busy}
-                        aria-label="Remove attachment"
-                        onClick={clearPendingFile}>
+                        aria-label="Remove all attachments"
+                        onClick={clearPendingFiles}>
                         ×
                       </button>
                     </div>
@@ -3282,15 +3321,17 @@ export function ChatPage() {
                     placeholder={
                       isMutedInRoom
                         ? 'You are muted'
-                        : pendingFile
-                          ? `Caption for ${pendingFile.name} (optional)`
+                        : pendingFiles.length === 1
+                          ? `Caption for ${pendingFiles[0]!.name} (optional)`
+                          : pendingFiles.length > 1
+                            ? `Caption for first of ${pendingFiles.length} (optional)`
                           : workspace.isMobile
                             ? 'Write a note…'
                             : 'Write a note… (@ to mention)'
                     }
                     busy={busy || isMutedInRoom}
-                    canSend={!isMutedInRoom && Boolean(draft.trim() || pendingFile)}
-                    emphasizeSend={Boolean(pendingFile)}
+                    canSend={!isMutedInRoom && Boolean(draft.trim() || pendingFiles.length > 0)}
+                    emphasizeSend={pendingFiles.length > 0}
                     members={mentionableMembers}
                     fileInputRef={composerFileInputRef}
                     textareaRef={composerTextareaRef}
