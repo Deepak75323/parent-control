@@ -25,20 +25,6 @@ function snapshotBaseline(list: DeviceSummary[]): PairingBaseline {
   };
 }
 
-type PairingBaseline = {
-  ids: Set<string>;
-  statuses: Record<string, string>;
-  startedAt: number;
-};
-
-function snapshotBaseline(list: DeviceSummary[]): PairingBaseline {
-  return {
-    ids: new Set(list.map(d => d.id)),
-    statuses: Object.fromEntries(list.map(d => [d.id, (d.status ?? '').toUpperCase()])),
-    startedAt: Date.now(),
-  };
-}
-
 function mergeLive(device: DeviceSummary) {
   const live = useRealtimeStore.getState().deviceStatuses[device.id];
   if (!live) {
@@ -153,48 +139,6 @@ export function DevicesPage() {
       setSheetDevice(null);
     }
   }, [isMobile]);
-
-  const dismissPairingIfComplete = useCallback(
-    async (list: DeviceSummary[]) => {
-      const code = pairingCode;
-      const baseline = pairingBaselineRef.current;
-      if (!code || !baseline) {
-        return false;
-      }
-      try {
-        const {data} = await deviceApi.pairingCodeStatus(code);
-        if (
-          shouldDismissPairingSession(
-            data.data,
-            list,
-            baseline.ids,
-            baseline.statuses,
-            baseline.startedAt,
-          )
-        ) {
-          setPairingCode(null);
-          pairingBaselineRef.current = null;
-          return true;
-        }
-      } catch {
-        if (
-          shouldDismissPairingSession(
-            null,
-            list,
-            baseline.ids,
-            baseline.statuses,
-            baseline.startedAt,
-          )
-        ) {
-          setPairingCode(null);
-          pairingBaselineRef.current = null;
-          return true;
-        }
-      }
-      return false;
-    },
-    [pairingCode],
-  );
 
   useEffect(() => {
     if (!pairingCode) {

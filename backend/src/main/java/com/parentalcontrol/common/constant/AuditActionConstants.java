@@ -32,6 +32,14 @@ public final class AuditActionConstants {
 
   public static final String PARENT_PIN_VERIFIED = "PARENT_PIN_VERIFIED";
 
+  public static final String DELETED_MESSAGES_PIN_SET = "DELETED_MESSAGES_PIN_SET";
+
+  public static final String DELETED_MESSAGES_PIN_CHANGED = "DELETED_MESSAGES_PIN_CHANGED";
+
+  public static final String DELETED_MESSAGES_PIN_VERIFIED = "DELETED_MESSAGES_PIN_VERIFIED";
+
+  public static final String DELETED_MESSAGES_PIN_RESET = "DELETED_MESSAGES_PIN_RESET";
+
   public static final String PASSWORD_RESET_COMPLETED = "PASSWORD_RESET_COMPLETED";
 
   public static final String POLICY_CREATE_APP_BLOCK = "POLICY_CREATE_APP_BLOCK";

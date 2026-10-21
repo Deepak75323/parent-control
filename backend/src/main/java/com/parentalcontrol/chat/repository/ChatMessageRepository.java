@@ -181,4 +181,19 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
               + "WHERE deleted_at IS NOT NULL AND deleted_at <= :cutoff AND body <> ''",
       nativeQuery = true)
   int blankDeletedBodiesBefore(@Param("cutoff") Instant cutoff);
+
+  /**
+   * Forgot deleted-messages PIN: expire reviewable deleted notes in rooms this parent owns so they
+   * no longer appear in the owner deleted view.
+   */
+  @Modifying(clearAutomatically = true, flushAutomatically = true)
+  @Query(
+      value =
+          "UPDATE chat_messages SET body = '', deleted_at = TIMESTAMP '1970-01-01 00:00:00+00' "
+              + "WHERE deleted_at IS NOT NULL AND room_id IN ("
+              + "  SELECT m.room_id FROM chat_room_members m "
+              + "  WHERE m.user_id = :userId AND m.role = 'OWNER' AND m.deleted_at IS NULL"
+              + ")",
+      nativeQuery = true)
+  int expireDeletedMessagesInOwnedRooms(@Param("userId") UUID userId);
 }

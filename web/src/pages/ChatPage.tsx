@@ -1,7 +1,13 @@
 import {Fragment, type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {useLocation, useNavigate, useSearchParams} from 'react-router-dom';
 import axios from 'axios';
-import {chatApi, friendsApi, type FriendRequestItem, type FriendSummaryItem} from '../api/services';
+import {
+  chatApi,
+  deletedMessagesPinApi,
+  friendsApi,
+  type FriendRequestItem,
+  type FriendSummaryItem,
+} from '../api/services';
 import {useAuthStore} from '../auth/authStore';
 import {decodeChatMessagePlaintext} from '../lib/chatMessageObfuscation';
 import {
@@ -48,6 +54,7 @@ import {isChatDmsEnabled, isChatFriendsEnabled} from '../lib/chatFriendsFeature'
 import {acceptChatMediaFiles} from '../lib/chatMediaUpload';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 import {ChatMessageMedia} from '../components/ChatMessageMedia';
+import {DeletedMessagesPinUnlockDialog} from '../components/DeletedMessagesPinUnlockDialog';
 import {ChatInviteBar} from '../components/chat/ChatInviteBar';
 import {ChatFileDropZone} from '../components/chat/ChatFileDropZone';
 import {ChatHeader} from '../components/chat/ChatHeader';
@@ -242,6 +249,7 @@ export function ChatPage() {
   const [decryptDialogMode, setDecryptDialogMode] = useState<ChatDecryptDialogMode>('unlock');
   const [cryptoSalt, setCryptoSalt] = useState<string | null>(null);
   const [showDeletedMessages, setShowDeletedMessages] = useState(isShowDeletedMessagesForOwner);
+  const [deletedPinDialogOpen, setDeletedPinDialogOpen] = useState(false);
   const chatDark = useSyncExternalStore(subscribeChatDarkMode, isChatDarkMode, () => false);
   useEffect(
     () =>
@@ -2641,7 +2649,14 @@ export function ChatPage() {
                 id: 'show-deleted',
                 label: showDeletedMessages ? 'Hide deleted messages' : 'Show deleted messages',
                 disabled: busy,
-                onSelect: () => setShowDeletedMessagesForOwner(!showDeletedMessages),
+                onSelect: () => {
+                  if (showDeletedMessages) {
+                    setShowDeletedMessagesForOwner(false);
+                    void deletedMessagesPinApi.lock().catch(() => undefined);
+                    return;
+                  }
+                  setDeletedPinDialogOpen(true);
+                },
               },
             ]
           : []),
@@ -2816,6 +2831,14 @@ export function ChatPage() {
           setDecryptPinOpen(false);
           setDecryptPinError(null);
           setDecryptDialogMode('unlock');
+        }}
+      />
+      <DeletedMessagesPinUnlockDialog
+        open={deletedPinDialogOpen}
+        onCancel={() => setDeletedPinDialogOpen(false)}
+        onUnlocked={() => {
+          setDeletedPinDialogOpen(false);
+          setShowDeletedMessagesForOwner(true);
         }}
       />
       <ChatMembersManageDialog

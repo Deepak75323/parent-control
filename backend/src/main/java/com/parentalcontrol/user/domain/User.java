@@ -58,6 +58,15 @@ public class User extends BaseEntity {
   @Builder.Default
   private boolean silentStreamPinUnlocked = false;
 
+  /** Bcrypt hash for reviewing soft-deleted Notes (owner view). */
+  @Column(name = "deleted_messages_pin_hash")
+  private String deletedMessagesPinHash;
+
+  /** Session flag: parent entered deleted-messages PIN this login period. */
+  @Column(name = "deleted_messages_pin_unlocked", nullable = false)
+  @Builder.Default
+  private boolean deletedMessagesPinUnlocked = false;
+
   /** Access/refresh tokens issued at or before this instant are rejected. */
   @Column(name = "tokens_invalidated_after")
   private java.time.Instant tokensInvalidatedAfter;
