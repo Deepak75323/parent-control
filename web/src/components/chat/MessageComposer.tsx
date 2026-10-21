@@ -200,6 +200,7 @@ export function MessageComposer({
       <input
         ref={fileInputRef}
         type="file"
+        multiple
         accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"
         className="chat-compose-file-input"
         onChange={onFileSelected}
@@ -208,8 +209,8 @@ export function MessageComposer({
         type="button"
         className="chat-compose-icon-btn"
         disabled={busy}
-        title="Attach image or video"
-        aria-label="Attach image or video"
+        title="Attach images or videos (view once)"
+        aria-label="Attach images or videos"
         onClick={() => fileInputRef.current?.click()}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
           <path d="M12 5v14M5 12h14" />

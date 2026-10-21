@@ -2,7 +2,7 @@ import {type DragEvent, type ReactNode, useCallback, useRef, useState} from 'rea
 
 type Props = {
   enabled?: boolean;
-  onFile: (file: File) => void;
+  onFiles: (files: File[]) => void;
   children: ReactNode;
 };
 
@@ -10,7 +10,7 @@ function isFileDrag(event: DragEvent<HTMLElement>): boolean {
   return Array.from(event.dataTransfer.types).includes('Files');
 }
 
-export function ChatFileDropZone({enabled = true, onFile, children}: Props) {
+export function ChatFileDropZone({enabled = true, onFiles, children}: Props) {
   const dragDepthRef = useRef(0);
   const [dragActive, setDragActive] = useState(false);
 
@@ -63,12 +63,12 @@ export function ChatFileDropZone({enabled = true, onFile, children}: Props) {
       }
       event.preventDefault();
       resetDrag();
-      const file = event.dataTransfer.files?.[0];
-      if (file) {
-        onFile(file);
+      const files = Array.from(event.dataTransfer.files ?? []);
+      if (files.length > 0) {
+        onFiles(files);
       }
     },
-    [enabled, onFile, resetDrag],
+    [enabled, onFiles, resetDrag],
   );
 
   return (
@@ -85,7 +85,7 @@ export function ChatFileDropZone({enabled = true, onFile, children}: Props) {
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
               <path d="M12 16V4m0 0L8 8m4-4 4 4M4 14v4a2 2 0 002 2h12a2 2 0 002-2v-4" />
             </svg>
-            <p>Drop image or video to attach</p>
+            <p>Drop images or videos to attach</p>
           </div>
         </div>
       ) : null}
