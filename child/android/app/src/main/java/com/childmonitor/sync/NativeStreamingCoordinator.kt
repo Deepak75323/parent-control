@@ -322,30 +322,6 @@ object NativeStreamingCoordinator {
         jsWakeFallbackRunnable = null
     }
 
-    private fun markActiveStream(roomId: String, sessionId: String) {
-        activeRoomId = roomId
-        activeSessionId = sessionId
-    }
-
-    private fun clearActiveStream() {
-        activeRoomId = null
-        activeSessionId = null
-    }
-
-    private fun isSameSessionAlreadyLive(sessionId: String, roomId: String): Boolean =
-        NativeStreamingHandoffPolicy.isSameSessionAlreadyLive(
-            activeSessionId = activeSessionId,
-            activeRoomId = activeRoomId,
-            requestedSessionId = sessionId,
-            requestedRoomId = roomId,
-            nativePublisherRunning = NativeStreamPublisher.isRunning(),
-            registrySessionId = StreamSessionRegistry.activeSessionId(),
-            screenFgsActive = ScreenCaptureForegroundService.isForegroundActive(),
-            cameraActive = CameraStreamForegroundService.isActive(),
-            audioActive = AudioStreamForegroundService.isActive(),
-            startInProgress = streamStartInProgress.get(),
-        )
-
     private fun startJsOrHeadlessStream(
         context: Context,
         roomId: String,
