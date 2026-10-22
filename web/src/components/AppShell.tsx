@@ -42,10 +42,6 @@ const NAV_GROUPS = [
     ],
   },
   {
-    label: 'Community',
-    items: [{to: '/chat', label: 'chat', icon: '💬'}],
-  },
-  {
     label: 'Account',
     items: [
       {to: '/billing', label: 'Billing', icon: 'billing'},
