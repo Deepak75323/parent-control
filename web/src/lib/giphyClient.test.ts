@@ -42,6 +42,29 @@ describe('giphyClient', () => {
         height: 100,
       },
     ]);
+
+    const stickers = mapGiphyResults(
+      {
+        data: [
+          {
+            id: 's1',
+            title: 'Hello',
+            images: {
+              fixed_height: {url: 'https://example.com/s.gif', width: '100', height: '120'},
+              fixed_height_small: {
+                url: 'https://example.com/s-small.gif',
+                width: '50',
+                height: '60',
+              },
+            },
+          },
+        ],
+      },
+      'Sticker',
+      'stickers',
+    );
+    expect(stickers[0]?.previewUrl).toBe('https://example.com/s-small.gif');
+    expect(stickers[0]?.gifUrl).toBe('https://example.com/s.gif');
   });
 
   it('searches Giphy gifs and stickers', async () => {
@@ -54,6 +77,12 @@ describe('giphyClient', () => {
             title: 'Wave',
             images: {
               original: {url: 'https://example.com/wave.gif', width: '120', height: '120'},
+              fixed_height: {url: 'https://example.com/wave-h.gif', width: '100', height: '120'},
+              fixed_height_small: {
+                url: 'https://example.com/wave-hs.gif',
+                width: '50',
+                height: '60',
+              },
             },
           },
         ],
@@ -64,6 +93,7 @@ describe('giphyClient', () => {
     expect(gifs).toHaveLength(1);
     expect(String(fetchImpl.mock.calls[0][0])).toContain('api.giphy.com/v1/gifs/search');
     expect(String(fetchImpl.mock.calls[0][0])).toContain('rating=g');
+    expect(String(fetchImpl.mock.calls[0][0])).toContain('bundle=messaging_non_clips');
 
     const stickers = await searchGiphyStickers(
       'hello',
@@ -72,6 +102,7 @@ describe('giphyClient', () => {
     );
     expect(stickers).toHaveLength(1);
     expect(String(fetchImpl.mock.calls[1][0])).toContain('api.giphy.com/v1/stickers/search');
+    expect(String(fetchImpl.mock.calls[1][0])).not.toContain('bundle=');
 
     const trending = await fetchTrendingGiphyStickers(
       'test-key',

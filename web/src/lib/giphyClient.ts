@@ -13,23 +13,42 @@ type GiphyImage = {
   height?: string;
 };
 
+type GiphyImages = {
+  original?: GiphyImage;
+  downsized?: GiphyImage;
+  downsized_medium?: GiphyImage;
+  fixed_width?: GiphyImage;
+  fixed_width_small?: GiphyImage;
+  fixed_height?: GiphyImage;
+  fixed_height_small?: GiphyImage;
+  preview_gif?: GiphyImage;
+  original_still?: GiphyImage;
+  fixed_width_still?: GiphyImage;
+  fixed_height_still?: GiphyImage;
+  fixed_width_small_still?: GiphyImage;
+};
+
 type GiphyResponse = {
   data?: Array<{
     id?: string;
     title?: string;
-    images?: {
-      original?: GiphyImage;
-      downsized?: GiphyImage;
-      fixed_width?: GiphyImage;
-      fixed_width_small?: GiphyImage;
-      preview_gif?: GiphyImage;
-    };
+    images?: GiphyImages;
   }>;
 };
 
 type GiphyKind = 'gifs' | 'stickers';
 
 const GIPHY_API = 'https://api.giphy.com/v1';
+
+function firstUrl(...images: Array<GiphyImage | undefined>): string | null {
+  for (const image of images) {
+    const url = image?.url?.trim();
+    if (url) {
+      return url;
+    }
+  }
+  return null;
+}
 
 export function giphyApiKeyFromEnv(
   env: Record<string, string | undefined> = import.meta.env as Record<string, string | undefined>,
@@ -38,25 +57,58 @@ export function giphyApiKeyFromEnv(
   return key ? key : null;
 }
 
-export function mapGiphyResults(payload: GiphyResponse, fallbackTitle = 'GIF'): GifResult[] {
+export function mapGiphyResults(
+  payload: GiphyResponse,
+  fallbackTitle = 'GIF',
+  kind: GiphyKind = 'gifs',
+): GifResult[] {
   const mapped: GifResult[] = [];
   for (const item of payload.data ?? []) {
     const images = item.images ?? {};
-    const full = images.original ?? images.downsized ?? images.fixed_width;
-    const preview =
-      images.fixed_width_small ?? images.preview_gif ?? images.fixed_width ?? images.original;
-    const gifUrl = full?.url?.trim();
-    const previewUrl = preview?.url?.trim() ?? gifUrl;
+    const gifUrl =
+      kind === 'stickers'
+        ? firstUrl(
+            images.fixed_height,
+            images.fixed_width,
+            images.downsized_medium,
+            images.downsized,
+            images.original,
+          )
+        : firstUrl(images.original, images.downsized, images.fixed_width, images.fixed_height);
+    // Stickers: prefer a compact still/preview so the grid doesn't stretch on tall assets.
+    const previewUrl =
+      kind === 'stickers'
+        ? firstUrl(
+            images.fixed_height_small,
+            images.fixed_width_small,
+            images.fixed_height_still,
+            images.fixed_width_still,
+            images.fixed_width_small_still,
+            images.preview_gif,
+            images.original_still,
+            images.fixed_height,
+            images.fixed_width,
+          )
+        : firstUrl(
+            images.fixed_width_small,
+            images.preview_gif,
+            images.fixed_width,
+            images.original,
+          );
     if (!item.id || !gifUrl || !previewUrl) {
       continue;
     }
+    const sizeSource =
+      kind === 'stickers'
+        ? images.fixed_height ?? images.fixed_width ?? images.original
+        : images.original ?? images.fixed_width;
     mapped.push({
       id: item.id,
       title: item.title?.trim() || fallbackTitle,
       previewUrl,
       gifUrl,
-      width: Number(full?.width ?? 0) || 0,
-      height: Number(full?.height ?? 0) || 0,
+      width: Number(sizeSource?.width ?? 0) || 0,
+      height: Number(sizeSource?.height ?? 0) || 0,
     });
   }
   return mapped;
@@ -73,7 +125,10 @@ async function giphyGet(
   url.searchParams.set('api_key', apiKey);
   url.searchParams.set('limit', '24');
   url.searchParams.set('rating', 'g');
-  url.searchParams.set('bundle', 'messaging_non_clips');
+  // Bundle changes media shapes and can break sticker previews — only use for GIFs.
+  if (kind === 'gifs') {
+    url.searchParams.set('bundle', 'messaging_non_clips');
+  }
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
@@ -94,7 +149,7 @@ export async function searchGiphyGifs(
     return fetchTrendingGiphyGifs(apiKey, fetchImpl);
   }
   const payload = await giphyGet('gifs', '/search', apiKey, {q}, fetchImpl);
-  return mapGiphyResults(payload, 'GIF');
+  return mapGiphyResults(payload, 'GIF', 'gifs');
 }
 
 export async function fetchTrendingGiphyGifs(
@@ -102,7 +157,7 @@ export async function fetchTrendingGiphyGifs(
   fetchImpl: typeof fetch = fetch,
 ): Promise<GifResult[]> {
   const payload = await giphyGet('gifs', '/trending', apiKey, {}, fetchImpl);
-  return mapGiphyResults(payload, 'GIF');
+  return mapGiphyResults(payload, 'GIF', 'gifs');
 }
 
 export async function searchGiphyStickers(
@@ -115,7 +170,7 @@ export async function searchGiphyStickers(
     return fetchTrendingGiphyStickers(apiKey, fetchImpl);
   }
   const payload = await giphyGet('stickers', '/search', apiKey, {q}, fetchImpl);
-  return mapGiphyResults(payload, 'Sticker');
+  return mapGiphyResults(payload, 'Sticker', 'stickers');
 }
 
 export async function fetchTrendingGiphyStickers(
@@ -123,7 +178,7 @@ export async function fetchTrendingGiphyStickers(
   fetchImpl: typeof fetch = fetch,
 ): Promise<GifResult[]> {
   const payload = await giphyGet('stickers', '/trending', apiKey, {}, fetchImpl);
-  return mapGiphyResults(payload, 'Sticker');
+  return mapGiphyResults(payload, 'Sticker', 'stickers');
 }
 
 export async function downloadGifAsFile(
