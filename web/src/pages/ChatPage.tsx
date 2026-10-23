@@ -3361,6 +3361,7 @@ export function ChatPage() {
                     onDraftChange={handleDraftChange}
                     onSubmit={handleSendMessage}
                     onFileSelected={handleFileSelected}
+                    onPickMedia={file => acceptPendingMediaFiles([file])}
                   />
                 )}
                 </div>

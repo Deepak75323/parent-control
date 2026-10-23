@@ -1,4 +1,5 @@
 import {splitMessageText} from '../../lib/chatMentions';
+import {isStickerOnlyMessage} from '../../lib/chatStickerCatalog';
 
 type Props = {
   text: string;
@@ -8,9 +9,10 @@ type Props = {
 
 export function ChatMessageText({text, mentionTokens, edited = false}: Props) {
   const parts = splitMessageText(text, mentionTokens);
+  const sticker = !edited && isStickerOnlyMessage(text);
 
   return (
-    <p className="chat-message-body">
+    <p className={sticker ? 'chat-message-body chat-message-body--sticker' : 'chat-message-body'}>
       {parts.map((part, index) =>
         part.type === 'mention' ? (
           <span

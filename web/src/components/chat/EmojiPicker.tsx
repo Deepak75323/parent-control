@@ -22,31 +22,51 @@ import {
 } from '../../lib/chatMergedEmojiFormat';
 import {CHAT_MESSAGE_PLAINTEXT_MAX} from '../../lib/chatMessageLimits';
 import {trimPlaintextToSealedLimit} from '../../lib/chatMessageSealedLength';
+import {
+  CHAT_STICKER_PACKS,
+  defaultStickerPackId,
+} from '../../lib/chatStickerCatalog';
+import {
+  downloadGifAsFile,
+  fetchTrendingTenorGifs,
+  searchTenorGifs,
+  tenorApiKeyFromEnv,
+  type TenorGifResult,
+} from '../../lib/tenorClient';
 
-type PickerMode = 'emoji' | 'merged';
+type PickerMode = 'emoji' | 'stickers' | 'gifs' | 'merged';
 
 type Props = {
   open: boolean;
   onClose: () => void;
   onSelect: (emoji: string) => void;
+  /** Called when a GIF is picked — parent should stage/send as view-once media. */
+  onPickMedia?: (file: File) => void;
   ignoreCloseRef?: RefObject<HTMLElement | null>;
 };
 
-export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
+export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRef}: Props) {
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const pasteRef = useRef<HTMLTextAreaElement>(null);
+  const gifSearchRef = useRef<HTMLInputElement>(null);
   const [recentEmojis, setRecentEmojis] = useState<string[]>(() => loadRecentEmojis());
   const [activeCategoryId, setActiveCategoryId] = useState(() =>
     defaultEmojiCategoryId(loadRecentEmojis()),
   );
   const [mode, setMode] = useState<PickerMode>('emoji');
+  const [stickerPackId, setStickerPackId] = useState(() => defaultStickerPackId());
   const [mergedTag, setMergedTag] = useState<string>('all');
   const [customItems, setCustomItems] = useState<MergedEmojiArt[]>(() => loadCustomMergedEmojis());
   const [addLabel, setAddLabel] = useState('');
   const [addArt, setAddArt] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [showPaste, setShowPaste] = useState(false);
+  const [gifQuery, setGifQuery] = useState('');
+  const [gifResults, setGifResults] = useState<TenorGifResult[]>([]);
+  const [gifBusy, setGifBusy] = useState(false);
+  const [gifError, setGifError] = useState<string | null>(null);
+  const tenorKey = useMemo(() => tenorApiKeyFromEnv(), []);
 
   useEffect(() => {
     if (!open) {
@@ -57,8 +77,12 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
     setActiveCategoryId(defaultEmojiCategoryId(recent));
     setCustomItems(loadCustomMergedEmojis());
     setMode('emoji');
+    setStickerPackId(defaultStickerPackId());
     setShowPaste(false);
     setAddError(null);
+    setGifQuery('');
+    setGifResults([]);
+    setGifError(null);
   }, [open]);
 
   useEffect(() => {
@@ -67,6 +91,47 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
     }
     window.requestAnimationFrame(() => pasteRef.current?.focus());
   }, [open, mode, showPaste]);
+
+  useEffect(() => {
+    if (!open || mode !== 'gifs' || !tenorKey) {
+      return;
+    }
+    let cancelled = false;
+    setGifBusy(true);
+    setGifError(null);
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const results = gifQuery.trim()
+            ? await searchTenorGifs(gifQuery, tenorKey)
+            : await fetchTrendingTenorGifs(tenorKey);
+          if (!cancelled) {
+            setGifResults(results);
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setGifResults([]);
+            setGifError(error instanceof Error ? error.message : 'Could not load GIFs');
+          }
+        } finally {
+          if (!cancelled) {
+            setGifBusy(false);
+          }
+        }
+      })();
+    }, gifQuery.trim() ? 280 : 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [open, mode, gifQuery, tenorKey]);
+
+  useEffect(() => {
+    if (!open || mode !== 'gifs' || !tenorKey) {
+      return;
+    }
+    window.requestAnimationFrame(() => gifSearchRef.current?.focus());
+  }, [open, mode, tenorKey]);
 
   const categories = useMemo(() => {
     const recentCategory: EmojiCategory | null =
@@ -78,6 +143,9 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
 
   const activeCategory =
     categories.find(category => category.id === activeCategoryId) ?? categories[0];
+
+  const activeStickerPack =
+    CHAT_STICKER_PACKS.find(pack => pack.id === stickerPackId) ?? CHAT_STICKER_PACKS[0];
 
   const mergedCollections = useMemo(
     () => allMergedEmojiCollections(customItems),
@@ -117,13 +185,37 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
     };
   }, [open, onClose, ignoreCloseRef]);
 
-  if (!open || !activeCategory) {
+  if (!open || !activeCategory || !activeStickerPack) {
     return null;
   }
 
   function handleSelectEmoji(emoji: string) {
     setRecentEmojis(rememberEmoji(emoji));
     onSelect(emoji);
+  }
+
+  function handleSelectSticker(sticker: string) {
+    setRecentEmojis(rememberEmoji(sticker));
+    onSelect(sticker);
+    onClose();
+  }
+
+  async function handleSelectGif(gif: TenorGifResult) {
+    if (!onPickMedia) {
+      setGifError('GIF attach is not available here');
+      return;
+    }
+    setGifBusy(true);
+    setGifError(null);
+    try {
+      const file = await downloadGifAsFile(gif);
+      onPickMedia(file);
+      onClose();
+    } catch (error) {
+      setGifError(error instanceof Error ? error.message : 'Could not attach GIF');
+    } finally {
+      setGifBusy(false);
+    }
   }
 
   function artForSend(raw: string): string {
@@ -189,7 +281,7 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
       id={menuId}
       ref={rootRef}
       role="dialog"
-      aria-label="Choose emoji">
+      aria-label="Choose emoji, sticker, or GIF">
       <div className="chat-emoji-picker-modes" role="tablist" aria-label="Emoji picker modes">
         <button
           type="button"
@@ -202,10 +294,26 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
         <button
           type="button"
           role="tab"
+          aria-selected={mode === 'stickers'}
+          className={mode === 'stickers' ? 'chat-emoji-picker-mode--active' : undefined}
+          onClick={() => setMode('stickers')}>
+          Stickers
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'gifs'}
+          className={mode === 'gifs' ? 'chat-emoji-picker-mode--active' : undefined}
+          onClick={() => setMode('gifs')}>
+          GIFs
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={mode === 'merged'}
           className={mode === 'merged' ? 'chat-emoji-picker-mode--active' : undefined}
           onClick={() => setMode('merged')}>
-          Merged emoji
+          Merged
         </button>
       </div>
 
@@ -243,6 +351,96 @@ export function EmojiPicker({open, onClose, onSelect, ignoreCloseRef}: Props) {
             ))}
           </div>
         </>
+      ) : null}
+
+      {mode === 'stickers' ? (
+        <>
+          <div className="chat-emoji-picker-tabs" role="tablist" aria-label="Sticker packs">
+            {CHAT_STICKER_PACKS.map(pack => (
+              <button
+                key={pack.id}
+                type="button"
+                role="tab"
+                aria-selected={pack.id === activeStickerPack.id}
+                aria-label={pack.label}
+                className={[
+                  'chat-emoji-picker-tab',
+                  pack.id === activeStickerPack.id ? 'chat-emoji-picker-tab--active' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={() => setStickerPackId(pack.id)}>
+                {pack.icon}
+              </button>
+            ))}
+          </div>
+          <div
+            className="chat-emoji-picker-grid chat-sticker-grid"
+            role="tabpanel"
+            aria-label={activeStickerPack.label}>
+            {activeStickerPack.stickers.map((sticker, index) => (
+              <button
+                key={`${activeStickerPack.id}-${index}-${sticker}`}
+                type="button"
+                className="chat-emoji-picker-item chat-sticker-item"
+                aria-label={`Send sticker ${sticker}`}
+                onClick={() => handleSelectSticker(sticker)}>
+                {sticker}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      {mode === 'gifs' ? (
+        <div className="chat-gif-picker" role="tabpanel" aria-label="GIF search">
+          {!tenorKey ? (
+            <div className="chat-gif-picker-empty">
+              <p>
+                Add <code>VITE_TENOR_API_KEY</code> to enable GIF search (Tenor / Google).
+              </p>
+              <p className="chat-gif-picker-hint">
+                Or tap <strong>+</strong> to attach a GIF file from your device — GIFs already send
+                as view-once media.
+              </p>
+            </div>
+          ) : (
+            <>
+              <label className="chat-gif-picker-search">
+                <span className="sr-only">Search GIFs</span>
+                <input
+                  ref={gifSearchRef}
+                  type="search"
+                  value={gifQuery}
+                  onChange={event => setGifQuery(event.target.value)}
+                  onMouseDown={event => event.stopPropagation()}
+                  placeholder="Search GIFs…"
+                  autoComplete="off"
+                />
+              </label>
+              {gifError ? <p className="chat-gif-picker-error">{gifError}</p> : null}
+              {gifBusy && gifResults.length === 0 ? (
+                <p className="chat-gif-picker-hint">Loading GIFs…</p>
+              ) : null}
+              <div className="chat-gif-picker-grid">
+                {gifResults.map(gif => (
+                  <button
+                    key={gif.id}
+                    type="button"
+                    className="chat-gif-picker-item"
+                    disabled={gifBusy}
+                    aria-label={`Attach GIF ${gif.title}`}
+                    onClick={() => void handleSelectGif(gif)}>
+                    <img src={gif.previewUrl} alt="" loading="lazy" />
+                  </button>
+                ))}
+              </div>
+              {!gifBusy && gifResults.length === 0 && !gifError ? (
+                <p className="chat-gif-picker-hint">No GIFs found — try another search.</p>
+              ) : null}
+            </>
+          )}
+        </div>
       ) : null}
 
       {mode === 'merged' ? (

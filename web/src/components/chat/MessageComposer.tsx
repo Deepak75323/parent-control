@@ -37,6 +37,8 @@ type Props = {
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
   onFileSelected: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  /** Stage a GIF/sticker file picked from the emoji panel. */
+  onPickMedia?: (file: File) => void;
 };
 
 export function MessageComposer({
@@ -52,6 +54,7 @@ export function MessageComposer({
   onDraftChange,
   onSubmit,
   onFileSelected,
+  onPickMedia,
 }: Props) {
   const internalFileInputRef = useRef<HTMLInputElement>(null);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -256,6 +259,7 @@ export function MessageComposer({
           ignoreCloseRef={emojiButtonRef}
           onClose={() => setEmojiOpen(false)}
           onSelect={emoji => insertAtCursor(emoji)}
+          onPickMedia={onPickMedia}
         />
       </ComposeAnchorPortal>
       <button
@@ -277,8 +281,8 @@ export function MessageComposer({
           .filter(Boolean)
           .join(' ')}
         disabled={busy}
-        title="Emoji"
-        aria-label="Emoji"
+        title="Emoji, stickers & GIFs"
+        aria-label="Emoji, stickers and GIFs"
         aria-expanded={emojiOpen}
         onClick={() => setEmojiOpen(open => !open)}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
