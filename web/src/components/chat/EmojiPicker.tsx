@@ -28,11 +28,11 @@ import {
 } from '../../lib/chatStickerCatalog';
 import {
   downloadGifAsFile,
-  fetchTrendingTenorGifs,
-  searchTenorGifs,
-  tenorApiKeyFromEnv,
-  type TenorGifResult,
-} from '../../lib/tenorClient';
+  fetchTrendingGiphyGifs,
+  giphyApiKeyFromEnv,
+  searchGiphyGifs,
+  type GifResult,
+} from '../../lib/giphyClient';
 
 type PickerMode = 'emoji' | 'stickers' | 'gifs' | 'merged';
 
@@ -63,10 +63,10 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
   const [addError, setAddError] = useState<string | null>(null);
   const [showPaste, setShowPaste] = useState(false);
   const [gifQuery, setGifQuery] = useState('');
-  const [gifResults, setGifResults] = useState<TenorGifResult[]>([]);
+  const [gifResults, setGifResults] = useState<GifResult[]>([]);
   const [gifBusy, setGifBusy] = useState(false);
   const [gifError, setGifError] = useState<string | null>(null);
-  const tenorKey = useMemo(() => tenorApiKeyFromEnv(), []);
+  const giphyKey = useMemo(() => giphyApiKeyFromEnv(), []);
 
   useEffect(() => {
     if (!open) {
@@ -93,7 +93,7 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
   }, [open, mode, showPaste]);
 
   useEffect(() => {
-    if (!open || mode !== 'gifs' || !tenorKey) {
+    if (!open || mode !== 'gifs' || !giphyKey) {
       return;
     }
     let cancelled = false;
@@ -103,8 +103,8 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
       void (async () => {
         try {
           const results = gifQuery.trim()
-            ? await searchTenorGifs(gifQuery, tenorKey)
-            : await fetchTrendingTenorGifs(tenorKey);
+            ? await searchGiphyGifs(gifQuery, giphyKey)
+            : await fetchTrendingGiphyGifs(giphyKey);
           if (!cancelled) {
             setGifResults(results);
           }
@@ -124,14 +124,14 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [open, mode, gifQuery, tenorKey]);
+  }, [open, mode, gifQuery, giphyKey]);
 
   useEffect(() => {
-    if (!open || mode !== 'gifs' || !tenorKey) {
+    if (!open || mode !== 'gifs' || !giphyKey) {
       return;
     }
     window.requestAnimationFrame(() => gifSearchRef.current?.focus());
-  }, [open, mode, tenorKey]);
+  }, [open, mode, giphyKey]);
 
   const categories = useMemo(() => {
     const recentCategory: EmojiCategory | null =
@@ -200,7 +200,7 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
     onClose();
   }
 
-  async function handleSelectGif(gif: TenorGifResult) {
+  async function handleSelectGif(gif: GifResult) {
     if (!onPickMedia) {
       setGifError('GIF attach is not available here');
       return;
@@ -394,14 +394,18 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
 
       {mode === 'gifs' ? (
         <div className="chat-gif-picker" role="tabpanel" aria-label="GIF search">
-          {!tenorKey ? (
+          {!giphyKey ? (
             <div className="chat-gif-picker-empty">
               <p>
-                Add <code>VITE_TENOR_API_KEY</code> to enable GIF search (Tenor / Google).
+                Add <code>VITE_GIPHY_API_KEY</code> to enable GIF search. Tenor no longer accepts new
+                API clients.
               </p>
               <p className="chat-gif-picker-hint">
-                Or tap <strong>+</strong> to attach a GIF file from your device — GIFs already send
-                as view-once media.
+                Get a free key at{' '}
+                <a href="https://developers.giphy.com/" target="_blank" rel="noreferrer">
+                  developers.giphy.com
+                </a>
+                . Or tap <strong>+</strong> to attach a GIF file from your device.
               </p>
             </div>
           ) : (

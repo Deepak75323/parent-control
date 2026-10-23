@@ -14,8 +14,8 @@ interface ImportMetaEnv {
   readonly VITE_ENABLE_CHAT_DMS?: string;
   /** Set to "true" to show Parents tab in the sidebar. Default off. */
   readonly VITE_ENABLE_PARENTS_TAB?: string;
-  /** Google Tenor API key for Notes GIF search. Optional — without it, use + to attach GIF files. */
-  readonly VITE_TENOR_API_KEY?: string;
+  /** Giphy API key for Notes GIF search. Optional — without it, use + to attach GIF files. */
+  readonly VITE_GIPHY_API_KEY?: string;
 }
 
 interface ImportMeta {
