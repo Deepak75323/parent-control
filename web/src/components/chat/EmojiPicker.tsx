@@ -29,8 +29,10 @@ import {
 import {
   downloadGifAsFile,
   fetchTrendingGiphyGifs,
+  fetchTrendingGiphyStickers,
   giphyApiKeyFromEnv,
   searchGiphyGifs,
+  searchGiphyStickers,
   type GifResult,
 } from '../../lib/giphyClient';
 
@@ -50,12 +52,14 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
   const rootRef = useRef<HTMLDivElement>(null);
   const pasteRef = useRef<HTMLTextAreaElement>(null);
   const gifSearchRef = useRef<HTMLInputElement>(null);
+  const stickerSearchRef = useRef<HTMLInputElement>(null);
   const [recentEmojis, setRecentEmojis] = useState<string[]>(() => loadRecentEmojis());
   const [activeCategoryId, setActiveCategoryId] = useState(() =>
     defaultEmojiCategoryId(loadRecentEmojis()),
   );
   const [mode, setMode] = useState<PickerMode>('emoji');
   const [stickerPackId, setStickerPackId] = useState(() => defaultStickerPackId());
+  const [stickerSource, setStickerSource] = useState<'giphy' | 'emoji'>('giphy');
   const [mergedTag, setMergedTag] = useState<string>('all');
   const [customItems, setCustomItems] = useState<MergedEmojiArt[]>(() => loadCustomMergedEmojis());
   const [addLabel, setAddLabel] = useState('');
@@ -66,6 +70,10 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
   const [gifResults, setGifResults] = useState<GifResult[]>([]);
   const [gifBusy, setGifBusy] = useState(false);
   const [gifError, setGifError] = useState<string | null>(null);
+  const [stickerQuery, setStickerQuery] = useState('');
+  const [stickerResults, setStickerResults] = useState<GifResult[]>([]);
+  const [stickerBusy, setStickerBusy] = useState(false);
+  const [stickerError, setStickerError] = useState<string | null>(null);
   const giphyKey = useMemo(() => giphyApiKeyFromEnv(), []);
 
   useEffect(() => {
@@ -78,12 +86,16 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
     setCustomItems(loadCustomMergedEmojis());
     setMode('emoji');
     setStickerPackId(defaultStickerPackId());
+    setStickerSource(giphyKey ? 'giphy' : 'emoji');
     setShowPaste(false);
     setAddError(null);
     setGifQuery('');
     setGifResults([]);
     setGifError(null);
-  }, [open]);
+    setStickerQuery('');
+    setStickerResults([]);
+    setStickerError(null);
+  }, [open, giphyKey]);
 
   useEffect(() => {
     if (!open || mode !== 'merged' || !showPaste) {
@@ -127,11 +139,52 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
   }, [open, mode, gifQuery, giphyKey]);
 
   useEffect(() => {
+    if (!open || mode !== 'stickers' || stickerSource !== 'giphy' || !giphyKey) {
+      return;
+    }
+    let cancelled = false;
+    setStickerBusy(true);
+    setStickerError(null);
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const results = stickerQuery.trim()
+            ? await searchGiphyStickers(stickerQuery, giphyKey)
+            : await fetchTrendingGiphyStickers(giphyKey);
+          if (!cancelled) {
+            setStickerResults(results);
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setStickerResults([]);
+            setStickerError(error instanceof Error ? error.message : 'Could not load stickers');
+          }
+        } finally {
+          if (!cancelled) {
+            setStickerBusy(false);
+          }
+        }
+      })();
+    }, stickerQuery.trim() ? 280 : 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [open, mode, stickerQuery, stickerSource, giphyKey]);
+
+  useEffect(() => {
     if (!open || mode !== 'gifs' || !giphyKey) {
       return;
     }
     window.requestAnimationFrame(() => gifSearchRef.current?.focus());
   }, [open, mode, giphyKey]);
+
+  useEffect(() => {
+    if (!open || mode !== 'stickers' || stickerSource !== 'giphy' || !giphyKey) {
+      return;
+    }
+    window.requestAnimationFrame(() => stickerSearchRef.current?.focus());
+  }, [open, mode, stickerSource, giphyKey]);
 
   const categories = useMemo(() => {
     const recentCategory: EmojiCategory | null =
@@ -208,13 +261,31 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
     setGifBusy(true);
     setGifError(null);
     try {
-      const file = await downloadGifAsFile(gif);
+      const file = await downloadGifAsFile(gif, fetch, 'gif');
       onPickMedia(file);
       onClose();
     } catch (error) {
       setGifError(error instanceof Error ? error.message : 'Could not attach GIF');
     } finally {
       setGifBusy(false);
+    }
+  }
+
+  async function handleSelectGiphySticker(sticker: GifResult) {
+    if (!onPickMedia) {
+      setStickerError('Sticker attach is not available here');
+      return;
+    }
+    setStickerBusy(true);
+    setStickerError(null);
+    try {
+      const file = await downloadGifAsFile(sticker, fetch, 'sticker');
+      onPickMedia(file);
+      onClose();
+    } catch (error) {
+      setStickerError(error instanceof Error ? error.message : 'Could not attach sticker');
+    } finally {
+      setStickerBusy(false);
     }
   }
 
@@ -354,42 +425,107 @@ export function EmojiPicker({open, onClose, onSelect, onPickMedia, ignoreCloseRe
       ) : null}
 
       {mode === 'stickers' ? (
-        <>
-          <div className="chat-emoji-picker-tabs" role="tablist" aria-label="Sticker packs">
-            {CHAT_STICKER_PACKS.map(pack => (
+        <div className="chat-gif-picker" role="tabpanel" aria-label="Stickers">
+          {giphyKey ? (
+            <div className="chat-emoji-picker-modes chat-sticker-source-modes" role="tablist" aria-label="Sticker source">
               <button
-                key={pack.id}
                 type="button"
                 role="tab"
-                aria-selected={pack.id === activeStickerPack.id}
-                aria-label={pack.label}
-                className={[
-                  'chat-emoji-picker-tab',
-                  pack.id === activeStickerPack.id ? 'chat-emoji-picker-tab--active' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                onClick={() => setStickerPackId(pack.id)}>
-                {pack.icon}
+                aria-selected={stickerSource === 'giphy'}
+                className={stickerSource === 'giphy' ? 'chat-emoji-picker-mode--active' : undefined}
+                onClick={() => setStickerSource('giphy')}>
+                Giphy
               </button>
-            ))}
-          </div>
-          <div
-            className="chat-emoji-picker-grid chat-sticker-grid"
-            role="tabpanel"
-            aria-label={activeStickerPack.label}>
-            {activeStickerPack.stickers.map((sticker, index) => (
               <button
-                key={`${activeStickerPack.id}-${index}-${sticker}`}
                 type="button"
-                className="chat-emoji-picker-item chat-sticker-item"
-                aria-label={`Send sticker ${sticker}`}
-                onClick={() => handleSelectSticker(sticker)}>
-                {sticker}
+                role="tab"
+                aria-selected={stickerSource === 'emoji'}
+                className={stickerSource === 'emoji' ? 'chat-emoji-picker-mode--active' : undefined}
+                onClick={() => setStickerSource('emoji')}>
+                Emoji packs
               </button>
-            ))}
-          </div>
-        </>
+            </div>
+          ) : null}
+
+          {stickerSource === 'giphy' && giphyKey ? (
+            <>
+              <label className="chat-gif-picker-search">
+                <span className="sr-only">Search stickers</span>
+                <input
+                  ref={stickerSearchRef}
+                  type="search"
+                  value={stickerQuery}
+                  onChange={event => setStickerQuery(event.target.value)}
+                  onMouseDown={event => event.stopPropagation()}
+                  placeholder="Search stickers…"
+                  autoComplete="off"
+                />
+              </label>
+              {stickerError ? <p className="chat-gif-picker-error">{stickerError}</p> : null}
+              {stickerBusy && stickerResults.length === 0 ? (
+                <p className="chat-gif-picker-hint">Loading stickers…</p>
+              ) : null}
+              <div className="chat-gif-picker-grid chat-sticker-media-grid">
+                {stickerResults.map(sticker => (
+                  <button
+                    key={sticker.id}
+                    type="button"
+                    className="chat-gif-picker-item chat-sticker-media-item"
+                    disabled={stickerBusy}
+                    aria-label={`Attach sticker ${sticker.title}`}
+                    onClick={() => void handleSelectGiphySticker(sticker)}>
+                    <img src={sticker.previewUrl} alt="" loading="lazy" />
+                  </button>
+                ))}
+              </div>
+              {!stickerBusy && stickerResults.length === 0 && !stickerError ? (
+                <p className="chat-gif-picker-hint">No stickers found — try another search.</p>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {!giphyKey ? (
+                <p className="chat-gif-picker-hint">
+                  Showing emoji packs. Add <code>VITE_GIPHY_API_KEY</code> for Giphy image stickers.
+                </p>
+              ) : null}
+              <div className="chat-emoji-picker-tabs" role="tablist" aria-label="Emoji sticker packs">
+                {CHAT_STICKER_PACKS.map(pack => (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={pack.id === activeStickerPack.id}
+                    aria-label={pack.label}
+                    className={[
+                      'chat-emoji-picker-tab',
+                      pack.id === activeStickerPack.id ? 'chat-emoji-picker-tab--active' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onClick={() => setStickerPackId(pack.id)}>
+                    {pack.icon}
+                  </button>
+                ))}
+              </div>
+              <div
+                className="chat-emoji-picker-grid chat-sticker-grid"
+                role="tabpanel"
+                aria-label={activeStickerPack.label}>
+                {activeStickerPack.stickers.map((sticker, index) => (
+                  <button
+                    key={`${activeStickerPack.id}-${index}-${sticker}`}
+                    type="button"
+                    className="chat-emoji-picker-item chat-sticker-item"
+                    aria-label={`Send sticker ${sticker}`}
+                    onClick={() => handleSelectSticker(sticker)}>
+                    {sticker}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       ) : null}
 
       {mode === 'gifs' ? (

@@ -1,9 +1,11 @@
 import {describe, expect, it, vi} from 'vitest';
 import {
   downloadGifAsFile,
+  fetchTrendingGiphyStickers,
   giphyApiKeyFromEnv,
   mapGiphyResults,
   searchGiphyGifs,
+  searchGiphyStickers,
 } from './giphyClient';
 
 describe('giphyClient', () => {
@@ -42,34 +44,60 @@ describe('giphyClient', () => {
     ]);
   });
 
-  it('searches Giphy and downloads a gif file', async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: [
-            {
-              id: '99',
-              title: 'Wave',
-              images: {
-                original: {url: 'https://example.com/wave.gif', width: '120', height: '120'},
-              },
+  it('searches Giphy gifs and stickers', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: '99',
+            title: 'Wave',
+            images: {
+              original: {url: 'https://example.com/wave.gif', width: '120', height: '120'},
             },
-          ],
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        blob: async () => new Blob([new Uint8Array([71, 73, 70])], {type: 'image/gif'}),
-      });
+          },
+        ],
+      }),
+    });
 
     const gifs = await searchGiphyGifs('wave', 'test-key', fetchImpl as unknown as typeof fetch);
     expect(gifs).toHaveLength(1);
     expect(String(fetchImpl.mock.calls[0][0])).toContain('api.giphy.com/v1/gifs/search');
     expect(String(fetchImpl.mock.calls[0][0])).toContain('rating=g');
 
-    const file = await downloadGifAsFile(gifs[0], fetchImpl as unknown as typeof fetch);
+    const stickers = await searchGiphyStickers(
+      'hello',
+      'test-key',
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(stickers).toHaveLength(1);
+    expect(String(fetchImpl.mock.calls[1][0])).toContain('api.giphy.com/v1/stickers/search');
+
+    const trending = await fetchTrendingGiphyStickers(
+      'test-key',
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(trending).toHaveLength(1);
+    expect(String(fetchImpl.mock.calls[2][0])).toContain('api.giphy.com/v1/stickers/trending');
+  });
+
+  it('downloads media as a file', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: async () => new Blob([new Uint8Array([71, 73, 70])], {type: 'image/gif'}),
+    });
+    const file = await downloadGifAsFile(
+      {
+        id: '99',
+        title: 'Wave',
+        previewUrl: 'https://example.com/p.gif',
+        gifUrl: 'https://example.com/wave.gif',
+        width: 120,
+        height: 120,
+      },
+      fetchImpl as unknown as typeof fetch,
+      'sticker',
+    );
     expect(file.type).toBe('image/gif');
     expect(file.name).toContain('99');
   });

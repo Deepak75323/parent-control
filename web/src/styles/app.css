@@ -5755,6 +5755,23 @@ body.chat-resizing * {
   min-height: 56px;
 }
 
+.chat-sticker-source-modes {
+  margin-bottom: 2px;
+}
+
+.chat-sticker-media-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.chat-sticker-media-item {
+  background: transparent;
+}
+
+.chat-sticker-media-item img {
+  object-fit: contain;
+  background: color-mix(in srgb, var(--gp-primary) 4%, var(--gp-surface));
+}
+
 .chat-gif-picker {
   display: flex;
   flex-direction: column;
