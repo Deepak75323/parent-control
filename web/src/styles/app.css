@@ -10839,3 +10839,38 @@ body.stream-pip-dragging * {
   font-size: 0.875rem;
 }
 
+.portal-white-screen-password {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary, #70728a);
+  min-width: 16rem;
+}
+
+.portal-white-screen-password input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border, #e6e8f0);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.portal-operators-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.portal-operators-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border-light, #eef0f6);
+  font-size: 0.9rem;
+}
+

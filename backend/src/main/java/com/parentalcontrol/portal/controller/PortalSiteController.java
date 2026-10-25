@@ -3,9 +3,10 @@ package com.parentalcontrol.portal.controller;
 import com.parentalcontrol.common.api.ApiResponse;
 import com.parentalcontrol.common.constant.ApiConstants;
 import com.parentalcontrol.portal.dto.PortalControlResponse;
+import com.parentalcontrol.portal.dto.PortalGrantByHandleRequest;
+import com.parentalcontrol.portal.dto.PortalRevokeOperatorRequest;
 import com.parentalcontrol.portal.dto.PortalStatusResponse;
 import com.parentalcontrol.portal.dto.SetPortalDisabledRequest;
-import com.parentalcontrol.portal.dto.SetPortalShareRequest;
 import com.parentalcontrol.portal.service.PortalSiteSettingsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -41,19 +42,29 @@ public class PortalSiteController {
 
   @PostMapping("/disabled")
   @SecurityRequirement(name = "bearerAuth")
-  @Operation(summary = "Disable or enable the parent website")
+  @Operation(summary = "Disable or enable the parent website (requires account password)")
   public ApiResponse<PortalControlResponse> setDisabled(
       @Valid @RequestBody SetPortalDisabledRequest request) {
-    return ApiResponse.ok(portalSiteSettingsService.setDisabled(Boolean.TRUE.equals(request.getDisabled())));
+    return ApiResponse.ok(
+        portalSiteSettingsService.setDisabled(
+            Boolean.TRUE.equals(request.getDisabled()), request.getPassword()));
   }
 
-  @PostMapping("/share")
+  @PostMapping("/operators/grant")
   @SecurityRequirement(name = "bearerAuth")
-  @Operation(summary = "Share disable/enable control with every parent (bootstrap admin only)")
-  public ApiResponse<PortalControlResponse> setShare(
-      @Valid @RequestBody SetPortalShareRequest request) {
+  @Operation(summary = "Grant kill-switch control to a parent by family handle (admin + password)")
+  public ApiResponse<PortalControlResponse> grantOperator(
+      @Valid @RequestBody PortalGrantByHandleRequest request) {
     return ApiResponse.ok(
-        portalSiteSettingsService.setSharedWithEveryone(
-            Boolean.TRUE.equals(request.getShareWithEveryone())));
+        portalSiteSettingsService.grantByHandle(request.getFamilyHandle(), request.getPassword()));
+  }
+
+  @PostMapping("/operators/revoke")
+  @SecurityRequirement(name = "bearerAuth")
+  @Operation(summary = "Revoke kill-switch control from a parent (admin + password)")
+  public ApiResponse<PortalControlResponse> revokeOperator(
+      @Valid @RequestBody PortalRevokeOperatorRequest request) {
+    return ApiResponse.ok(
+        portalSiteSettingsService.revokeOperator(request.getUserId(), request.getPassword()));
   }
 }

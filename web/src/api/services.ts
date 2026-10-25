@@ -191,20 +191,26 @@ export const sharePresenceApi = {
 };
 
 export type PortalStatus = {disabled: boolean};
+export type PortalOperator = {userId: string; familyHandle: string};
 export type PortalControl = {
   disabled: boolean;
-  sharedWithEveryone: boolean;
   canControl: boolean;
   canShare: boolean;
+  operators: PortalOperator[];
 };
 
 export const portalApi = {
   status: () => api.get<ApiResponse<PortalStatus>>(ApiPaths.PORTAL_STATUS),
   control: () => api.get<ApiResponse<PortalControl>>(ApiPaths.PORTAL_CONTROL),
-  setDisabled: (disabled: boolean) =>
-    api.post<ApiResponse<PortalControl>>(ApiPaths.PORTAL_DISABLED, {disabled}),
-  setShareWithEveryone: (shareWithEveryone: boolean) =>
-    api.post<ApiResponse<PortalControl>>(ApiPaths.PORTAL_SHARE, {shareWithEveryone}),
+  setDisabled: (disabled: boolean, password: string) =>
+    api.post<ApiResponse<PortalControl>>(ApiPaths.PORTAL_DISABLED, {disabled, password}),
+  grantOperator: (familyHandle: string, password: string) =>
+    api.post<ApiResponse<PortalControl>>(ApiPaths.PORTAL_OPERATORS_GRANT, {
+      familyHandle,
+      password,
+    }),
+  revokeOperator: (userId: string, password: string) =>
+    api.post<ApiResponse<PortalControl>>(ApiPaths.PORTAL_OPERATORS_REVOKE, {userId, password}),
 };
 
 export type FriendRequestItem = {

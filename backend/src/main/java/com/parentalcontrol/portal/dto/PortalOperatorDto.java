@@ -1,13 +1,16 @@
 package com.parentalcontrol.portal.dto;
 
-import jakarta.validation.constraints.NotNull;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class SetPortalShareRequest {
-  @NotNull private Boolean shareWithEveryone;
+public class PortalOperatorDto {
+  private UUID userId;
+  private String familyHandle;
 }

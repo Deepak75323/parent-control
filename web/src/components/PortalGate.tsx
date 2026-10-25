@@ -6,7 +6,7 @@ type Props = {children: ReactNode};
 
 /**
  * When the site admin disables the parent portal, render a white screen.
- * Controllers (bootstrap admin or shared parents) still see Enable.
+ * Controllers (bootstrap admin or handle-granted parents) can enable with password.
  */
 export function PortalGate({children}: Props) {
   const accessToken = useAuthStore(s => s.accessToken);
@@ -14,6 +14,7 @@ export function PortalGate({children}: Props) {
   const [control, setControl] = useState<PortalControl | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -56,14 +57,19 @@ export function PortalGate({children}: Props) {
   }, [disabled, refresh]);
 
   async function enableSite() {
+    if (!password.trim()) {
+      setError('Enter your account password');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const res = await portalApi.setDisabled(false);
+      const res = await portalApi.setDisabled(false, password);
       setControl(res.data.data ?? null);
       setDisabled(Boolean(res.data.data?.disabled));
+      setPassword('');
     } catch {
-      setError('Could not enable the website');
+      setError('Could not enable — check password');
     } finally {
       setBusy(false);
     }
@@ -83,10 +89,20 @@ export function PortalGate({children}: Props) {
     <div className="portal-white-screen" role="status" aria-live="polite">
       {canEnable ? (
         <div className="portal-white-screen-admin">
+          <label className="portal-white-screen-password">
+            Account password
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              disabled={busy}
+            />
+          </label>
           <button
             type="button"
             className="btn primary"
-            disabled={busy}
+            disabled={busy || !password.trim()}
             onClick={() => void enableSite()}>
             {busy ? 'Enabling…' : 'Enable website'}
           </button>

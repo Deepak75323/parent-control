@@ -48,6 +48,8 @@ export function SettingsPage() {
   const [sharePresenceMsg, setSharePresenceMsg] = useState<string | null>(null);
   const [portalControl, setPortalControl] = useState<PortalControl | null>(null);
   const [portalMsg, setPortalMsg] = useState<string | null>(null);
+  const [portalPassword, setPortalPassword] = useState('');
+  const [portalShareHandle, setPortalShareHandle] = useState('');
   const [deletePassword, setDeletePassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -242,11 +244,15 @@ export function SettingsPage() {
     if (!portalControl?.canControl) {
       return;
     }
+    if (!portalPassword.trim()) {
+      setPortalMsg('Enter your account password to continue');
+      return;
+    }
     const nextDisabled = !portalControl.disabled;
     const ok = await confirm({
       title: nextDisabled ? 'Disable parent website?' : 'Enable parent website?',
       message: nextDisabled
-        ? 'Everyone will see a blank white screen until an admin enables it again.'
+        ? 'Everyone will see a blank white screen until someone with control enables it again.'
         : 'The parent website will become available again for all parents.',
       confirmLabel: nextDisabled ? 'Disable website' : 'Enable website',
       danger: nextDisabled,
@@ -257,31 +263,61 @@ export function SettingsPage() {
     setBusy(true);
     setPortalMsg(null);
     try {
-      const res = await portalApi.setDisabled(nextDisabled);
+      const res = await portalApi.setDisabled(nextDisabled, portalPassword);
       setPortalControl(res.data.data ?? null);
+      setPortalPassword('');
       setPortalMsg(nextDisabled ? 'Website disabled — white screen is on' : 'Website enabled');
       if (nextDisabled) {
         window.location.reload();
       }
     } catch {
-      setPortalMsg('Could not update website availability');
+      setPortalMsg('Could not update website availability — check password');
     } finally {
       setBusy(false);
     }
   };
 
-  const onTogglePortalShare = async () => {
+  const onGrantPortalHandle = async (e: FormEvent) => {
+    e.preventDefault();
     if (!portalControl?.canShare) {
       return;
     }
-    const nextShare = !portalControl.sharedWithEveryone;
+    if (!portalShareHandle.trim()) {
+      setPortalMsg('Enter a family handle to share control');
+      return;
+    }
+    if (!portalPassword.trim()) {
+      setPortalMsg('Enter your account password to continue');
+      return;
+    }
+    setBusy(true);
+    setPortalMsg(null);
+    try {
+      const res = await portalApi.grantOperator(portalShareHandle.trim(), portalPassword);
+      setPortalControl(res.data.data ?? null);
+      setPortalShareHandle('');
+      setPortalPassword('');
+      setPortalMsg('Control shared with that family handle');
+    } catch {
+      setPortalMsg('Could not share control — check handle and password');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRevokePortalOperator = async (userId: string, familyHandle: string) => {
+    if (!portalControl?.canShare) {
+      return;
+    }
+    if (!portalPassword.trim()) {
+      setPortalMsg('Enter your account password to continue');
+      return;
+    }
     const ok = await confirm({
-      title: nextShare ? 'Share control with everyone?' : 'Stop sharing control?',
-      message: nextShare
-        ? 'Every signed-in parent will be able to disable or enable the website.'
-        : 'Only the site admin (anilkumar@gmail.com) will keep this control.',
-      confirmLabel: nextShare ? 'Share with everyone' : 'Keep admin only',
-      danger: nextShare,
+      title: 'Revoke website control?',
+      message: `Remove kill-switch access from @${familyHandle}?`,
+      confirmLabel: 'Revoke',
+      danger: true,
     });
     if (!ok) {
       return;
@@ -289,13 +325,12 @@ export function SettingsPage() {
     setBusy(true);
     setPortalMsg(null);
     try {
-      const res = await portalApi.setShareWithEveryone(nextShare);
+      const res = await portalApi.revokeOperator(userId, portalPassword);
       setPortalControl(res.data.data ?? null);
-      setPortalMsg(
-        nextShare ? 'Control shared with every parent' : 'Control limited to site admin again',
-      );
+      setPortalPassword('');
+      setPortalMsg(`Revoked control from @${familyHandle}`);
     } catch {
-      setPortalMsg('Could not update sharing');
+      setPortalMsg('Could not revoke — check password');
     } finally {
       setBusy(false);
     }
@@ -529,36 +564,73 @@ export function SettingsPage() {
         <div className="card">
           <h2>Website availability</h2>
           <p className="muted">
-            Site admin can turn the parent website off (blank white screen for everyone) or on
-            again. Sharing lets every parent use the same control.
+            Turn the parent website off (blank white screen) or on again. Requires your account
+            password. Share control with a specific parent by their family handle.
           </p>
           <p className="muted tiny">
             Status:{' '}
             <strong>{portalControl.disabled ? 'Disabled (white screen)' : 'Enabled'}</strong>
-            {portalControl.sharedWithEveryone ? ' · Control shared with everyone' : ''}
           </p>
-          <div className="btn-row">
-            {portalControl.canControl ? (
+          <label>
+            Account password
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={portalPassword}
+              onChange={e => setPortalPassword(e.target.value)}
+              placeholder="Required for these actions"
+            />
+          </label>
+          {portalControl.canControl ? (
+            <div className="btn-row">
               <button
                 type="button"
                 className={`btn ${portalControl.disabled ? 'primary' : 'danger'}`}
-                disabled={busy}
+                disabled={busy || !portalPassword}
                 onClick={() => void onTogglePortalDisabled()}>
                 {portalControl.disabled ? 'Enable website' : 'Disable website'}
               </button>
-            ) : null}
-            {portalControl.canShare ? (
-              <button
-                type="button"
-                className={`btn ${portalControl.sharedWithEveryone ? 'ghost' : 'primary'}`}
-                disabled={busy}
-                onClick={() => void onTogglePortalShare()}>
-                {portalControl.sharedWithEveryone
-                  ? 'Stop sharing with everyone'
-                  : 'Share control with everyone'}
-              </button>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
+          {portalControl.canShare ? (
+            <>
+              <form className="form-row" onSubmit={e => void onGrantPortalHandle(e)}>
+                <label>
+                  Share control by handle
+                  <input
+                    value={portalShareHandle}
+                    onChange={e => setPortalShareHandle(e.target.value)}
+                    placeholder="@family.handle"
+                    maxLength={32}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="btn primary"
+                  disabled={busy || !portalPassword || !portalShareHandle.trim()}>
+                  Share with handle
+                </button>
+              </form>
+              {(portalControl.operators?.length ?? 0) > 0 ? (
+                <ul className="portal-operators-list">
+                  {portalControl.operators.map(op => (
+                    <li key={op.userId} className="portal-operators-row">
+                      <span>@{op.familyHandle}</span>
+                      <button
+                        type="button"
+                        className="btn ghost tiny"
+                        disabled={busy || !portalPassword}
+                        onClick={() => void onRevokePortalOperator(op.userId, op.familyHandle)}>
+                        Revoke
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted tiny">No other parents have control yet.</p>
+              )}
+            </>
+          ) : null}
           {portalMsg ? <p className="muted">{portalMsg}</p> : null}
         </div>
       ) : null}
