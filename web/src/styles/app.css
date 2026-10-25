@@ -7525,6 +7525,28 @@ body.stream-pip-dragging * {
   margin: 0;
 }
 
+.stream-controls-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stream-audio-notice {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--warning-bg, #fef3c7);
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.stream-audio-notice--muted {
+  background: var(--surface-secondary, #f8f9fd);
+  color: var(--text-secondary, #70728a);
+}
+
 .stream-recording-active {
   color: #b91c1c;
   border-color: rgba(185, 28, 28, 0.45);

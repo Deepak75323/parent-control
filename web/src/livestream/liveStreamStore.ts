@@ -16,6 +16,7 @@ import {
   startLocalStreamRecording,
   stopLocalStreamRecordingAndDownload,
 } from '../lib/streamLocalRecording';
+import {streamHasLiveAudio} from '../lib/streamAudioAvailability';
 import {
   largePipSize,
   pipSizeForAspect,
@@ -35,6 +36,11 @@ interface LiveStreamState {
   error: string | null;
   busy: boolean;
   muted: boolean;
+  /**
+   * For CAMERA/AUDIO: whether the child sent a usable audio track.
+   * null until the remote stream arrives. false → show "mic permission missing" notice.
+   */
+  childAudioAvailable: boolean | null;
   viewRotate: ViewerRotateDeg;
   viewZoomScale: number;
   viewPanX: number;
@@ -90,6 +96,7 @@ const initialState = {
   error: null as string | null,
   busy: false,
   muted: false,
+  childAudioAvailable: null as boolean | null,
   viewRotate: 0 as ViewerRotateDeg,
   viewZoomScale: 1,
   viewPanX: 0,
@@ -187,10 +194,12 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
       viewPanY: 0,
       videoFrame: {w: 0, h: 0},
       remoteStream: null,
+      childAudioAvailable: null,
       cameraFacing: 'user',
       pipMinimized: false,
       browserPipActive: false,
       recording: false,
+      muted: false,
     });
     useRealtimeStore.getState().setStreamingState(undefined);
     try {
@@ -210,7 +219,26 @@ export const useLiveStreamStore = create<LiveStreamState>((set, get) => ({
         status: `Connecting (${session.status})…`,
       });
       await connectBrowserViewer(session.signalingRoomId, session.sessionId, {
-        onRemoteStream: stream => set({remoteStream: stream}),
+        onRemoteStream: stream => {
+          const caresAboutAudio = streamType === 'CAMERA' || streamType === 'AUDIO';
+          set({
+            remoteStream: stream,
+            childAudioAvailable: caresAboutAudio ? streamHasLiveAudio(stream) : null,
+          });
+          if (caresAboutAudio) {
+            const refreshAudio = () => {
+              if (get().remoteStream !== stream) {
+                return;
+              }
+              set({childAudioAvailable: streamHasLiveAudio(stream)});
+            };
+            stream.addEventListener('addtrack', refreshAudio);
+            stream.addEventListener('removetrack', refreshAudio);
+            for (const track of stream.getAudioTracks()) {
+              track.addEventListener('ended', refreshAudio);
+            }
+          }
+        },
         onConnectionState: s => set({status: `ICE: ${s}`}),
         onError: msg => set({error: msg}),
       });
