@@ -4,6 +4,7 @@ import com.parentalcontrol.common.domain.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -38,4 +39,11 @@ public class ChatRoom extends BaseEntity {
   @Column(name = "members_panel_shared", nullable = false)
   @Builder.Default
   private boolean membersPanelShared = false;
+
+  /**
+   * When set, messages created at or before this instant are hidden for every member (clear
+   * history). Manual delete-for-everyone tombstones still apply only to messages after this.
+   */
+  @Column(name = "history_cleared_at")
+  private Instant historyClearedAt;
 }
