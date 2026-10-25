@@ -155,6 +155,8 @@ export function MeetStylePip({onClose}: Props) {
   const recording = useLiveStreamStore(s => s.recording);
   const recordingSupported = useLiveStreamStore(s => s.recordingSupported);
   const toggleRecording = useLiveStreamStore(s => s.toggleRecording);
+  const busy = useLiveStreamStore(s => s.busy);
+  const flipCamera = useLiveStreamStore(s => s.flipCamera);
   const stop = useLiveStreamStore(s => s.stop);
   const viewRotate = useLiveStreamStore(s => s.viewRotate);
   const setViewRotate = useLiveStreamStore(s => s.setViewRotate);
@@ -1649,6 +1651,17 @@ export function MeetStylePip({onClose}: Props) {
           onClick={toggleMute}>
           <MicIcon off={muted} />
         </button>
+        {streamType === 'CAMERA' ? (
+          <button
+            type="button"
+            className="meet-ctl"
+            aria-label="Flip camera"
+            title="Flip front / back camera"
+            disabled={busy}
+            onClick={() => void flipCamera()}>
+            <FlipCameraIcon />
+          </button>
+        ) : null}
         {recordingSupported ? (
           <button
             type="button"
@@ -1694,6 +1707,17 @@ function CameraIcon({off}: {off: boolean}) {
         d="M4 7h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm12 3.2 4-2.4v8.4l-4-2.4v-3.6z"
       />
       {off ? <path d="M3 4l18 16" stroke="currentColor" strokeWidth="2" /> : null}
+    </svg>
+  );
+}
+
+function FlipCameraIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M9 12c0 1.66 1.34 3 3 3s3-1.34 3-3-1.34-3-3-3-3 1.34-3 3zm8.66-4.05C16.51 6.7 14.37 6 12 6c-1.37 0-2.65.32-3.81.9L9.5 5.5 8 4H4v4l1.41-1.41C6.99 5.59 9.37 5 12 5c2.76 0 5.2.84 7.05 2.26l-.39.69zm-11.32 8.1C7.49 17.3 9.63 18 12 18c1.37 0 2.65-.32 3.81-.9l-1.31 1.4L16 20h4v-4l-1.41 1.41C17.01 18.41 14.63 19 12 19c-2.76 0-5.2-.84-7.05-2.26l.39-.69z"
+      />
     </svg>
   );
 }
@@ -2010,5 +2034,6 @@ const MEET_PIP_CSS = `
 .meet-send:disabled { color: #5f6368; cursor: default; }
 .meet-controls { display: flex; justify-content: center; gap: 18px; padding: 10px 12px 16px; }
 .meet-ctl { width: 52px; height: 52px; border: 0; border-radius: 50%; background: #3c4043; color: #fff; cursor: pointer; display: grid; place-items: center; }
+.meet-ctl:disabled { opacity: 0.45; cursor: default; }
 .meet-ctl.hot, .meet-ctl.end { background: #ea4335; }
 `;
