@@ -404,6 +404,7 @@ export function StreamControls({
   const streamType = useLiveStreamStore(s => s.streamType);
   const busy = useLiveStreamStore(s => s.busy);
   const muted = useLiveStreamStore(s => s.muted);
+  const childAudioAvailable = useLiveStreamStore(s => s.childAudioAvailable);
   const viewRotate = useLiveStreamStore(s => s.viewRotate);
   const viewZoomScale = useLiveStreamStore(s => s.viewZoomScale);
   const setViewRotate = useLiveStreamStore(s => s.setViewRotate);
@@ -422,13 +423,28 @@ export function StreamControls({
   const showLayout = compact && !layoutInToolbar;
   const showRotate = streamType !== 'AUDIO' && ENABLE_VIEWER_ROTATE;
   const showZoom = streamType !== 'AUDIO';
+  const soundRelevant = streamType === 'CAMERA' || streamType === 'AUDIO';
+  const childMicMissing = soundRelevant && childAudioAvailable === false;
+  const canToggleSound = !soundRelevant || childAudioAvailable !== false;
 
   if (!sessionId) {
     return null;
   }
 
   return (
-    <div className={`btn-row wrap${inline ? '' : ' stream-pip-controls'}`}>
+    <div className={`stream-controls-block${inline ? '' : ' stream-pip-controls'}`}>
+      {childMicMissing ? (
+        <p className="stream-audio-notice" role="status">
+          Child microphone permission is off — video only (no sound). Grant mic on the child phone
+          to hear audio.
+        </p>
+      ) : null}
+      {soundRelevant && muted && childAudioAvailable ? (
+        <p className="stream-audio-notice stream-audio-notice--muted" role="status">
+          Sound muted on this device — video continues. Tap Unmute sound to hear the child again.
+        </p>
+      ) : null}
+      <div className="btn-row wrap">
       <button type="button" className="btn danger sm" disabled={busy} onClick={() => void stop()}>
         Stop
       </button>
@@ -437,8 +453,19 @@ export function StreamControls({
           Flip
         </button>
       ) : null}
-      <button type="button" className="btn ghost sm" onClick={toggleMute}>
-        {muted ? 'Unmute' : 'Mute'}
+      <button
+        type="button"
+        className="btn ghost sm"
+        disabled={!canToggleSound}
+        title={
+          childMicMissing
+            ? 'No sound from child — microphone permission is missing on the child phone'
+            : muted
+              ? 'Turn child sound back on for this viewer'
+              : 'Mute child sound (keep video)'
+        }
+        onClick={toggleMute}>
+        {muted ? 'Unmute sound' : 'Mute sound'}
       </button>
       {recordingSupported ? (
         <button
@@ -513,6 +540,7 @@ export function StreamControls({
           Reset view
         </button>
       ) : null}
+      </div>
     </div>
   );
 }
