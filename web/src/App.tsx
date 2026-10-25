@@ -1,6 +1,7 @@
 import {useEffect} from 'react';
 import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';
 import {AppShell} from './components/AppShell';
+import {PortalGate} from './components/PortalGate';
 import {ProtectedRoute} from './components/ProtectedRoute';
 import {useAuthStore} from './auth/authStore';
 import {useMobileSessionGuard} from './auth/useMobileSessionGuard';
@@ -60,28 +61,30 @@ function Bootstrap() {
   }, [hydrated, accessToken]);
 
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route element={<ProtectedRoute />}>
-        <Route element={<AppShell />}>
-          <Route path="/devices" element={<DevicesPage />} />
-          <Route path="/devices/:deviceId" element={<DeviceDetailPage />} />
-          <Route path="/alerts" element={<AlertsPage />} />
-          <Route path="/policies" element={<PoliciesPage />} />
-          <Route path="/geofences" element={<GeofencesPage />} />
-          <Route path="/billing" element={<BillingPage />} />
-          <Route path="/audit" element={<AuditPage />} />
-          <Route path="/chat" element={<ChatPage />} />
-          {isParentsTabEnabled() ? (
-            <Route path="/parents" element={<ParentsPage />} />
-          ) : (
-            <Route path="/parents" element={<Navigate to="/devices" replace />} />
-          )}
-          <Route path="/settings" element={<SettingsPage />} />
+    <PortalGate>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AppShell />}>
+            <Route path="/devices" element={<DevicesPage />} />
+            <Route path="/devices/:deviceId" element={<DeviceDetailPage />} />
+            <Route path="/alerts" element={<AlertsPage />} />
+            <Route path="/policies" element={<PoliciesPage />} />
+            <Route path="/geofences" element={<GeofencesPage />} />
+            <Route path="/billing" element={<BillingPage />} />
+            <Route path="/audit" element={<AuditPage />} />
+            <Route path="/chat" element={<ChatPage />} />
+            {isParentsTabEnabled() ? (
+              <Route path="/parents" element={<ParentsPage />} />
+            ) : (
+              <Route path="/parents" element={<Navigate to="/devices" replace />} />
+            )}
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
         </Route>
-      </Route>
-      <Route path="*" element={<Navigate to="/devices" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/devices" replace />} />
+      </Routes>
+    </PortalGate>
   );
 }
 

@@ -6,8 +6,10 @@ import {
   deletedMessagesPinApi,
   familyHandleApi,
   parentPinApi,
+  portalApi,
   readReceiptsApi,
   sharePresenceApi,
+  type PortalControl,
 } from '../api/services';
 import {useAuthStore} from '../auth/authStore';
 import {useLogout} from '../auth/useLogout';
@@ -44,6 +46,8 @@ export function SettingsPage() {
   const [readReceiptsMsg, setReadReceiptsMsg] = useState<string | null>(null);
   const [sharePresenceEnabled, setSharePresenceEnabled] = useState(true);
   const [sharePresenceMsg, setSharePresenceMsg] = useState<string | null>(null);
+  const [portalControl, setPortalControl] = useState<PortalControl | null>(null);
+  const [portalMsg, setPortalMsg] = useState<string | null>(null);
   const [deletePassword, setDeletePassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,13 +56,15 @@ export function SettingsPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [pinRes, deletedPinRes, handleRes, receiptsRes, presenceRes] = await Promise.all([
-        parentPinApi.status(),
-        deletedMessagesPinApi.status(),
-        familyHandleApi.status(),
-        readReceiptsApi.status(),
-        sharePresenceApi.status(),
-      ]);
+      const [pinRes, deletedPinRes, handleRes, receiptsRes, presenceRes, portalRes] =
+        await Promise.all([
+          parentPinApi.status(),
+          deletedMessagesPinApi.status(),
+          familyHandleApi.status(),
+          readReceiptsApi.status(),
+          sharePresenceApi.status(),
+          portalApi.control().catch(() => null),
+        ]);
       setPinConfigured(Boolean(pinRes.data.data?.pinConfigured));
       setDeletedPinConfigured(Boolean(deletedPinRes.data.data?.pinConfigured));
       setHandle(handleRes.data.data?.familyHandle ?? '');
@@ -69,6 +75,7 @@ export function SettingsPage() {
       );
       setReadReceiptsEnabled(receiptsRes.data.data?.enabled !== false);
       setSharePresenceEnabled(presenceRes.data.data?.enabled !== false);
+      setPortalControl(portalRes?.data.data ?? null);
     } catch {
       setError('Failed to load settings');
     }
@@ -226,6 +233,69 @@ export function SettingsPage() {
       );
     } catch {
       setSharePresenceMsg('Could not update share presence setting');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onTogglePortalDisabled = async () => {
+    if (!portalControl?.canControl) {
+      return;
+    }
+    const nextDisabled = !portalControl.disabled;
+    const ok = await confirm({
+      title: nextDisabled ? 'Disable parent website?' : 'Enable parent website?',
+      message: nextDisabled
+        ? 'Everyone will see a blank white screen until an admin enables it again.'
+        : 'The parent website will become available again for all parents.',
+      confirmLabel: nextDisabled ? 'Disable website' : 'Enable website',
+      danger: nextDisabled,
+    });
+    if (!ok) {
+      return;
+    }
+    setBusy(true);
+    setPortalMsg(null);
+    try {
+      const res = await portalApi.setDisabled(nextDisabled);
+      setPortalControl(res.data.data ?? null);
+      setPortalMsg(nextDisabled ? 'Website disabled — white screen is on' : 'Website enabled');
+      if (nextDisabled) {
+        window.location.reload();
+      }
+    } catch {
+      setPortalMsg('Could not update website availability');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onTogglePortalShare = async () => {
+    if (!portalControl?.canShare) {
+      return;
+    }
+    const nextShare = !portalControl.sharedWithEveryone;
+    const ok = await confirm({
+      title: nextShare ? 'Share control with everyone?' : 'Stop sharing control?',
+      message: nextShare
+        ? 'Every signed-in parent will be able to disable or enable the website.'
+        : 'Only the site admin (anilkumar@gmail.com) will keep this control.',
+      confirmLabel: nextShare ? 'Share with everyone' : 'Keep admin only',
+      danger: nextShare,
+    });
+    if (!ok) {
+      return;
+    }
+    setBusy(true);
+    setPortalMsg(null);
+    try {
+      const res = await portalApi.setShareWithEveryone(nextShare);
+      setPortalControl(res.data.data ?? null);
+      setPortalMsg(
+        nextShare ? 'Control shared with every parent' : 'Control limited to site admin again',
+      );
+    } catch {
+      setPortalMsg('Could not update sharing');
     } finally {
       setBusy(false);
     }
@@ -454,6 +524,44 @@ export function SettingsPage() {
         </div>
         {sharePresenceMsg ? <p className="muted">{sharePresenceMsg}</p> : null}
       </div>
+
+      {portalControl?.canControl || portalControl?.canShare ? (
+        <div className="card">
+          <h2>Website availability</h2>
+          <p className="muted">
+            Site admin can turn the parent website off (blank white screen for everyone) or on
+            again. Sharing lets every parent use the same control.
+          </p>
+          <p className="muted tiny">
+            Status:{' '}
+            <strong>{portalControl.disabled ? 'Disabled (white screen)' : 'Enabled'}</strong>
+            {portalControl.sharedWithEveryone ? ' · Control shared with everyone' : ''}
+          </p>
+          <div className="btn-row">
+            {portalControl.canControl ? (
+              <button
+                type="button"
+                className={`btn ${portalControl.disabled ? 'primary' : 'danger'}`}
+                disabled={busy}
+                onClick={() => void onTogglePortalDisabled()}>
+                {portalControl.disabled ? 'Enable website' : 'Disable website'}
+              </button>
+            ) : null}
+            {portalControl.canShare ? (
+              <button
+                type="button"
+                className={`btn ${portalControl.sharedWithEveryone ? 'ghost' : 'primary'}`}
+                disabled={busy}
+                onClick={() => void onTogglePortalShare()}>
+                {portalControl.sharedWithEveryone
+                  ? 'Stop sharing with everyone'
+                  : 'Share control with everyone'}
+              </button>
+            ) : null}
+          </div>
+          {portalMsg ? <p className="muted">{portalMsg}</p> : null}
+        </div>
+      ) : null}
 
       <div className="card">
         <h2>Session</h2>

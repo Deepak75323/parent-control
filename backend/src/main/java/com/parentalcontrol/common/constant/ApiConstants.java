@@ -115,6 +115,10 @@ public final class ApiConstants {
   public static final String ADMIN_CERTIFICATION = ADMIN + "/certification";
   public static final String ADMIN_CHAOS = ADMIN + "/chaos";
 
+  public static final String PORTAL = API_V1 + "/portal";
+  public static final String PORTAL_STATUS = PORTAL + "/status";
+  public static final String PORTAL_ANT = PORTAL + "/**";
+
   // ── Legacy / alternate prefixes (documented contract) ─────────────────
   public static final String STREAMING = API_V1 + "/streaming";
   public static final String SIGNALING = API_V1 + "/signaling";
@@ -153,6 +157,7 @@ public final class ApiConstants {
     DEVICE_PAIR,
     ONBOARDING_ANT,
     BILLING_WEBHOOKS_ANT,
+    PORTAL_STATUS,
     // P2-02: Swagger / OpenAPI are NOT public — require ROLE_ADMIN (see SecurityConfig).
     ACTUATOR_HEALTH,
     ACTUATOR_HEALTH_ANT,

@@ -57,6 +57,11 @@ export const ApiPaths = {
   PARENT_READ_RECEIPTS_STATUS: `${V1}/parent/read-receipts/status`,
   PARENT_SHARE_PRESENCE: `${V1}/parent/share-presence`,
   PARENT_SHARE_PRESENCE_STATUS: `${V1}/parent/share-presence/status`,
+
+  PORTAL_STATUS: `${V1}/portal/status`,
+  PORTAL_CONTROL: `${V1}/portal/control`,
+  PORTAL_DISABLED: `${V1}/portal/disabled`,
+  PORTAL_SHARE: `${V1}/portal/share`,
   PARENT_FRIENDS: `${V1}/parent/friends`,
   PARENT_FRIENDS_PENDING: `${V1}/parent/friends/requests/pending`,
   PARENT_FRIENDS_OUTGOING: `${V1}/parent/friends/requests/outgoing`,

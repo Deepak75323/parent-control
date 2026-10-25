@@ -63,7 +63,8 @@ public class SecurityConfig {
                         ApiConstants.BILLING_ANT,
                         ApiConstants.TIME_EXTENSION_REQUESTS_ANT,
                         ApiConstants.CHAT_ANT,
-                        ApiConstants.AUTH_ACCOUNT)
+                        ApiConstants.AUTH_ACCOUNT,
+                        ApiConstants.PORTAL_ANT)
                     .hasAuthority(Role.ROLE_PARENT.name())
                     .requestMatchers(ApiConstants.ADMIN_ANT)
                     .access(

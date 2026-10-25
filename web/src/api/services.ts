@@ -190,6 +190,23 @@ export const sharePresenceApi = {
     api.post<ApiResponse<{enabled: boolean}>>(ApiPaths.PARENT_SHARE_PRESENCE, {enabled}),
 };
 
+export type PortalStatus = {disabled: boolean};
+export type PortalControl = {
+  disabled: boolean;
+  sharedWithEveryone: boolean;
+  canControl: boolean;
+  canShare: boolean;
+};
+
+export const portalApi = {
+  status: () => api.get<ApiResponse<PortalStatus>>(ApiPaths.PORTAL_STATUS),
+  control: () => api.get<ApiResponse<PortalControl>>(ApiPaths.PORTAL_CONTROL),
+  setDisabled: (disabled: boolean) =>
+    api.post<ApiResponse<PortalControl>>(ApiPaths.PORTAL_DISABLED, {disabled}),
+  setShareWithEveryone: (shareWithEveryone: boolean) =>
+    api.post<ApiResponse<PortalControl>>(ApiPaths.PORTAL_SHARE, {shareWithEveryone}),
+};
+
 export type FriendRequestItem = {
   id: string;
   requesterUserId: string;
