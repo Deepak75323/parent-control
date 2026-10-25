@@ -1,5 +1,6 @@
 package com.parentalcontrol.chat.service;
 
+import com.parentalcontrol.chat.ChatHistoryClearRules;
 import com.parentalcontrol.chat.domain.ChatMessage;
 import com.parentalcontrol.chat.domain.ChatMessageDeleteScope;
 import com.parentalcontrol.chat.domain.ChatMessageHide;
@@ -336,27 +337,30 @@ public class ChatService {
     if (!ChatRoomModerationRules.canClearHistory(actor)) {
       throw new BusinessException(ErrorCode.FORBIDDEN, MessageConstants.CHAT_ONLY_OWNER_CAN_CLEAR);
     }
-    ChatRoom room = requireRoom(roomId);
-
-    Instant now = Instant.now();
-    softDeleteAllMessages(roomId, now);
-    room.setUpdatedAt(now);
-    roomRepository.save(room);
-
-    for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
-      realtimeService.publishChatCleared(member.getUserId(), roomId);
-    }
+    applyHistoryClear(roomId);
   }
 
   /** Used by decrypt reset — owner already authorized by caller. */
   @Transactional
   public void clearChatHistoryAsSystem(UUID roomId) {
+    applyHistoryClear(roomId);
+  }
+
+  /**
+   * Soft-deletes messages and advances the room history watermark so cleared notes disappear for
+   * everyone — no "this message was deleted" tombstones (those are only for manual delete).
+   */
+  private void applyHistoryClear(UUID roomId) {
     ChatRoom room = requireRoom(roomId);
     Instant now = Instant.now();
     softDeleteAllMessages(roomId, now);
+    room.setHistoryClearedAt(now);
     room.setUpdatedAt(now);
     roomRepository.save(room);
+
     for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
+      member.setChatClearedAt(now);
+      memberRepository.save(member);
       realtimeService.publishChatCleared(member.getUserId(), roomId);
     }
   }
@@ -702,8 +706,10 @@ public class ChatService {
     ChatRoomMember member = requireActiveMember(roomId, userId);
     UUID resolvedChannelId = channelService.resolveTextChannel(roomId, channelId).getId();
 
+    ChatRoom room = requireRoom(roomId);
     Instant clearedAfter =
-        member.getChatClearedAt() != null ? member.getChatClearedAt() : Instant.EPOCH;
+        ChatHistoryClearRules.effectiveClearedAfter(
+            member.getChatClearedAt(), room.getHistoryClearedAt());
 
     boolean ownerDeletedView =
         ChatRoomModerationRules.mayIncludeDeletedMessages(includeDeleted, member);
