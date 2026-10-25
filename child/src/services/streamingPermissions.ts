@@ -83,10 +83,12 @@ export async function ensureAllStreamingPermissions(): Promise<{
 /** Ensure permissions for a specific live stream type before WebRTC starts. */
 export async function ensurePermissionsForStream(streamType: string): Promise<void> {
   if (streamType === 'AUDIO') {
-    const mic = await nativeModules.isMicGranted();
+    // Listen-only: microphone only — never prompt for camera.
+    let mic = await nativeModules.isMicGranted();
     if (!mic) {
-      await nativeModules.requestCameraAndMicPermissions();
-      if (!(await waitFor(() => nativeModules.isMicGranted()))) {
+      await nativeModules.requestMicrophonePermission();
+      mic = await waitFor(() => nativeModules.isMicGranted());
+      if (!mic) {
         throw new Error('Microphone permission required — open Permissions on the child app');
       }
     }
@@ -94,15 +96,13 @@ export async function ensurePermissionsForStream(streamType: string): Promise<vo
   }
 
   if (streamType === 'CAMERA') {
-    const camera = await nativeModules.isCameraGranted();
-    const mic = await nativeModules.isMicGranted();
-    if (!camera || !mic) {
-      await nativeModules.requestCameraAndMicPermissions();
-      const ok =
-        (await waitFor(() => nativeModules.isCameraGranted())) &&
-        (await waitFor(() => nativeModules.isMicGranted()));
-      if (!ok) {
-        throw new Error('Camera and microphone required — open Permissions on the child app');
+    // Mic is optional: camera-with-sound uses ambient mic when granted, otherwise video-only.
+    let camera = await nativeModules.isCameraGranted();
+    if (!camera) {
+      await nativeModules.requestCameraPermission();
+      camera = await waitFor(() => nativeModules.isCameraGranted());
+      if (!camera) {
+        throw new Error('Camera permission required — open Permissions on the child app');
       }
     }
     return;
