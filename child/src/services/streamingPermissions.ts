@@ -53,7 +53,7 @@ export async function recoverScreenCaptureIfLost(): Promise<boolean> {
   return granted;
 }
 
-/** Grant camera (and optional legacy mic/screen) once — used during pairing/setup. */
+/** Grant camera, mic, and screen capture once — used during pairing/setup. */
 export async function ensureAllStreamingPermissions(): Promise<{
   camera: boolean;
   mic: boolean;
@@ -61,12 +61,12 @@ export async function ensureAllStreamingPermissions(): Promise<{
 }> {
   flowLog('PERMISSION_FLOW', 'ensureAllStreamingPermissions start');
   let camera = await nativeModules.isCameraGranted();
-  if (!camera) {
-    await nativeModules.requestCameraPermission();
+  let mic = await nativeModules.isMicGranted();
+  if (!camera || !mic) {
+    await nativeModules.requestCameraAndMicPermissions();
     camera = await waitFor(() => nativeModules.isCameraGranted());
+    mic = await waitFor(() => nativeModules.isMicGranted());
   }
-  // Mic is not required for camera-only live view.
-  const mic = await nativeModules.isMicGranted();
 
   let screen = await nativeModules.isMediaProjectionGranted();
   flowLog('PERMISSION_FLOW', 'screen capture check before consent', {screen});
@@ -83,10 +83,12 @@ export async function ensureAllStreamingPermissions(): Promise<{
 /** Ensure permissions for a specific live stream type before WebRTC starts. */
 export async function ensurePermissionsForStream(streamType: string): Promise<void> {
   if (streamType === 'AUDIO') {
-    const mic = await nativeModules.isMicGranted();
+    // Listen-only: microphone only — never prompt for camera.
+    let mic = await nativeModules.isMicGranted();
     if (!mic) {
-      await nativeModules.requestCameraAndMicPermissions();
-      if (!(await waitFor(() => nativeModules.isMicGranted()))) {
+      await nativeModules.requestMicrophonePermission();
+      mic = await waitFor(() => nativeModules.isMicGranted());
+      if (!mic) {
         throw new Error('Microphone permission required — open Permissions on the child app');
       }
     }
@@ -94,10 +96,12 @@ export async function ensurePermissionsForStream(streamType: string): Promise<vo
   }
 
   if (streamType === 'CAMERA') {
-    const camera = await nativeModules.isCameraGranted();
+    // Mic is optional: camera-with-sound uses ambient mic when granted, otherwise video-only.
+    let camera = await nativeModules.isCameraGranted();
     if (!camera) {
       await nativeModules.requestCameraPermission();
-      if (!(await waitFor(() => nativeModules.isCameraGranted()))) {
+      camera = await waitFor(() => nativeModules.isCameraGranted());
+      if (!camera) {
         throw new Error('Camera permission required — open Permissions on the child app');
       }
     }
