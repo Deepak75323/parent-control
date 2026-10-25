@@ -151,6 +151,7 @@ export function MeetStylePip({onClose}: Props) {
   const remoteStream = useLiveStreamStore(s => s.remoteStream);
   const streamType = useLiveStreamStore(s => s.streamType);
   const muted = useLiveStreamStore(s => s.muted);
+  const childAudioAvailable = useLiveStreamStore(s => s.childAudioAvailable);
   const toggleMute = useLiveStreamStore(s => s.toggleMute);
   const recording = useLiveStreamStore(s => s.recording);
   const recordingSupported = useLiveStreamStore(s => s.recordingSupported);
@@ -1640,14 +1641,38 @@ export function MeetStylePip({onClose}: Props) {
           <SendIcon />
         </button>
       </form>
+      {liveCamera && streamType === 'CAMERA' && childAudioAvailable === false ? (
+        <p className="meet-audio-notice" role="status">
+          Child microphone permission is off — video only. Grant mic on the child phone for sound.
+        </p>
+      ) : null}
+      {liveCamera && streamType === 'CAMERA' && muted && childAudioAvailable ? (
+        <p className="meet-audio-notice meet-audio-notice--muted" role="status">
+          Sound muted here — video continues. Tap the mic button to unmute.
+        </p>
+      ) : null}
       {liveCamera ? (
       <div className="meet-controls" role="toolbar" aria-label="Live view controls">
         <button
           type="button"
           className={`meet-ctl${muted ? ' hot' : ''}`}
-          aria-label={muted ? 'Unmute' : 'Mute'}
+          aria-label={
+            childAudioAvailable === false
+              ? 'No child microphone sound available'
+              : muted
+                ? 'Unmute sound'
+                : 'Mute sound'
+          }
+          title={
+            childAudioAvailable === false
+              ? 'Microphone permission is missing on the child phone'
+              : muted
+                ? 'Turn child sound back on'
+                : 'Mute child sound (keep video)'
+          }
+          disabled={streamType === 'CAMERA' && childAudioAvailable === false}
           onClick={toggleMute}>
-          <MicIcon off={muted} />
+          <MicIcon off={muted || childAudioAvailable === false} />
         </button>
         {recordingSupported ? (
           <button
@@ -2011,4 +2036,6 @@ const MEET_PIP_CSS = `
 .meet-controls { display: flex; justify-content: center; gap: 18px; padding: 10px 12px 16px; }
 .meet-ctl { width: 52px; height: 52px; border: 0; border-radius: 50%; background: #3c4043; color: #fff; cursor: pointer; display: grid; place-items: center; }
 .meet-ctl.hot, .meet-ctl.end { background: #ea4335; }
+.meet-audio-notice { margin: 0 16px 8px; padding: 8px 12px; border-radius: 10px; background: #3c4043; color: #fdd663; font-size: 12px; line-height: 1.35; text-align: center; }
+.meet-audio-notice--muted { color: #e8eaed; background: #2d2e31; }
 `;
