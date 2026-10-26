@@ -1,37 +1,39 @@
 import {type ReactNode, useCallback, useEffect, useState} from 'react';
-import {portalApi, type PortalControl} from '../api/services';
+import {authApi, portalApi} from '../api/services';
 import {useAuthStore} from '../auth/authStore';
+import {
+  shouldShowPortalUnlockForm,
+  unlockPortalWebsite,
+  validatePortalUnlockInput,
+} from '../lib/portalUnlock';
 
 type Props = {children: ReactNode};
 
 /**
- * When the site admin disables the parent portal, render a white screen.
- * Controllers (bootstrap admin or handle-granted parents) can enable with password.
+ * When the site admin disables the parent portal, render a white screen with an
+ * unlock form. Anyone can see the form; only admin/operators can enable it.
  */
 export function PortalGate({children}: Props) {
-  const accessToken = useAuthStore(s => s.accessToken);
+  const storedEmail = useAuthStore(s => s.email);
+  const hydrated = useAuthStore(s => s.hydrated);
+  const setTokens = useAuthStore(s => s.setTokens);
   const [disabled, setDisabled] = useState(false);
-  const [control, setControl] = useState<PortalControl | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (storedEmail && !email) {
+      setEmail(storedEmail);
+    }
+  }, [storedEmail, email]);
 
   const refresh = useCallback(async () => {
     try {
       const statusRes = await portalApi.status();
-      const isDisabled = Boolean(statusRes.data.data?.disabled);
-      setDisabled(isDisabled);
-      if (accessToken) {
-        try {
-          const controlRes = await portalApi.control();
-          setControl(controlRes.data.data ?? null);
-        } catch {
-          setControl(null);
-        }
-      } else {
-        setControl(null);
-      }
+      setDisabled(Boolean(statusRes.data.data?.disabled));
       setError(null);
     } catch {
       // If status is unreachable, do not hard-block the app.
@@ -40,11 +42,14 @@ export function PortalGate({children}: Props) {
     } finally {
       setReady(true);
     }
-  }, [accessToken]);
+  }, []);
 
   useEffect(() => {
+    if (!hydrated) {
+      return;
+    }
     void refresh();
-  }, [refresh]);
+  }, [hydrated, refresh]);
 
   useEffect(() => {
     if (!disabled) {
@@ -56,59 +61,91 @@ export function PortalGate({children}: Props) {
     return () => window.clearInterval(id);
   }, [disabled, refresh]);
 
-  async function enableSite() {
-    if (!password.trim()) {
-      setError('Enter your account password');
+  async function unlockSite() {
+    const validation = validatePortalUnlockInput(email, password);
+    if (validation) {
+      setError(validation);
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const res = await portalApi.setDisabled(false, password);
-      setControl(res.data.data ?? null);
-      setDisabled(Boolean(res.data.data?.disabled));
+      const result = await unlockPortalWebsite({
+        email,
+        password,
+        login: async (loginEmail, loginPassword) => {
+          const {data} = await authApi.login(loginEmail, loginPassword);
+          if (!data.success || !data.data?.accessToken || !data.data.refreshToken) {
+            throw new Error(data.message ?? 'Login failed');
+          }
+          return {
+            accessToken: data.data.accessToken,
+            refreshToken: data.data.refreshToken,
+            email: data.data.profile?.email ?? loginEmail,
+            profile: data.data.profile ?? null,
+          };
+        },
+        setDisabled: async (nextDisabled, pwd) => {
+          const res = await portalApi.setDisabled(nextDisabled, pwd);
+          return res.data.data ?? {disabled: true};
+        },
+        setTokens,
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       setPassword('');
-    } catch {
-      setError('Could not enable — check password');
+      setDisabled(false);
     } finally {
       setBusy(false);
     }
   }
 
-  if (!ready) {
+  if (!hydrated || !ready) {
     return <div className="portal-white-screen" aria-busy="true" />;
   }
 
-  if (!disabled) {
+  if (!shouldShowPortalUnlockForm(disabled)) {
     return <>{children}</>;
   }
 
-  const canEnable = Boolean(control?.canControl && accessToken);
-
   return (
     <div className="portal-white-screen" role="status" aria-live="polite">
-      {canEnable ? (
-        <div className="portal-white-screen-admin">
-          <label className="portal-white-screen-password">
-            Account password
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              disabled={busy}
-            />
-          </label>
-          <button
-            type="button"
-            className="btn primary"
-            disabled={busy || !password.trim()}
-            onClick={() => void enableSite()}>
-            {busy ? 'Enabling…' : 'Enable website'}
-          </button>
-          {error ? <p className="portal-white-screen-error">{error}</p> : null}
-        </div>
-      ) : null}
+      <form
+        className="portal-white-screen-admin"
+        onSubmit={e => {
+          e.preventDefault();
+          void unlockSite();
+        }}>
+        <label className="portal-white-screen-password">
+          Email
+          <input
+            type="email"
+            autoComplete="username"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            disabled={busy}
+          />
+        </label>
+        <label className="portal-white-screen-password">
+          Account password
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            disabled={busy}
+          />
+        </label>
+        <button
+          type="submit"
+          className="btn primary"
+          disabled={busy || !email.trim() || !password.trim()}>
+          {busy ? 'Unlocking…' : 'Unlock website'}
+        </button>
+        {error ? <p className="portal-white-screen-error">{error}</p> : null}
+      </form>
     </div>
   );
 }
