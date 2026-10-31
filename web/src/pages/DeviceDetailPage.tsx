@@ -1,8 +1,9 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import {Link, useParams} from 'react-router-dom';
+import {Link, useNavigate, useParams} from 'react-router-dom';
 import {deviceApi, monitoringApi} from '../api/services';
 import {AppIcon} from '../components/AppIcon';
 import {LiveStreamPanel} from '../components/LiveStreamPanel';
+import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {appDisplayName} from '../lib/appDisplayName';
 import {deviceInitials, isDevicePresentOnline} from '../lib/devicePresence';
 import type {
@@ -34,6 +35,7 @@ function appsHaveIcons(list: InstalledAppItem[]): boolean {
 
 export function DeviceDetailPage() {
   const {deviceId = ''} = useParams();
+  const navigate = useNavigate();
   const [device, setDevice] = useState<DeviceSummary | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [locations, setLocations] = useState<LocationPoint[]>([]);
@@ -41,9 +43,12 @@ export function DeviceDetailPage() {
   const [usage, setUsage] = useState<UsageStatsItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [syncingIcons, setSyncingIcons] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const {confirm, dialog: confirmDialog} = useConfirmDialog(busy);
   const live = useRealtimeStore(s => s.deviceStatuses[deviceId]);
   const liveNotifs = useRealtimeStore(s => s.liveNotifications);
   const liveLoc = useRealtimeStore(s => s.liveLocations[deviceId]);
+  const removeDevice = useRealtimeStore(s => s.removeDevice);
 
   const load = useCallback(async () => {
     if (!deviceId) {
@@ -178,8 +183,37 @@ export function DeviceDetailPage() {
       })
     : null;
 
+  const onRevokePairing = async () => {
+    if (!deviceId || !merged || revoked) {
+      return;
+    }
+    const ok = await confirm({
+      title: 'Remove pairing?',
+      message:
+        'Stops monitoring on this child phone, frees the plan seat, and marks the device as revoked. Pair again later with a new pairing code if needed.',
+      confirmLabel: 'Remove pairing',
+      danger: true,
+    });
+    if (!ok) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await deviceApi.sendCommand(deviceId, 'REVOKE_MONITORING');
+      removeDevice(deviceId);
+      setDevice(prev => (prev ? {...prev, status: 'REVOKED'} : prev));
+      navigate('/devices', {replace: true});
+    } catch {
+      setError('Could not remove pairing — try again');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="page">
+      {confirmDialog}
       <Link to="/devices" className="back-link">
         ← #devices
       </Link>
@@ -221,6 +255,15 @@ export function DeviceDetailPage() {
                 <Link className="btn ghost" to={`/geofences?deviceId=${merged.id}`}>
                   Geofences
                 </Link>
+                {!revoked ? (
+                  <button
+                    type="button"
+                    className="btn danger"
+                    disabled={busy}
+                    onClick={() => void onRevokePairing()}>
+                    Remove pairing
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
