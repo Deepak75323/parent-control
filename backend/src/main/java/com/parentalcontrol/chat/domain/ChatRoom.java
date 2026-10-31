@@ -41,8 +41,9 @@ public class ChatRoom extends BaseEntity {
   private boolean membersPanelShared = false;
 
   /**
-   * When set, messages created at or before this instant are hidden for every member (clear
-   * history). Manual delete-for-everyone tombstones still apply only to messages after this.
+   * When set, messages created at or before this instant are hidden from the normal timeline for
+   * every member (clear history). Soft-deleted cleared notes remain visible to the room owner via
+   * "show deleted messages" until retention expires.
    */
   @Column(name = "history_cleared_at")
   private Instant historyClearedAt;

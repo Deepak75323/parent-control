@@ -22,4 +22,15 @@ class ChatHistoryClearRulesTest {
     assertEquals(t, ChatHistoryClearRules.effectiveClearedAfter(t, null));
     assertEquals(t, ChatHistoryClearRules.effectiveClearedAfter(null, t));
   }
+
+  @Test
+  void ownerDeletedViewIgnoresClearWatermarkSoClearHistoryNotesRemainReviewable() {
+    Instant cleared = Instant.parse("2026-10-25T12:00:00Z");
+    assertEquals(
+        Instant.EPOCH,
+        ChatHistoryClearRules.clearedAfterForListing(true, cleared, cleared));
+    assertEquals(
+        cleared,
+        ChatHistoryClearRules.clearedAfterForListing(false, cleared, null));
+  }
 }

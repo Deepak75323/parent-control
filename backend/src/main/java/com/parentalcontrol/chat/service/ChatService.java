@@ -347,8 +347,9 @@ public class ChatService {
   }
 
   /**
-   * Soft-deletes messages and advances the room history watermark so cleared notes disappear for
-   * everyone — no "this message was deleted" tombstones (those are only for manual delete).
+   * Soft-deletes messages and advances the room history watermark so cleared notes disappear from
+   * everyone's normal timeline (no "this message was deleted" notices). Soft-deleted rows remain
+   * for the room owner under "show deleted messages" until retention expires.
    */
   private void applyHistoryClear(UUID roomId) {
     ChatRoom room = requireRoom(roomId);
@@ -707,15 +708,14 @@ public class ChatService {
     UUID resolvedChannelId = channelService.resolveTextChannel(roomId, channelId).getId();
 
     ChatRoom room = requireRoom(roomId);
-    Instant clearedAfter =
-        ChatHistoryClearRules.effectiveClearedAfter(
-            member.getChatClearedAt(), room.getHistoryClearedAt());
-
     boolean ownerDeletedView =
         ChatRoomModerationRules.mayIncludeDeletedMessages(includeDeleted, member);
     if (ownerDeletedView) {
       deletedMessagesPinService.requireUnlockedForDeletedView();
     }
+    Instant clearedAfter =
+        ChatHistoryClearRules.clearedAfterForListing(
+            ownerDeletedView, member.getChatClearedAt(), room.getHistoryClearedAt());
     Page<ChatMessage> messages =
         ownerDeletedView
             ? messageRepository.findForOwnerIncludingDeletedInChannel(
