@@ -27,6 +27,7 @@ import {setChatViewUnlocked} from '../lib/chatViewUnlock';
 import {isChatDarkMode, setChatDarkMode, subscribeChatDarkMode} from '../lib/chatDarkMode';
 import {openChatPip} from '../livestream/meetPipWindow';
 import {isMobilePipViewport} from '../livestream/pipLayout';
+import {isHiddenByChatClearWatermark} from '../lib/chatClearWatermark';
 import {
   isShowDeletedMessagesForOwner,
   messageForOwnerDeletedView,
@@ -590,6 +591,7 @@ export function ChatPage() {
     const loadedAt = messagesLoadedAt[selectedRoomId] ?? 0;
     const globalClearedAt = chatClearedAt[selectedRoomId];
     const personalClearedAt = personalChatClearedAt[selectedRoomId];
+    const ownerDeletedView = showDeletedMessages && Boolean(selectedRoom?.owner);
     const byId = new Map<string, ChatMessageItem>();
 
     for (const message of apiMessages) {
@@ -613,10 +615,14 @@ export function ChatPage() {
         continue;
       }
       const createdMs = new Date(visible.createdAt).getTime();
-      if (globalClearedAt && createdMs <= globalClearedAt) {
-        continue;
-      }
-      if (personalClearedAt && createdMs <= personalClearedAt) {
+      if (
+        isHiddenByChatClearWatermark({
+          createdMs,
+          globalClearedAtMs: globalClearedAt,
+          personalClearedAtMs: personalClearedAt,
+          ownerDeletedView,
+        })
+      ) {
         continue;
       }
       byId.set(visible.id, visible);
@@ -644,10 +650,14 @@ export function ChatPage() {
           continue;
         }
         const createdMs = new Date(visible.createdAt).getTime();
-        if (globalClearedAt && createdMs <= globalClearedAt) {
-          continue;
-        }
-        if (personalClearedAt && createdMs <= personalClearedAt) {
+        if (
+          isHiddenByChatClearWatermark({
+            createdMs,
+            globalClearedAtMs: globalClearedAt,
+            personalClearedAtMs: personalClearedAt,
+            ownerDeletedView,
+          })
+        ) {
           continue;
         }
         if (createdMs <= loadedAt && !byId.has(visible.id)) {
