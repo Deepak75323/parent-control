@@ -24,10 +24,12 @@ type Props = {
   canEdit?: boolean;
   canDelete?: boolean;
   canDeleteForEveryone?: boolean;
+  canPurgeDeleted?: boolean;
   swipeToReplyEnabled?: boolean;
   onEdit?: () => void;
   onDeleteForMe?: () => void;
   onDeleteForEveryone?: () => void;
+  onPurgeDeleted?: () => void;
   onCopy?: () => void;
   onReply?: () => void;
   onQuoteClick?: (messageId: string) => void;
@@ -50,10 +52,12 @@ export function MessageBubble({
   canEdit = false,
   canDelete = false,
   canDeleteForEveryone = false,
+  canPurgeDeleted = false,
   swipeToReplyEnabled = false,
   onEdit,
   onDeleteForMe,
   onDeleteForEveryone,
+  onPurgeDeleted,
   onCopy,
   onReply,
   onQuoteClick,
@@ -142,6 +146,15 @@ export function MessageBubble({
       icon: '🗑',
       danger: true,
       onSelect: onDeleteForEveryone,
+    });
+  }
+  if (canPurgeDeleted && onPurgeDeleted) {
+    actions.push({
+      id: 'purge-deleted',
+      label: 'Remove permanently',
+      icon: '🗑',
+      danger: true,
+      onSelect: onPurgeDeleted,
     });
   }
   if (!isOwn && onCopy) {

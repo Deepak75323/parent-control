@@ -29,6 +29,16 @@ final class ChatRoomModerationRules {
     return requested && viewer.getRole() == ChatRoomMemberRole.OWNER;
   }
 
+  /** Sender, or room owner/admin (same as clear-history), may delete a live note for everyone. */
+  static boolean canDeleteMessageForEveryone(ChatRoomMember actor, boolean isSender) {
+    return isSender || isOwnerOrAdmin(actor);
+  }
+
+  /** Only the room owner may permanently remove a note from the deleted-messages review. */
+  static boolean canPurgeDeletedFromReview(ChatRoomMember actor) {
+    return actor.getRole() == ChatRoomMemberRole.OWNER;
+  }
+
   static void requireCanRemove(ChatRoomMember actor, ChatRoomMember target) {
     requireModerator(actor);
     if (target.getRole() == ChatRoomMemberRole.OWNER) {

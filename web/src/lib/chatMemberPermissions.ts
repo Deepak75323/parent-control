@@ -21,6 +21,22 @@ export function canClearHistoryForEveryone(myRole: ChatMemberRole | undefined | 
   return isModerator(myRole);
 }
 
+/** Sender, or room owner/admin, may delete a live note for everyone. */
+export function canDeleteNoteForEveryone(
+  myRole: ChatMemberRole | undefined | null,
+  isOwnMessage: boolean,
+): boolean {
+  return isOwnMessage || isModerator(myRole);
+}
+
+/** Only the room owner may permanently remove a note from show-deleted review. */
+export function canPurgeDeletedNoteFromReview(
+  myRole: ChatMemberRole | undefined | null,
+  isRoomOwner: boolean,
+): boolean {
+  return myRole === 'OWNER' || isRoomOwner;
+}
+
 export function canTransferOwnership(myRole: ChatMemberRole | undefined | null): boolean {
   return myRole === 'OWNER';
 }

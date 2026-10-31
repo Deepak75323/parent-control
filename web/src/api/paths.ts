@@ -109,6 +109,8 @@ export const ApiPaths = {
   CHAT_DECRYPT_VERIFY: `${V1}/chat/decrypt-verify`,
   chatMessage: (roomId: string, messageId: string) =>
     `${V1}/chat/rooms/${roomId}/messages/${messageId}`,
+  chatMessageDeletedReview: (roomId: string, messageId: string) =>
+    `${V1}/chat/rooms/${roomId}/messages/${messageId}/deleted-review`,
   chatMessageMarkUnread: (roomId: string, messageId: string) =>
     `${V1}/chat/rooms/${roomId}/messages/${messageId}/mark-unread`,
   chatMessageReactions: (roomId: string, messageId: string) =>

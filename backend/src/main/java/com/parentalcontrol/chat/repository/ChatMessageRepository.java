@@ -196,4 +196,17 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
               + ")",
       nativeQuery = true)
   int expireDeletedMessagesInOwnedRooms(@Param("userId") UUID userId);
+
+  /**
+   * Permanently expire one soft-deleted note so it leaves the owner's deleted-messages review.
+   */
+  @Modifying(clearAutomatically = true, flushAutomatically = true)
+  @Query(
+      value =
+          "UPDATE chat_messages SET body = '', deleted_at = TIMESTAMP '1970-01-01 00:00:00+00' "
+              + "WHERE id = :messageId AND room_id = :roomId AND deleted_at IS NOT NULL "
+              + "AND deleted_at > TIMESTAMP '1970-01-01 00:00:00+00'",
+      nativeQuery = true)
+  int expireDeletedMessageInRoom(
+      @Param("roomId") UUID roomId, @Param("messageId") UUID messageId);
 }

@@ -302,12 +302,24 @@ public class ChatController {
   }
 
   @DeleteMapping("/rooms/{roomId}/messages/{messageId}")
-  @Operation(summary = "Delete a chat message for yourself or for everyone (sender only)")
+  @Operation(
+      summary =
+          "Delete a chat message for yourself or for everyone (sender, or room owner/admin)")
   public ApiResponse<Void> deleteMessage(
       @PathVariable UUID roomId,
       @PathVariable UUID messageId,
       @RequestParam(defaultValue = "FOR_ME") ChatMessageDeleteScope scope) {
     chatService.deleteMessage(roomId, messageId, scope);
+    return ApiResponse.ok(null);
+  }
+
+  @DeleteMapping("/rooms/{roomId}/messages/{messageId}/deleted-review")
+  @Operation(
+      summary =
+          "Permanently remove a soft-deleted note from the owner's deleted-messages review")
+  public ApiResponse<Void> purgeDeletedFromOwnerReview(
+      @PathVariable UUID roomId, @PathVariable UUID messageId) {
+    chatService.purgeDeletedFromOwnerReview(roomId, messageId);
     return ApiResponse.ok(null);
   }
 

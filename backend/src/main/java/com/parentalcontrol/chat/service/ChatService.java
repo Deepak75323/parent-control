@@ -427,7 +427,7 @@ public class ChatService {
 
   private void deleteMessageForEveryone(UUID roomId, UUID messageId) {
     UUID userId = SecurityUtils.requireUserId();
-    requireActiveMember(roomId, userId);
+    ChatRoomMember actor = requireActiveMember(roomId, userId);
     requireRoom(roomId);
 
     ChatMessage message =
@@ -442,12 +442,47 @@ public class ChatService {
       throw new BusinessException(ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND);
     }
 
-    if (!message.getSenderUserId().equals(userId)) {
+    boolean isSender = message.getSenderUserId().equals(userId);
+    if (!ChatRoomModerationRules.canDeleteMessageForEveryone(actor, isSender)) {
       throw new BusinessException(
           ErrorCode.FORBIDDEN, MessageConstants.CHAT_CANNOT_DELETE_FOR_EVERYONE);
     }
 
     purgeMessageForEveryone(roomId, message);
+  }
+
+  /**
+   * Room owner permanently removes one soft-deleted note from "show deleted messages" review
+   * (same expiry as the 24h retention cutoff).
+   */
+  @Transactional
+  public void purgeDeletedFromOwnerReview(UUID roomId, UUID messageId) {
+    UUID userId = SecurityUtils.requireUserId();
+    ChatRoomMember actor = requireActiveMember(roomId, userId);
+    if (!ChatRoomModerationRules.canPurgeDeletedFromReview(actor)) {
+      throw new BusinessException(
+          ErrorCode.FORBIDDEN, MessageConstants.CHAT_CANNOT_DELETE_FOR_EVERYONE);
+    }
+    requireRoom(roomId);
+
+    ChatMessage message =
+        messageRepository
+            .findIncludingDeletedByIdAndRoomId(messageId, roomId)
+            .orElseThrow(
+                () ->
+                    new BusinessException(
+                        ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND));
+    if (message.getDeletedAt() == null) {
+      throw new BusinessException(ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_MESSAGE_NOT_FOUND);
+    }
+
+    int updated = messageRepository.expireDeletedMessageInRoom(roomId, messageId);
+    if (updated == 0) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, MessageConstants.CHAT_MESSAGE_NOT_FOUND);
+    }
+    for (ChatRoomMember member : memberRepository.findByRoomId(roomId)) {
+      realtimeService.publishMessageDeleted(member.getUserId(), roomId, messageId);
+    }
   }
 
   /**

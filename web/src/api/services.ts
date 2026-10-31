@@ -381,6 +381,8 @@ export const chatApi = {
     }),
   deleteMessage: (roomId: string, messageId: string, scope: ChatMessageDeleteScope = 'FOR_ME') =>
     api.delete<ApiResponse<void>>(ApiPaths.chatMessage(roomId, messageId), {params: {scope}}),
+  purgeDeletedFromReview: (roomId: string, messageId: string) =>
+    api.delete<ApiResponse<void>>(ApiPaths.chatMessageDeletedReview(roomId, messageId)),
   editMessage: (roomId: string, messageId: string, body: string) =>
     api.patch<ApiResponse<ChatMessageItem>>(ApiPaths.chatMessage(roomId, messageId), {body}),
   sendMediaMessage: (

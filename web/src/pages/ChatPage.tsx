@@ -75,7 +75,9 @@ import {ChatWorkspaceLayout} from '../components/chat/ChatWorkspaceLayout';
 import {useChatCallSessionStore} from '../realtime/chatCallSessionStore';
 import {
   canClearHistoryForEveryone,
+  canDeleteNoteForEveryone,
   canManageMembers,
+  canPurgeDeletedNoteFromReview,
   type ChatMemberRole,
 } from '../lib/chatMemberPermissions';
 import {useChatWorkspaceLayout} from '../hooks/useChatWorkspaceLayout';
@@ -2210,7 +2212,19 @@ export function ChatPage() {
   }
 
   function canDeleteForEveryone(message: ChatMessageItem): boolean {
-    return Boolean(message.ownMessage);
+    const role = (selectedRoom?.myRole ??
+      (selectedRoom?.owner ? 'OWNER' : 'MEMBER')) as ChatMemberRole;
+    return canDeleteNoteForEveryone(role, Boolean(message.ownMessage));
+  }
+
+  function canPurgeDeletedMessage(_message: ChatMessageItem): boolean {
+    const role = (selectedRoom?.myRole ??
+      (selectedRoom?.owner ? 'OWNER' : 'MEMBER')) as ChatMemberRole;
+    return (
+      showDeletedMessages &&
+      Boolean(_message.deleted) &&
+      canPurgeDeletedNoteFromReview(role, Boolean(selectedRoom?.owner))
+    );
   }
 
   function canEditMessage(message: ChatMessageItem): boolean {
@@ -2303,6 +2317,34 @@ export function ChatPage() {
       await chatApi.deleteMessage(selectedRoomId, message.id, scope);
     } catch {
       setError('Could not delete message');
+      void loadMessages(selectedRoomId);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePurgeDeletedMessage(message: ChatMessageItem) {
+    if (!selectedRoomId || !canPurgeDeletedMessage(message)) {
+      return;
+    }
+    if (
+      !(await confirm({
+        title: 'Remove permanently?',
+        message: 'This deleted note will leave your review list and cannot be restored.',
+        confirmLabel: 'Remove permanently',
+        danger: true,
+      }))
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setApiMessages(prev => prev.filter(entry => entry.id !== message.id));
+    removeLiveChatMessage(message.id);
+    try {
+      await chatApi.purgeDeletedFromReview(selectedRoomId, message.id);
+    } catch {
+      setError('Could not remove deleted note');
       void loadMessages(selectedRoomId);
     } finally {
       setBusy(false);
@@ -2572,10 +2614,12 @@ export function ChatPage() {
         canEdit={canEditMessage(message) && !message.deleted}
         canDelete={canDeleteMessage(message) && !message.deleted}
         canDeleteForEveryone={canDeleteForEveryone(message) && !message.deleted}
+        canPurgeDeleted={canPurgeDeletedMessage(message)}
         swipeToReplyEnabled={workspace.isMobile && !message.deleted}
         onEdit={() => startEditMessage(message)}
         onDeleteForMe={() => void handleDeleteMessage(message, 'FOR_ME')}
         onDeleteForEveryone={() => void handleDeleteMessage(message, 'FOR_EVERYONE')}
+        onPurgeDeleted={() => void handlePurgeDeletedMessage(message)}
         onCopy={() => handleCopyMessage(message)}
         onReply={message.deleted ? undefined : () => startReplyMessage(message)}
         onQuoteClick={scrollToMessage}

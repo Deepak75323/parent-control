@@ -1,9 +1,11 @@
 import {describe, expect, it} from 'vitest';
 import {
   canClearHistoryForEveryone,
+  canDeleteNoteForEveryone,
   canGrantDecrypt,
   canMakeOwner,
   canMuteMember,
+  canPurgeDeletedNoteFromReview,
   canRemoveMember,
   canTransferOwnership,
 } from './chatMemberPermissions';
@@ -17,6 +19,19 @@ describe('chatMemberPermissions', () => {
     expect(canClearHistoryForEveryone('OWNER')).toBe(true);
     expect(canClearHistoryForEveryone('ADMIN')).toBe(true);
     expect(canClearHistoryForEveryone('MEMBER')).toBe(false);
+  });
+
+  it('lets owner/admin delete any live note for everyone', () => {
+    expect(canDeleteNoteForEveryone('OWNER', false)).toBe(true);
+    expect(canDeleteNoteForEveryone('ADMIN', false)).toBe(true);
+    expect(canDeleteNoteForEveryone('MEMBER', true)).toBe(true);
+    expect(canDeleteNoteForEveryone('MEMBER', false)).toBe(false);
+  });
+
+  it('lets only the room owner purge deleted review notes', () => {
+    expect(canPurgeDeletedNoteFromReview('OWNER', true)).toBe(true);
+    expect(canPurgeDeletedNoteFromReview('ADMIN', false)).toBe(false);
+    expect(canPurgeDeletedNoteFromReview('MEMBER', false)).toBe(false);
   });
 
   it('lets admin remove members but not other admins', () => {

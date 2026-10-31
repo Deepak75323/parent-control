@@ -82,6 +82,21 @@ class ChatRoomModerationRulesTest {
     assertFalse(ChatRoomModerationRules.mayIncludeDeletedMessages(true, member()));
   }
 
+  @Test
+  void ownerOrAdminCanDeleteAnyLiveNoteForEveryone() {
+    assertTrue(ChatRoomModerationRules.canDeleteMessageForEveryone(owner(), false));
+    assertTrue(ChatRoomModerationRules.canDeleteMessageForEveryone(admin(), false));
+    assertTrue(ChatRoomModerationRules.canDeleteMessageForEveryone(member(), true));
+    assertFalse(ChatRoomModerationRules.canDeleteMessageForEveryone(member(), false));
+  }
+
+  @Test
+  void onlyOwnerCanPurgeDeletedNotesFromReview() {
+    assertTrue(ChatRoomModerationRules.canPurgeDeletedFromReview(owner()));
+    assertFalse(ChatRoomModerationRules.canPurgeDeletedFromReview(admin()));
+    assertFalse(ChatRoomModerationRules.canPurgeDeletedFromReview(member()));
+  }
+
   private ChatRoomMember owner() {
     return member(ownerId, ChatRoomMemberRole.OWNER);
   }
