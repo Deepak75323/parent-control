@@ -37,12 +37,14 @@ class DeviceCommandServiceIdempotencyTest {
   @Mock private DeviceCommandDao deviceCommandRepository;
   @Mock private DeviceDao deviceRepository;
   @Mock private ParentProfileDao parentProfileRepository;
+  @Mock private com.parentalcontrol.user.dao.UserDao userRepository;
   @Mock private AuditService auditService;
   @Mock private ApplicationEventPublisher applicationEventPublisher;
   @Mock private DeviceCommandProperties deviceCommandProperties;
   @Mock private ObjectMapper objectMapper;
   @Mock private com.parentalcontrol.config.SecurityProperties securityProperties;
   @Mock private com.parentalcontrol.user.service.ParentPinService parentPinService;
+  @Mock private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
   @Mock
   private com.parentalcontrol.observability.CommandObservabilityService commandObservabilityService;

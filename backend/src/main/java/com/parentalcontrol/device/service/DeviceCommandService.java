@@ -25,7 +25,9 @@ import com.parentalcontrol.device.event.DeviceCommandCreatedEvent;
 import com.parentalcontrol.observability.CommandObservabilityService;
 import com.parentalcontrol.observability.CorrelationContext;
 import com.parentalcontrol.user.dao.ParentProfileDao;
+import com.parentalcontrol.user.dao.UserDao;
 import com.parentalcontrol.user.domain.ParentProfile;
+import com.parentalcontrol.user.domain.User;
 import com.parentalcontrol.user.service.ParentPinService;
 import java.time.Instant;
 import java.util.List;
@@ -34,6 +36,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,11 +48,13 @@ public class DeviceCommandService {
   private final DeviceCommandDao deviceCommandRepository;
   private final DeviceDao deviceRepository;
   private final ParentProfileDao parentProfileRepository;
+  private final UserDao userRepository;
   private final AuditService auditService;
   private final ApplicationEventPublisher applicationEventPublisher;
   private final DeviceCommandProperties deviceCommandProperties;
   private final SecurityProperties securityProperties;
   private final ParentPinService parentPinService;
+  private final PasswordEncoder passwordEncoder;
   private final ObjectMapper objectMapper;
   private final CommandObservabilityService commandObservabilityService;
   private final FeatureGateService featureGateService;
@@ -59,6 +64,7 @@ public class DeviceCommandService {
     Device device = requireOwnedDevice(deviceId);
     featureGateService.requireActiveSubscription(device.getParentProfileId());
     validateCommand(device, request.getCommandType());
+    requirePasswordForRevoke(request);
     requireStepUpIfSensitive(request);
 
     String payloadJson = toJson(request.getPayload());
@@ -442,6 +448,27 @@ public class DeviceCommandService {
     }
     parentPinService.requireSensitiveActionAccess(
         request.getParentPin(), "remote control commands");
+  }
+
+  /** Always require the account password before removing a child pairing. */
+  private void requirePasswordForRevoke(DeviceCommandRequest request) {
+    if (request.getCommandType() != DeviceCommandType.REVOKE_MONITORING) {
+      return;
+    }
+    String password = request.getPassword();
+    if (password == null || password.isBlank()) {
+      throw new BusinessException(
+          ErrorCode.INVALID_CREDENTIALS, MessageConstants.INCORRECT_PASSWORD);
+    }
+    UUID userId = SecurityUtils.requireUserId();
+    User user =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+    if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+      throw new BusinessException(
+          ErrorCode.INVALID_CREDENTIALS, MessageConstants.INCORRECT_PASSWORD);
+    }
   }
 
   private Device requireOwnedDevice(UUID deviceId) {

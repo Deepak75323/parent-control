@@ -19,4 +19,10 @@ public class DeviceCommandRequest {
    * this session.
    */
   private String parentPin;
+
+  /**
+   * Account password — required for {@code REVOKE_MONITORING} (remove pairing). Verified against the
+   * signed-in parent's password hash.
+   */
+  private String password;
 }

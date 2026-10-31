@@ -55,10 +55,17 @@ export const deviceApi = {
     api.get<
       ApiResponse<{used: boolean; expired: boolean; deviceId?: string; deviceName?: string}>
     >(ApiPaths.pairingCodeStatus(code)),
-  sendCommand: (deviceId: string, commandType: string, payload?: Record<string, unknown>) =>
+  sendCommand: (
+    deviceId: string,
+    commandType: string,
+    payload?: Record<string, unknown>,
+    options?: {password?: string; parentPin?: string},
+  ) =>
     api.post<ApiResponse<{id: string; status: string}>>(ApiPaths.deviceCommands(deviceId), {
       commandType,
       ...(payload ? {payload} : {}),
+      ...(options?.password ? {password: options.password} : {}),
+      ...(options?.parentPin ? {parentPin: options.parentPin} : {}),
     }),
 };
 

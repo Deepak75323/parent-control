@@ -358,6 +358,9 @@ export function ConfirmModal({
   loading,
   onCancel,
   onConfirm,
+  passwordValue,
+  onPasswordChange,
+  passwordPlaceholder = 'Account password',
 }: {
   visible: boolean;
   title: string;
@@ -367,7 +370,13 @@ export function ConfirmModal({
   loading?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  /** When set with onPasswordChange, shows a password field (e.g. revoke pairing). */
+  passwordValue?: string;
+  onPasswordChange?: (value: string) => void;
+  passwordPlaceholder?: string;
 }) {
+  const passwordRequired = typeof onPasswordChange === 'function';
+  const confirmDisabled = loading || (passwordRequired && !(passwordValue ?? '').trim());
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={styles.modalBackdrop}>
@@ -375,14 +384,30 @@ export function ConfirmModal({
           <View style={styles.modalHandle} />
           <Text style={styles.modalTitle}>{title}</Text>
           <Text style={styles.modalBody}>{body}</Text>
+          {passwordRequired ? (
+            <TextInput
+              style={styles.modalPasswordInput}
+              value={passwordValue}
+              onChangeText={onPasswordChange}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder={passwordPlaceholder}
+              editable={!loading}
+            />
+          ) : null}
           <View style={styles.modalActions}>
             <Pressable style={styles.modalCancel} onPress={onCancel} disabled={loading}>
               <Text style={styles.modalCancelText}>Cancel</Text>
             </Pressable>
             <Pressable
-              style={[styles.modalConfirm, danger && styles.modalConfirmDanger]}
+              style={[
+                styles.modalConfirm,
+                danger && styles.modalConfirmDanger,
+                confirmDisabled && {opacity: 0.55},
+              ]}
               onPress={onConfirm}
-              disabled={loading}>
+              disabled={confirmDisabled}>
               {loading ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
@@ -664,6 +689,17 @@ export const appScreenStyles = StyleSheet.create({
   modalHandle: {width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.border, alignSelf: 'center', marginBottom: Layout.gutter},
   modalTitle: {...Typography.cardTitle, marginBottom: Spacing.sm},
   modalBody: {...Typography.body, marginBottom: Layout.gutter},
+  modalPasswordInput: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radii.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    fontSize: 15,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.background,
+    marginBottom: Layout.gutter,
+  },
   modalActions: {flexDirection: 'row', gap: Layout.componentInternal},
   modalCancel: {flex: 1, backgroundColor: Colors.primarySurface, borderRadius: Radii.md, minHeight: Layout.touchTargetMin, alignItems: 'center', justifyContent: 'center'},
   modalCancelText: {color: Colors.primaryContainer, fontWeight: '700', fontSize: 15},

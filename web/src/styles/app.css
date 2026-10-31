@@ -811,6 +811,20 @@ h2 {
   letter-spacing: -0.02em;
 }
 
+.confirm-dialog-password {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gp-text-secondary, #475569);
+}
+
+.confirm-dialog-password input {
+  font-weight: 500;
+}
+
 .confirm-dialog-message {
   margin: 0 0 20px;
   font-size: 14px;

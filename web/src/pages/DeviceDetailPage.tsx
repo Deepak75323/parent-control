@@ -3,7 +3,6 @@ import {Link, useNavigate, useParams} from 'react-router-dom';
 import {deviceApi, monitoringApi} from '../api/services';
 import {AppIcon} from '../components/AppIcon';
 import {LiveStreamPanel} from '../components/LiveStreamPanel';
-import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {appDisplayName} from '../lib/appDisplayName';
 import {deviceInitials, isDevicePresentOnline} from '../lib/devicePresence';
 import type {
@@ -44,7 +43,8 @@ export function DeviceDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [syncingIcons, setSyncingIcons] = useState(false);
   const [busy, setBusy] = useState(false);
-  const {confirm, dialog: confirmDialog} = useConfirmDialog(busy);
+  const [revokeOpen, setRevokeOpen] = useState(false);
+  const [revokePassword, setRevokePassword] = useState('');
   const live = useRealtimeStore(s => s.deviceStatuses[deviceId]);
   const liveNotifs = useRealtimeStore(s => s.liveNotifications);
   const liveLoc = useRealtimeStore(s => s.liveLocations[deviceId]);
@@ -183,29 +183,39 @@ export function DeviceDetailPage() {
       })
     : null;
 
-  const onRevokePairing = async () => {
+  const openRevokePairing = () => {
     if (!deviceId || !merged || revoked) {
       return;
     }
-    const ok = await confirm({
-      title: 'Remove pairing?',
-      message:
-        'Stops monitoring on this child phone, frees the plan seat, and marks the device as revoked. Pair again later with a new pairing code if needed.',
-      confirmLabel: 'Remove pairing',
-      danger: true,
-    });
-    if (!ok) {
+    setRevokePassword('');
+    setError(null);
+    setRevokeOpen(true);
+  };
+
+  const onConfirmRevokePairing = async () => {
+    if (!deviceId || !merged || revoked) {
+      return;
+    }
+    if (!revokePassword.trim()) {
+      setError('Enter your account password to remove pairing');
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      await deviceApi.sendCommand(deviceId, 'REVOKE_MONITORING');
+      await deviceApi.sendCommand(deviceId, 'REVOKE_MONITORING', undefined, {
+        password: revokePassword,
+      });
+      setRevokeOpen(false);
+      setRevokePassword('');
       removeDevice(deviceId);
       setDevice(prev => (prev ? {...prev, status: 'REVOKED'} : prev));
       navigate('/devices', {replace: true});
-    } catch {
-      setError('Could not remove pairing — try again');
+    } catch (err: unknown) {
+      const msg =
+        (err as {response?: {data?: {message?: string}}})?.response?.data?.message ??
+        'Could not remove pairing — check password and try again';
+      setError(msg);
     } finally {
       setBusy(false);
     }
@@ -213,7 +223,57 @@ export function DeviceDetailPage() {
 
   return (
     <div className="page">
-      {confirmDialog}
+      {revokeOpen ? (
+        <div
+          className="confirm-dialog-overlay"
+          role="presentation"
+          onClick={event => {
+            if (event.target === event.currentTarget && !busy) {
+              setRevokeOpen(false);
+            }
+          }}>
+          <div
+            className="confirm-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="revoke-pairing-title">
+            <h2 id="revoke-pairing-title" className="confirm-dialog-title">
+              Remove pairing?
+            </h2>
+            <p className="confirm-dialog-message">
+              Stops monitoring on this child phone, frees the plan seat, and marks the device as
+              revoked. Confirm with your account password.
+            </p>
+            <label className="confirm-dialog-password">
+              Account password
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={revokePassword}
+                onChange={e => setRevokePassword(e.target.value)}
+                disabled={busy}
+                autoFocus
+              />
+            </label>
+            <div className="confirm-dialog-actions">
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={busy}
+                onClick={() => setRevokeOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn danger"
+                disabled={busy || !revokePassword.trim()}
+                onClick={() => void onConfirmRevokePairing()}>
+                {busy ? 'Removing…' : 'Remove pairing'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <Link to="/devices" className="back-link">
         ← #devices
       </Link>
@@ -260,7 +320,7 @@ export function DeviceDetailPage() {
                     type="button"
                     className="btn danger"
                     disabled={busy}
-                    onClick={() => void onRevokePairing()}>
+                    onClick={openRevokePairing}>
                     Remove pairing
                   </button>
                 ) : null}

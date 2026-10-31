@@ -91,6 +91,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const [loading, setLoading] = useState(true);
   const [commandLoading, setCommandLoading] = useState(false);
   const [revokeVisible, setRevokeVisible] = useState(false);
+  const [revokePassword, setRevokePassword] = useState('');
   const [setupAgainVisible, setSetupAgainVisible] = useState(false);
   const [setupGenerating, setSetupGenerating] = useState(false);
   const [activePairingCode, setActivePairingCode] = useState<string | null>(null);
@@ -152,10 +153,11 @@ export function DeviceDetailScreen({navigation, route}: Props) {
   const sendCommand = async (
     cmd: 'REVOKE_MONITORING',
     label: string,
+    password?: string,
   ): Promise<boolean> => {
     setCommandLoading(true);
     try {
-      await deviceApi.sendCommand(deviceId, cmd);
+      await deviceApi.sendCommand(deviceId, cmd, undefined, undefined, password);
       track(TelemetryEvents.DEVICE_REVOKE);
       appAlert('Sent', `${label} command sent`);
       await loadDevice();
@@ -163,7 +165,7 @@ export function DeviceDetailScreen({navigation, route}: Props) {
     } catch (err) {
       appAlert(
         'Error',
-        getApiErrorMessage(err, 'Couldn’t send that command. Please try again.'),
+        getApiErrorMessage(err, 'Couldn’t send that command. Check your password and try again.'),
       );
       return false;
     } finally {
@@ -522,7 +524,13 @@ export function DeviceDetailScreen({navigation, route}: Props) {
 
             {/* Revoke */}
             <View style={sc.section}>
-              <Pressable style={sc.revokeBtn} onPress={() => setRevokeVisible(true)} disabled={commandLoading}>
+              <Pressable
+                style={sc.revokeBtn}
+                onPress={() => {
+                  setRevokePassword('');
+                  setRevokeVisible(true);
+                }}
+                disabled={commandLoading}>
                 <Text style={sc.revokeIcon}>⚠</Text>
                 <Text style={sc.revokeText}>Revoke Monitoring</Text>
               </Pressable>
@@ -567,14 +575,28 @@ export function DeviceDetailScreen({navigation, route}: Props) {
       <ConfirmModal
         visible={revokeVisible}
         title="Revoke monitoring"
-        body="This stops all monitoring, clears consent on the child device, and frees this plan seat for another child phone."
+        body="This stops all monitoring, clears consent on the child device, and frees this plan seat. Confirm with your account password."
         confirmLabel="Revoke"
         danger
         loading={commandLoading}
-        onCancel={() => setRevokeVisible(false)}
-        onConfirm={async () => {
+        passwordValue={revokePassword}
+        onPasswordChange={setRevokePassword}
+        passwordPlaceholder="Account password"
+        onCancel={() => {
           setRevokeVisible(false);
-          await sendCommand('REVOKE_MONITORING', 'Revoke monitoring');
+          setRevokePassword('');
+        }}
+        onConfirm={async () => {
+          const password = revokePassword.trim();
+          if (!password) {
+            appAlert('Password required', 'Enter your account password to revoke monitoring.');
+            return;
+          }
+          const ok = await sendCommand('REVOKE_MONITORING', 'Revoke monitoring', password);
+          if (ok) {
+            setRevokeVisible(false);
+            setRevokePassword('');
+          }
         }}
       />
     </SafeAreaView>

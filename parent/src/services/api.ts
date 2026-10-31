@@ -446,6 +446,7 @@ export const deviceApi = {
     commandType: DeviceCommandType,
     payload?: Record<string, unknown>,
     parentPin?: string,
+    password?: string,
   ) =>
     api.post<ApiResponse<{id: string; status: string}>>(
       ApiPaths.deviceCommands(deviceId),
@@ -453,6 +454,7 @@ export const deviceApi = {
         commandType,
         ...(payload ? {payload} : {}),
         ...(parentPin ? {parentPin} : {}),
+        ...(password ? {password} : {}),
       },
     ),
   getTamperCode: (deviceId: string) =>
