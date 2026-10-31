@@ -235,6 +235,12 @@ export const authApi = {
   resetPassword: (token: string, password: string) =>
     api.post<ApiResponse<void>>(ApiPaths.AUTH_RESET_PASSWORD, {token, password}),
 
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.AUTH_CHANGE_PASSWORD, {
+      currentPassword,
+      newPassword,
+    }),
+
   verifyEmail: (token: string) =>
     api.post<ApiResponse<void>>(ApiPaths.AUTH_VERIFY_EMAIL, {token}),
 

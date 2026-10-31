@@ -3,6 +3,7 @@ package com.parentalcontrol.auth.service;
 import com.parentalcontrol.auth.dao.RefreshTokenDao;
 import com.parentalcontrol.auth.domain.RefreshToken;
 import com.parentalcontrol.auth.dto.AuthResponse;
+import com.parentalcontrol.auth.dto.ChangePasswordRequest;
 import com.parentalcontrol.auth.dto.LoginRequest;
 import com.parentalcontrol.auth.dto.RefreshTokenRequest;
 import com.parentalcontrol.auth.dto.RegisterRequest;
@@ -15,6 +16,7 @@ import com.parentalcontrol.common.exception.ErrorCode;
 import com.parentalcontrol.common.security.JwtProperties;
 import com.parentalcontrol.common.security.JwtTokenProvider;
 import com.parentalcontrol.common.security.RateLimitService;
+import com.parentalcontrol.common.security.SecurityUtils;
 import com.parentalcontrol.common.util.ChatNicknameGenerator;
 import com.parentalcontrol.common.util.SensitiveDataRedactor;
 import com.parentalcontrol.config.EmailVerificationProperties;
@@ -68,6 +70,32 @@ public class AuthService {
               // Revoke only this device's refresh token so other clients (app ↔ web)
               // stay signed in. Full wipe remains for token reuse / password reset.
             });
+  }
+
+  /**
+   * Updates the signed-in parent's password after verifying the current one. Revokes all sessions
+   * so every device must sign in again with the new password.
+   */
+  @Transactional
+  public String changePassword(ChangePasswordRequest request) {
+    UUID userId = SecurityUtils.requireUserId();
+    User user =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+    if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+      throw new BusinessException(
+          ErrorCode.INVALID_CREDENTIALS, MessageConstants.INCORRECT_PASSWORD);
+    }
+    if (passwordEncoder.matches(request.getNewPassword(), user.getPasswordHash())) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR, MessageConstants.NEW_PASSWORD_MUST_BE_DIFFERENT);
+    }
+    user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+    userRepository.save(user);
+    userTokenInvalidationService.invalidateAllSessions(userId);
+    log.info("Password changed for userId={}", userId);
+    return MessageConstants.PASSWORD_UPDATED_SIGN_IN_AGAIN;
   }
 
   @Transactional

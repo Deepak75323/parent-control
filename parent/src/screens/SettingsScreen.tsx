@@ -117,8 +117,8 @@ export function SettingsScreen({navigation}: Props) {
             <Text style={styles.toggleTitle}>Read receipts</Text>
             <Text style={styles.toggleSub}>
               {readReceiptsEnabled
-                ? 'You and others see green ticks when messages are read'
-                : 'Green read ticks hidden for you and others'}
+                ? 'You and others see blue ticks when messages are read'
+                : 'Blue read ticks hidden for you and others (gray still means delivered)'}
             </Text>
           </View>
           {receiptsLoading ? (
@@ -170,6 +170,12 @@ export function SettingsScreen({navigation}: Props) {
           title="Support"
           subtitle="Help, correlation ID, contact email"
           onPress={() => navigation.navigate('Support')}
+        />
+        <MenuRow
+          icon="🔑"
+          title="Change password"
+          subtitle="Update your sign-in password"
+          onPress={() => navigation.navigate('ChangePassword')}
         />
         <MenuRow
           icon="🗑️"

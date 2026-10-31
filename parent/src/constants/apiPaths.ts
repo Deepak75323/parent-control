@@ -12,6 +12,7 @@ export const ApiPaths = {
   AUTH_REFRESH: `${V1}/auth/refresh`,
   AUTH_FORGOT_PASSWORD: `${V1}/auth/forgot-password`,
   AUTH_RESET_PASSWORD: `${V1}/auth/reset-password`,
+  AUTH_CHANGE_PASSWORD: `${V1}/auth/change-password`,
   AUTH_VERIFY_EMAIL: `${V1}/auth/verify-email`,
   AUTH_RESEND_VERIFICATION: `${V1}/auth/resend-verification`,
   AUTH_ACCOUNT: `${V1}/auth/account`,

@@ -7,6 +7,8 @@ export const ApiPaths = {
   AUTH_LOGIN: `${V1}/auth/login`,
   AUTH_REFRESH: `${V1}/auth/refresh`,
   AUTH_LOGOUT: `${V1}/auth/logout`,
+  AUTH_FORGOT_PASSWORD: `${V1}/auth/forgot-password`,
+  AUTH_CHANGE_PASSWORD: `${V1}/auth/change-password`,
   AUTH_ACCOUNT: `${V1}/auth/account`,
 
   DEVICES: `${V1}/devices`,

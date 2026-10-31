@@ -26,6 +26,7 @@ import {AuditLogScreen} from '../screens/AuditLogScreen';
 import {SubscriptionScreen} from '../screens/SubscriptionScreen';
 import {AppRulesScreen} from '../screens/AppRulesScreen';
 import {AppTimeLimitsScreen} from '../screens/AppTimeLimitsScreen';
+import {ChangePasswordScreen} from '../screens/ChangePasswordScreen';
 import {DeleteAccountScreen} from '../screens/DeleteAccountScreen';
 import {SupportScreen} from '../screens/SupportScreen';
 
@@ -56,6 +57,7 @@ export type RootStackParamList = {
   Subscription: undefined;
   AppRules: {deviceId: string};
   AppTimeLimits: {deviceId: string};
+  ChangePassword: undefined;
   DeleteAccount: undefined;
 };
 
@@ -100,6 +102,7 @@ export function RootNavigator() {
           <Stack.Screen name="AuditLog" component={AuditLogScreen} />
           <Stack.Screen name="AppRules" component={AppRulesScreen} />
           <Stack.Screen name="AppTimeLimits" component={AppTimeLimitsScreen} />
+          <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
           <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
         </>
       )}

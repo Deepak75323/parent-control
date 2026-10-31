@@ -114,6 +114,12 @@ public final class MessageConstants {
 
   public static final String INCORRECT_PASSWORD = "Incorrect password";
 
+  public static final String NEW_PASSWORD_MUST_BE_DIFFERENT =
+      "New password must be different from the current password";
+
+  public static final String PASSWORD_UPDATED_SIGN_IN_AGAIN =
+      "Password updated. Sign in again with your new password.";
+
   public static final String INVALID_STRIPE_WEBHOOK_SIGNATURE = "Invalid Stripe webhook signature";
 
   public static final String INVALID_STRIPE_SIGNATURE_FORMAT = "Invalid Stripe-Signature format";

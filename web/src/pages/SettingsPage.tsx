@@ -51,6 +51,10 @@ export function SettingsPage() {
   const [portalPassword, setPortalPassword] = useState('');
   const [portalShareHandle, setPortalShareHandle] = useState('');
   const [deletePassword, setDeletePassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordMsg, setPasswordMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const {confirm, dialog: confirmDialog} = useConfirmDialog(busy);
@@ -209,8 +213,8 @@ export function SettingsPage() {
       useAuthStore.getState().patchProfile({readReceiptsEnabled: enabled});
       setReadReceiptsMsg(
         enabled
-          ? 'Read receipts are on — green ticks when messages are read.'
-          : 'Read receipts are off — green read ticks hidden for you and others.',
+          ? 'Read receipts are on — blue ticks when messages are read.'
+          : 'Read receipts are off — blue read ticks hidden for you and others (gray ticks still mean delivered).',
       );
     } catch {
       setReadReceiptsMsg('Could not update read receipt setting');
@@ -331,6 +335,38 @@ export function SettingsPage() {
       setPortalMsg(`Revoked control from @${familyHandle}`);
     } catch {
       setPortalMsg('Could not revoke — check password');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onChangePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    setPasswordMsg(null);
+    if (newPassword.length < 8) {
+      setPasswordMsg('New password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setPasswordMsg('New password and confirmation do not match');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await authApi.changePassword(currentPassword, newPassword);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      disconnectWebSocket();
+      useRealtimeStore.getState().reset();
+      clear();
+      navigate('/login', {replace: true});
+    } catch (err: unknown) {
+      const msg =
+        (err as {response?: {data?: {message?: string}}})?.response?.data?.message ??
+        'Could not change password — check your current password';
+      setPasswordMsg(msg);
     } finally {
       setBusy(false);
     }
@@ -634,6 +670,56 @@ export function SettingsPage() {
           {portalMsg ? <p className="muted">{portalMsg}</p> : null}
         </div>
       ) : null}
+
+      <div className="card">
+        <h2>Change password</h2>
+        <p className="muted">
+          Updates your sign-in password. You will be signed out on all devices afterward.
+        </p>
+        <form onSubmit={e => void onChangePassword(e)}>
+          <label>
+            Current password
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={e => setCurrentPassword(e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            New password (min 8 characters)
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              minLength={8}
+              required
+            />
+          </label>
+          <label>
+            Confirm new password
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={confirmNewPassword}
+              onChange={e => setConfirmNewPassword(e.target.value)}
+              minLength={8}
+              required
+            />
+          </label>
+          <div className="btn-row">
+            <button
+              type="submit"
+              className="btn primary"
+              disabled={busy || !currentPassword || !newPassword || !confirmNewPassword}>
+              Update password
+            </button>
+          </div>
+        </form>
+        {passwordMsg ? <p className="muted">{passwordMsg}</p> : null}
+      </div>
 
       <div className="card">
         <h2>Session</h2>

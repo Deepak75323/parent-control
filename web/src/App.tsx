@@ -6,6 +6,7 @@ import {ProtectedRoute} from './components/ProtectedRoute';
 import {useAuthStore} from './auth/authStore';
 import {useMobileSessionGuard} from './auth/useMobileSessionGuard';
 import {connectWebSocket, disconnectWebSocket} from './realtime/websocket';
+import {ForgotPasswordPage} from './pages/ForgotPasswordPage';
 import {LoginPage} from './pages/LoginPage';
 import {DevicesPage} from './pages/DevicesPage';
 import {DeviceDetailPage} from './pages/DeviceDetailPage';
@@ -64,6 +65,7 @@ function Bootstrap() {
     <PortalGate>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>
             <Route path="/devices" element={<DevicesPage />} />

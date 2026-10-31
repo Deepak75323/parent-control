@@ -20,6 +20,7 @@ public final class ApiConstants {
   public static final String AUTH_LOGOUT = AUTH + "/logout";
   public static final String AUTH_FORGOT_PASSWORD = AUTH + "/forgot-password";
   public static final String AUTH_RESET_PASSWORD = AUTH + "/reset-password";
+  public static final String AUTH_CHANGE_PASSWORD = AUTH + "/change-password";
   public static final String AUTH_VERIFY_EMAIL = AUTH + "/verify-email";
   public static final String AUTH_ACCOUNT = AUTH + "/account";
 

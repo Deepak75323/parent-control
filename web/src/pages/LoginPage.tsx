@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import type {FormEvent} from 'react';
-import {Navigate, useNavigate} from 'react-router-dom';
+import {Link, Navigate, useNavigate} from 'react-router-dom';
 import {authApi} from '../api/services';
 import {useAuthStore} from '../auth/authStore';
 import {connectWebSocket} from '../realtime/websocket';
@@ -103,6 +103,9 @@ export function LoginPage() {
         <button className="btn primary btn-block" type="submit" disabled={loading}>
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
+        <p className="muted tiny" style={{marginTop: 12, textAlign: 'center'}}>
+          <Link to="/forgot-password">Forgot password?</Link>
+        </p>
       </form>
     </div>
   );

@@ -32,6 +32,13 @@ export const authApi = {
     api.post<ApiResponse<AuthResponse>>(ApiPaths.AUTH_LOGIN, {email, password}),
   logout: (refreshToken: string) =>
     api.post(ApiPaths.AUTH_LOGOUT, {refreshToken}).catch(() => undefined),
+  forgotPassword: (email: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.AUTH_FORGOT_PASSWORD, {email}),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post<ApiResponse<void>>(ApiPaths.AUTH_CHANGE_PASSWORD, {
+      currentPassword,
+      newPassword,
+    }),
   deleteAccount: (password: string) =>
     api.delete<ApiResponse<void>>(ApiPaths.AUTH_ACCOUNT, {data: {password}}),
 };

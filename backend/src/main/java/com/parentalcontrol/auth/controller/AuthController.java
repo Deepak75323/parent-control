@@ -1,6 +1,7 @@
 package com.parentalcontrol.auth.controller;
 
 import com.parentalcontrol.auth.dto.AuthResponse;
+import com.parentalcontrol.auth.dto.ChangePasswordRequest;
 import com.parentalcontrol.auth.dto.DeleteAccountRequest;
 import com.parentalcontrol.auth.dto.ForgotPasswordRequest;
 import com.parentalcontrol.auth.dto.LoginRequest;
@@ -74,6 +75,13 @@ public class AuthController {
   @Operation(summary = "Set a new password using a reset token")
   public ApiResponse<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
     return ApiResponse.okMessage(passwordResetService.resetPassword(request));
+  }
+
+  @PostMapping("/change-password")
+  @Operation(summary = "Change password while signed in")
+  @SecurityRequirement(name = "bearerAuth")
+  public ApiResponse<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+    return ApiResponse.okMessage(authService.changePassword(request));
   }
 
   @PostMapping("/verify-email")
