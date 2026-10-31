@@ -5543,13 +5543,14 @@ body.chat-resizing * {
   line-height: 1;
 }
 
+/* WhatsApp-style: gray = sent/delivered, blue = read (not green). */
 .chat-receipt--sent,
 .chat-receipt--delivered {
-  color: #3b82f6;
+  color: #94a3b8;
 }
 
 .chat-receipt--read {
-  color: #22c55e;
+  color: #2563eb;
 }
 
 .chat-message-delete {

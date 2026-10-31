@@ -2018,8 +2018,8 @@ const MEET_PIP_CSS = `
 .meet-replying button { border: 0; background: transparent; color: #e8eaed; cursor: pointer; font-size: 18px; line-height: 1; }
 .meet-deleted { display: block; font-size: 11px; font-weight: 700; color: #f6c453; margin-bottom: 2px; }
 .meet-receipt { margin-left: 6px; font-size: 12px; letter-spacing: -1px; }
-.meet-receipt--sent, .meet-receipt--delivered { color: #8ab4f8; }
-.meet-receipt--read { color: #22c55e; }
+.meet-receipt--sent, .meet-receipt--delivered { color: #94a3b8; }
+.meet-receipt--read { color: #2563eb; }
 .meet-bubble-label { display: block; font-size: 11px; color: #9aa0a6; margin-bottom: 2px; }
 .meet-compose { position: relative; display: flex; align-items: flex-end; gap: 8px; margin: 8px 16px; padding: 6px 8px 6px 16px; background: #3c4043; border-radius: 24px; }
 .meet-typing { margin: 0 22px 0; min-height: 16px; font-size: 12px; font-weight: 600; font-style: italic; color: #8ab4f8; }
