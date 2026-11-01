@@ -4,15 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.parentalcontrol.audit.service.AuditService;
 import com.parentalcontrol.auth.dao.RefreshTokenDao;
 import com.parentalcontrol.auth.dto.AuthResponse;
 import com.parentalcontrol.auth.dto.LoginRequest;
 import com.parentalcontrol.billing.service.SubscriptionService;
+import com.parentalcontrol.common.constant.AuditActionConstants;
 import com.parentalcontrol.common.domain.Role;
 import com.parentalcontrol.common.exception.BusinessException;
 import com.parentalcontrol.common.exception.ErrorCode;
@@ -24,10 +27,12 @@ import com.parentalcontrol.user.dao.ParentProfileDao;
 import com.parentalcontrol.user.dao.UserDao;
 import com.parentalcontrol.user.domain.ParentProfile;
 import com.parentalcontrol.user.domain.User;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -48,6 +53,7 @@ class AuthServiceLoginTest {
   @Mock private EmailVerificationProperties emailVerificationProperties;
   @Mock private LoginAttemptService loginAttemptService;
   @Mock private RateLimitService rateLimitService;
+  @Mock private AuditService auditService;
 
   @InjectMocks private AuthService authService;
 
@@ -118,6 +124,17 @@ class AuthServiceLoginTest {
     assertThat(response.getProfile()).isNotNull();
     assertThat(response.getProfile().getId()).isEqualTo(profile.getId());
     assertThat(response.getProfile().getUserId()).isEqualTo(user.getId());
+
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, Object>> metaCaptor = ArgumentCaptor.forClass(Map.class);
+    verify(auditService)
+        .logForUser(
+            eq(user.getId()),
+            eq(AuditActionConstants.PARENT_LOGIN),
+            eq("auth:login"),
+            eq(null),
+            metaCaptor.capture());
+    assertThat(metaCaptor.getValue()).containsEntry("email", EMAIL);
   }
 
   @Test

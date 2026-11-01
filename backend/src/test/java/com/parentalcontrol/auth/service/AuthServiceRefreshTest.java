@@ -56,6 +56,8 @@ class AuthServiceRefreshTest {
   @Mock private EmailVerificationService emailVerificationService;
   @Mock private EmailVerificationProperties emailVerificationProperties;
   @Mock private LoginAttemptService loginAttemptService;
+  @Mock private com.parentalcontrol.common.security.RateLimitService rateLimitService;
+  @Mock private com.parentalcontrol.audit.service.AuditService auditService;
   @Mock private Claims claims;
 
   @InjectMocks private AuthService authService;

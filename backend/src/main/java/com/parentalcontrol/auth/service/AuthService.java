@@ -2,12 +2,14 @@ package com.parentalcontrol.auth.service;
 
 import com.parentalcontrol.auth.dao.RefreshTokenDao;
 import com.parentalcontrol.auth.domain.RefreshToken;
+import com.parentalcontrol.audit.service.AuditService;
 import com.parentalcontrol.auth.dto.AuthResponse;
 import com.parentalcontrol.auth.dto.ChangePasswordRequest;
 import com.parentalcontrol.auth.dto.LoginRequest;
 import com.parentalcontrol.auth.dto.RefreshTokenRequest;
 import com.parentalcontrol.auth.dto.RegisterRequest;
 import com.parentalcontrol.billing.service.SubscriptionService;
+import com.parentalcontrol.common.constant.AuditActionConstants;
 import com.parentalcontrol.common.constant.MessageConstants;
 import com.parentalcontrol.common.domain.Role;
 import com.parentalcontrol.common.domain.TokenType;
@@ -32,6 +34,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -57,6 +61,7 @@ public class AuthService {
   private final EmailVerificationProperties emailVerificationProperties;
   private final LoginAttemptService loginAttemptService;
   private final RateLimitService rateLimitService;
+  private final AuditService auditService;
 
   @Transactional
   public void logout(RefreshTokenRequest request) {
@@ -179,7 +184,19 @@ public class AuthService {
                         ErrorCode.NOT_FOUND, MessageConstants.PARENT_PROFILE_NOT_FOUND));
 
     loginAttemptService.recordSuccess(normalizedEmail);
+    recordLoginAudit(user.getId(), normalizedEmail);
     return buildAuthResponse(user, profile);
+  }
+
+  private void recordLoginAudit(UUID userId, String email) {
+    Map<String, Object> metadata = new LinkedHashMap<>();
+    metadata.put("email", email);
+    String userAgent = AuditService.resolveUserAgent();
+    if (userAgent != null) {
+      metadata.put("userAgent", userAgent);
+    }
+    auditService.logForUser(
+        userId, AuditActionConstants.PARENT_LOGIN, "auth:login", null, metadata);
   }
 
   @Transactional

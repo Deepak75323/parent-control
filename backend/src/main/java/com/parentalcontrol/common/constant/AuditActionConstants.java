@@ -28,6 +28,8 @@ public final class AuditActionConstants {
 
   public static final String ONBOARDING_RECOVERY_REQUEST = "ONBOARDING_RECOVERY_REQUEST";
 
+  public static final String PARENT_LOGIN = "PARENT_LOGIN";
+
   public static final String PARENT_PIN_SET = "PARENT_PIN_SET";
 
   public static final String PARENT_PIN_VERIFIED = "PARENT_PIN_VERIFIED";

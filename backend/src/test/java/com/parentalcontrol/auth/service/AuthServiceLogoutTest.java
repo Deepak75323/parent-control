@@ -45,6 +45,7 @@ class AuthServiceLogoutTest {
   @Mock private EmailVerificationProperties emailVerificationProperties;
   @Mock private LoginAttemptService loginAttemptService;
   @Mock private RateLimitService rateLimitService;
+  @Mock private com.parentalcontrol.audit.service.AuditService auditService;
 
   @InjectMocks private AuthService authService;
 

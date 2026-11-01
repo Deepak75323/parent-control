@@ -3,6 +3,25 @@ import {Link} from 'react-router-dom';
 import {auditApi} from '../api/services';
 import type {AuditLogItem} from '../types/api';
 
+function formatAuditMetadata(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof parsed.email === 'string') {
+      parts.push(parsed.email);
+    }
+    if (typeof parsed.userAgent === 'string') {
+      parts.push(parsed.userAgent);
+    }
+    if (parts.length > 0) {
+      return parts.join(' · ');
+    }
+  } catch {
+    // fall through
+  }
+  return raw;
+}
+
 export function AuditPage() {
   const [items, setItems] = useState<AuditLogItem[]>([]);
   const [page, setPage] = useState(0);
@@ -61,8 +80,13 @@ export function AuditPage() {
                       {' · '}
                     </>
                   ) : null}
-                  {item.ipAddress ?? '—'}
+                  IP {item.ipAddress ?? '—'}
                 </div>
+                {item.metadataJson ? (
+                  <div className="tiny muted" style={{wordBreak: 'break-word'}}>
+                    {formatAuditMetadata(item.metadataJson)}
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
