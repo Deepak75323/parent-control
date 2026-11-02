@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import {Link, useNavigate, useParams} from 'react-router-dom';
+import {Link, useParams} from 'react-router-dom';
 import {deviceApi, monitoringApi} from '../api/services';
 import {AppIcon} from '../components/AppIcon';
 import {LiveStreamPanel} from '../components/LiveStreamPanel';
@@ -34,7 +34,6 @@ function appsHaveIcons(list: InstalledAppItem[]): boolean {
 
 export function DeviceDetailPage() {
   const {deviceId = ''} = useParams();
-  const navigate = useNavigate();
   const [device, setDevice] = useState<DeviceSummary | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [locations, setLocations] = useState<LocationPoint[]>([]);
@@ -42,13 +41,9 @@ export function DeviceDetailPage() {
   const [usage, setUsage] = useState<UsageStatsItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [syncingIcons, setSyncingIcons] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [revokeOpen, setRevokeOpen] = useState(false);
-  const [revokePassword, setRevokePassword] = useState('');
   const live = useRealtimeStore(s => s.deviceStatuses[deviceId]);
   const liveNotifs = useRealtimeStore(s => s.liveNotifications);
   const liveLoc = useRealtimeStore(s => s.liveLocations[deviceId]);
-  const removeDevice = useRealtimeStore(s => s.removeDevice);
 
   const load = useCallback(async () => {
     if (!deviceId) {
@@ -183,97 +178,8 @@ export function DeviceDetailPage() {
       })
     : null;
 
-  const openRevokePairing = () => {
-    if (!deviceId || !merged || revoked) {
-      return;
-    }
-    setRevokePassword('');
-    setError(null);
-    setRevokeOpen(true);
-  };
-
-  const onConfirmRevokePairing = async () => {
-    if (!deviceId || !merged || revoked) {
-      return;
-    }
-    if (!revokePassword.trim()) {
-      setError('Enter your account password to remove pairing');
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      await deviceApi.sendCommand(deviceId, 'REVOKE_MONITORING', undefined, {
-        password: revokePassword,
-      });
-      setRevokeOpen(false);
-      setRevokePassword('');
-      removeDevice(deviceId);
-      setDevice(prev => (prev ? {...prev, status: 'REVOKED'} : prev));
-      navigate('/devices', {replace: true});
-    } catch (err: unknown) {
-      const msg =
-        (err as {response?: {data?: {message?: string}}})?.response?.data?.message ??
-        'Could not remove pairing — check password and try again';
-      setError(msg);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <div className="page">
-      {revokeOpen ? (
-        <div
-          className="confirm-dialog-overlay"
-          role="presentation"
-          onClick={event => {
-            if (event.target === event.currentTarget && !busy) {
-              setRevokeOpen(false);
-            }
-          }}>
-          <div
-            className="confirm-dialog"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="revoke-pairing-title">
-            <h2 id="revoke-pairing-title" className="confirm-dialog-title">
-              Remove pairing?
-            </h2>
-            <p className="confirm-dialog-message">
-              Stops monitoring on this child phone, frees the plan seat, and marks the device as
-              revoked. Confirm with your account password.
-            </p>
-            <label className="confirm-dialog-password">
-              Account password
-              <input
-                type="password"
-                autoComplete="current-password"
-                value={revokePassword}
-                onChange={e => setRevokePassword(e.target.value)}
-                disabled={busy}
-                autoFocus
-              />
-            </label>
-            <div className="confirm-dialog-actions">
-              <button
-                type="button"
-                className="btn ghost"
-                disabled={busy}
-                onClick={() => setRevokeOpen(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn danger"
-                disabled={busy || !revokePassword.trim()}
-                onClick={() => void onConfirmRevokePairing()}>
-                {busy ? 'Removing…' : 'Remove pairing'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
       <Link to="/devices" className="back-link">
         ← #devices
       </Link>
@@ -316,13 +222,9 @@ export function DeviceDetailPage() {
                   Geofences
                 </Link>
                 {!revoked ? (
-                  <button
-                    type="button"
-                    className="btn danger"
-                    disabled={busy}
-                    onClick={openRevokePairing}>
-                    Remove pairing
-                  </button>
+                  <Link className="btn ghost" to="/settings">
+                    Remove pairing in Settings
+                  </Link>
                 ) : null}
               </div>
             </div>

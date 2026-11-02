@@ -17,6 +17,7 @@ import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {chatDisplayNickname} from '../lib/chatDisplayNickname';
 import {validateDeletedMessagesPinForm} from '../lib/deletedMessagesPin';
 import {FingerprintSettingsCard} from '../components/ParentWebAuthnSetup';
+import {RemovePairingSettingsCard} from '../components/RemovePairingSettingsCard';
 import {disconnectWebSocket} from '../realtime/websocket';
 import {useRealtimeStore} from '../realtime/realtimeStore';
 
@@ -728,6 +729,8 @@ export function SettingsPage() {
           Log out
         </button>
       </div>
+
+      <RemovePairingSettingsCard />
 
       <div className="card danger-zone">
         <h2>Delete account</h2>

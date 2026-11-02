@@ -6924,6 +6924,54 @@ body.chat-resizing * {
   border-color: color-mix(in srgb, var(--gp-danger) 35%, var(--gp-border));
 }
 
+.remove-pairing-panel {
+  margin-top: 14px;
+}
+
+.remove-pairing-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.remove-pairing-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  margin: 0 0 8px;
+  border: 1px solid var(--gp-border-light);
+  border-radius: var(--radius-lg);
+  background: var(--gp-surface-raised, var(--gp-surface));
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.remove-pairing-row:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--gp-danger) 40%, var(--gp-border));
+}
+
+.remove-pairing-row:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.remove-pairing-row .dc-msg-avatar.compact {
+  width: 40px;
+  height: 40px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.remove-pairing-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .live-panel {
   margin-bottom: 16px;
 }
