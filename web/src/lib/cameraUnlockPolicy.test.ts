@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {
-  cameraUnlockCanEnterDecryptCode,
+  cameraUnlockCanEnterPassword,
   cameraUnlockNeedsFingerprintFirst,
 } from './cameraUnlockPolicy';
 
@@ -10,24 +10,24 @@ describe('cameraUnlockPolicy', () => {
     expect(cameraUnlockNeedsFingerprintFirst(false)).toBe(false);
   });
 
-  it('blocks decrypt-code step until biometric passes when fingerprint is registered', () => {
+  it('blocks camera-password step until biometric passes when fingerprint is registered', () => {
     expect(
-      cameraUnlockCanEnterDecryptCode({
+      cameraUnlockCanEnterPassword({
         hasRegisteredFingerprint: true,
         biometricPassed: false,
       }),
     ).toBe(false);
     expect(
-      cameraUnlockCanEnterDecryptCode({
+      cameraUnlockCanEnterPassword({
         hasRegisteredFingerprint: true,
         biometricPassed: true,
       }),
     ).toBe(true);
   });
 
-  it('allows decrypt-code only when no fingerprint is registered', () => {
+  it('allows camera password only when no fingerprint is registered', () => {
     expect(
-      cameraUnlockCanEnterDecryptCode({
+      cameraUnlockCanEnterPassword({
         hasRegisteredFingerprint: false,
         biometricPassed: false,
       }),

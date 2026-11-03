@@ -83,7 +83,7 @@ export function ParentWebAuthnSetup() {
         </h2>
         <p className="confirm-dialog-message">
           Register a device fingerprint (Touch ID, Face ID, or Windows Hello). Camera unlock needs
-          this fingerprint first, then your chat decrypt code.
+          this fingerprint first, then your camera password.
         </p>
         <label className="form-row">
           Fingerprint name
@@ -173,8 +173,8 @@ export function FingerprintSettingsCard() {
     <div className="card">
       <h2>Camera fingerprints</h2>
       <p className="muted">
-        Fingerprints are step 1 for camera unlock on this browser; your decrypt code is always step
-        2. Add more than one device fingerprint if needed.
+        Fingerprints are step 1 for camera unlock on this browser; your camera password is always
+        step 2. Add more than one device fingerprint if needed.
       </p>
       {credentials.length === 0 ? (
         <p className="muted tiny">None registered yet.</p>

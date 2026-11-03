@@ -67,6 +67,10 @@ public class User extends BaseEntity {
   @Builder.Default
   private boolean deletedMessagesPinUnlocked = false;
 
+  /** Bcrypt hash for camera live-view unlock (separate from the chat decrypt code). */
+  @Column(name = "camera_password_hash")
+  private String cameraPasswordHash;
+
   /** Access/refresh tokens issued at or before this instant are rejected. */
   @Column(name = "tokens_invalidated_after")
   private java.time.Instant tokensInvalidatedAfter;

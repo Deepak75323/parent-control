@@ -1,6 +1,6 @@
 import {type FormEvent, useEffect, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
-import {chatApi} from '../api/services';
+import {cameraPasswordApi} from '../api/services';
 import {lockBodyScroll} from '../lib/scrollLock';
 import {
   assertParentWebAuthn,
@@ -9,15 +9,16 @@ import {
   isWebAuthnAvailable,
 } from '../lib/webAuthnParentGate';
 import {
-  cameraUnlockCanEnterDecryptCode,
+  cameraUnlockCanEnterPassword,
   cameraUnlockNeedsFingerprintFirst,
 } from '../lib/cameraUnlockPolicy';
+import {isCameraPasswordDigits} from '../lib/cameraPassword';
 import {stopLivePipCue} from '../livestream/pipAudible';
 
 type Props = {
   open: boolean;
   userId: string;
-  /** Start already completed WebAuthn in the same tap — skip to decrypt code. */
+  /** Start already completed WebAuthn in the same tap — skip to camera password. */
   biometricAlreadyPassed?: boolean;
   onUnlocked: () => void;
   onCancel: () => void;
@@ -27,10 +28,10 @@ type Step = 'loading' | 'fingerprint' | 'password';
 
 /**
  * Gate for CAMERA live view:
- * - If a fingerprint is registered: biometric first, then decrypt code (both required).
- * - If not: decrypt code only.
- * Prefer running fingerprint from the Start button (same tap); this dialog auto-starts
- * fingerprint when opened without biometricAlreadyPassed.
+ * - If a fingerprint is registered: biometric first, then camera password (both required).
+ * - If not: camera password only.
+ * The camera password is a separate credential from the chat decrypt code and is
+ * set/changed only in Settings (current + new + confirm).
  */
 export function CameraUnlockDialog({
   open,
@@ -42,6 +43,7 @@ export function CameraUnlockDialog({
   const [step, setStep] = useState<Step>('loading');
   const [requiresFingerprint, setRequiresFingerprint] = useState(false);
   const [biometricPassed, setBiometricPassed] = useState(false);
+  const [passwordConfigured, setPasswordConfigured] = useState(true);
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export function CameraUnlockDialog({
       setStep('loading');
       setRequiresFingerprint(false);
       setBiometricPassed(false);
+      setPasswordConfigured(true);
       setPin('');
       setError(null);
       setBusy(false);
@@ -61,6 +64,19 @@ export function CameraUnlockDialog({
     const unlockScroll = lockBodyScroll();
     let cancelled = false;
     void (async () => {
+      try {
+        const {data} = await cameraPasswordApi.status();
+        if (!cancelled) {
+          setPasswordConfigured(Boolean(data.data?.pinConfigured));
+        }
+      } catch {
+        if (!cancelled) {
+          setPasswordConfigured(false);
+        }
+      }
+      if (cancelled) {
+        return;
+      }
       if (biometricAlreadyPassed) {
         setRequiresFingerprint(true);
         setBiometricPassed(true);
@@ -117,7 +133,7 @@ export function CameraUnlockDialog({
   async function tryPassword(event: FormEvent) {
     event.preventDefault();
     if (
-      !cameraUnlockCanEnterDecryptCode({
+      !cameraUnlockCanEnterPassword({
         hasRegisteredFingerprint: requiresFingerprint,
         biometricPassed,
       })
@@ -127,37 +143,46 @@ export function CameraUnlockDialog({
       autoStartedRef.current = false;
       return;
     }
-    if (!/^\d{6}$/.test(pin.trim())) {
-      setError('Enter your 6-digit decrypt code');
+    if (!isCameraPasswordDigits(pin)) {
+      setError('Enter your 4–8 digit camera password');
       return;
     }
     stopLivePipCue();
     setBusy(true);
     setError(null);
     try {
-      await chatApi.verifyDecryptPin(pin.trim());
-      onUnlocked();
+      const {data} = await cameraPasswordApi.verify(pin.trim());
+      if (data.data?.verified) {
+        onUnlocked();
+        return;
+      }
+      stopLivePipCue();
+      setError('Invalid camera password');
     } catch {
       stopLivePipCue();
-      setError('Invalid decrypt code');
+      setError('Invalid camera password');
     } finally {
       setBusy(false);
     }
   }
 
-  const title =
-    step === 'password' && biometricPassed && requiresFingerprint
-      ? 'Enter decrypt code'
+  const needsSetup = step === 'password' && !passwordConfigured;
+
+  const title = needsSetup
+    ? 'Set a camera password first'
+    : step === 'password' && biometricPassed && requiresFingerprint
+      ? 'Enter camera password'
       : 'Unlock camera';
 
-  const message =
-    step === 'fingerprint'
+  const message = needsSetup
+    ? 'Camera unlock uses its own password, not the chat decrypt code. Create one in Settings → Camera password, then come back.'
+    : step === 'fingerprint'
       ? busy
         ? 'Confirm with fingerprint on your device…'
-        : 'Fingerprint prompt should appear. If it did not, tap Retry — then enter your decrypt code.'
+        : 'Fingerprint prompt should appear. If it did not, tap Retry — then enter your camera password.'
       : requiresFingerprint
-        ? 'Fingerprint OK. Enter your 6-digit chat decrypt code to open the camera.'
-        : 'Enter your 6-digit chat decrypt code to open the camera. (No fingerprint is registered on this browser.)';
+        ? 'Fingerprint OK. Enter your camera password to open the camera.'
+        : 'Enter your camera password to open the camera. (No fingerprint is registered on this browser.)';
 
   return createPortal(
     <div
@@ -174,6 +199,13 @@ export function CameraUnlockDialog({
         </h2>
         <p className="confirm-dialog-message">{message}</p>
         {step === 'loading' ? <p className="muted">Starting unlock…</p> : null}
+        {needsSetup ? (
+          <div className="confirm-dialog-actions">
+            <button type="button" className="btn primary" onClick={onCancel}>
+              Got it
+            </button>
+          </div>
+        ) : null}
         {step === 'fingerprint' ? (
           <div className="confirm-dialog-actions" style={{flexDirection: 'column', gap: 8}}>
             {busy ? <p className="muted">Waiting for fingerprint…</p> : null}
@@ -194,19 +226,19 @@ export function CameraUnlockDialog({
             {error ? <p className="error">{error}</p> : null}
           </div>
         ) : null}
-        {step === 'password' ? (
+        {step === 'password' && passwordConfigured ? (
           <form onSubmit={event => void tryPassword(event)}>
             <label className="form-row">
-              Decrypt code
+              Camera password
               <input
                 type="password"
                 inputMode="numeric"
-                pattern="\d{6}"
+                pattern="\d{4,8}"
                 value={pin}
-                maxLength={6}
+                maxLength={8}
                 disabled={busy}
                 autoFocus
-                onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
               />
             </label>
             {error ? <p className="error">{error}</p> : null}
