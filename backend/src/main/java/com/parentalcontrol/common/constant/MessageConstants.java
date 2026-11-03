@@ -223,6 +223,18 @@ public final class MessageConstants {
   public static final String DELETED_MESSAGES_PIN_REQUIRED =
       "Enter your deleted messages PIN to review deleted notes";
 
+  public static final String CAMERA_PASSWORD_NOT_SET =
+      "Camera password is not set. Open Settings to create one.";
+
+  public static final String CAMERA_PASSWORD_INVALID = "Invalid camera password";
+
+  public static final String CAMERA_PASSWORD_ALREADY_SET =
+      "Camera password is already set. Enter the current password to change it.";
+
+  public static final String CAMERA_PASSWORD_MISMATCH = "New password and confirmation do not match";
+
+  public static final String CAMERA_PASSWORD_MUST_BE_DIGITS = "Camera password must be 4–8 digits";
+
   public static final String PARENT_ACCOUNT_NOT_FOUND = "Parent account not found";
 
   public static final String

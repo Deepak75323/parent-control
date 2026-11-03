@@ -131,7 +131,7 @@ export function LiveStreamPanel({deviceId, deviceName}: Props) {
 
           {streamType === 'CAMERA' && !sessionId ? (
             <p className="muted tiny">
-              Tap Start — fingerprint runs immediately, then enter your decrypt code.
+              Tap Start — fingerprint runs immediately, then enter your camera password.
             </p>
           ) : null}
 
