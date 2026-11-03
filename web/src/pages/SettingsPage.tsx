@@ -14,6 +14,7 @@ import {useLogout} from '../auth/useLogout';
 import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {chatDisplayNickname} from '../lib/chatDisplayNickname';
 import {validateDeletedMessagesPinForm} from '../lib/deletedMessagesPin';
+import {CameraPasswordSettingsCard} from '../components/CameraPasswordSettingsCard';
 import {FingerprintSettingsCard} from '../components/ParentWebAuthnSetup';
 import {disconnectWebSocket} from '../realtime/websocket';
 import {useRealtimeStore} from '../realtime/realtimeStore';
@@ -402,6 +403,8 @@ export function SettingsPage() {
           {deletedPinMsg ? <p className="muted">{deletedPinMsg}</p> : null}
         </form>
       </div>
+
+      <CameraPasswordSettingsCard />
 
       <FingerprintSettingsCard />
 

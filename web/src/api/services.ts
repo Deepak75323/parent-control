@@ -164,6 +164,22 @@ export const deletedMessagesPinApi = {
     api.post(ApiPaths.PARENT_DELETED_MESSAGES_PIN_RESET, {pin, confirmPin}),
 };
 
+export type CameraPasswordStatus = {
+  pinConfigured: boolean;
+  verified?: boolean;
+};
+
+export const cameraPasswordApi = {
+  status: () =>
+    api.get<ApiResponse<CameraPasswordStatus>>(ApiPaths.PARENT_CAMERA_PASSWORD_STATUS),
+  create: (pin: string, confirmPin: string) =>
+    api.post(ApiPaths.PARENT_CAMERA_PASSWORD, {pin, confirmPin}),
+  change: (currentPin: string, pin: string, confirmPin: string) =>
+    api.put(ApiPaths.PARENT_CAMERA_PASSWORD, {currentPin, pin, confirmPin}),
+  verify: (pin: string) =>
+    api.post<ApiResponse<CameraPasswordStatus>>(ApiPaths.PARENT_CAMERA_PASSWORD_VERIFY, {pin}),
+};
+
 export const familyHandleApi = {
   setHandle: (familyHandle: string) =>
     api.post<ApiResponse<{configured: boolean; familyHandle: string | null}>>(
