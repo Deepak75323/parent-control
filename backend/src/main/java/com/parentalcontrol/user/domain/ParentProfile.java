@@ -77,6 +77,18 @@ public class ParentProfile extends BaseEntity {
   @Builder.Default
   private LocalTime autoGreetingMorningTime = LocalTime.of(7, 5);
 
+  @Column(name = "auto_greeting_morning_end", nullable = false)
+  @Builder.Default
+  private LocalTime autoGreetingMorningEnd = LocalTime.NOON;
+
+  @Column(name = "auto_greeting_morning_message", nullable = false, length = 200)
+  @Builder.Default
+  private String autoGreetingMorningMessage = "good morning baby";
+
+  @Column(name = "auto_greeting_evening_message", nullable = false, length = 200)
+  @Builder.Default
+  private String autoGreetingEveningMessage = "good night baby";
+
   @Column(name = "auto_greeting_evening_start", nullable = false)
   @Builder.Default
   private LocalTime autoGreetingEveningStart = LocalTime.of(23, 55);
