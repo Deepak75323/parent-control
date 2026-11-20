@@ -44,4 +44,6 @@ public interface ParentProfileDao {
   boolean existsByFamilyHandleIgnoreCase(String handle);
 
   boolean existsByFamilyHandleIgnoreCaseAndIdNot(String handle, UUID excludeId);
+
+  List<ParentProfile> findAutoGreetingEnabled();
 }

@@ -97,6 +97,7 @@ public final class ApiConstants {
   public static final String PARENT_PIN = PARENT + "/pin";
   public static final String PARENT_DELETED_MESSAGES_PIN = PARENT + "/deleted-messages-pin";
   public static final String PARENT_CAMERA_PASSWORD = PARENT + "/camera-password";
+  public static final String PARENT_AUTO_GREETING = PARENT + "/auto-greeting";
   public static final String PARENT_CHILD_LOGIN_PASSWORD = PARENT + "/child-login-password";
   public static final String PARENT_FAMILY_HANDLE = PARENT + "/family-handle";
   public static final String PARENT_READ_RECEIPTS = PARENT + "/read-receipts";

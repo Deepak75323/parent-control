@@ -56,6 +56,7 @@ export const ApiPaths = {
   PARENT_CAMERA_PASSWORD: `${V1}/parent/camera-password`,
   PARENT_CAMERA_PASSWORD_STATUS: `${V1}/parent/camera-password/status`,
   PARENT_CAMERA_PASSWORD_VERIFY: `${V1}/parent/camera-password/verify`,
+  PARENT_AUTO_GREETING: `${V1}/parent/auto-greeting`,
   PARENT_FAMILY_HANDLE: `${V1}/parent/family-handle`,
   PARENT_FAMILY_HANDLE_STATUS: `${V1}/parent/family-handle/status`,
   PARENT_READ_RECEIPTS: `${V1}/parent/read-receipts`,

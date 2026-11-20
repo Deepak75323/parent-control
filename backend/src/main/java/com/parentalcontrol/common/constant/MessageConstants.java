@@ -483,5 +483,14 @@ public final class MessageConstants {
 
   public static final String FRIEND_NOT_FOUND = "Friend not found";
 
+
+  public static final String AUTO_GREETING_ROOM_REQUIRED =
+      "Select a chat room before enabling auto greetings";
+
+  public static final String AUTO_GREETING_INVALID_TIMEZONE = "Invalid timezone";
+
+  public static final String AUTO_GREETING_INVALID_TIMES =
+      "Morning and evening times must be valid HH:mm values";
+
   private MessageConstants() {}
 }

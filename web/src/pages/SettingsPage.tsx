@@ -16,6 +16,7 @@ import {useLogout} from '../auth/useLogout';
 import {useConfirmDialog} from '../hooks/useConfirmDialog';
 import {chatDisplayNickname} from '../lib/chatDisplayNickname';
 import {validateDeletedMessagesPinForm} from '../lib/deletedMessagesPin';
+import {AutoGreetingSettingsCard} from '../components/AutoGreetingSettingsCard';
 import {CameraPasswordSettingsCard} from '../components/CameraPasswordSettingsCard';
 import {FingerprintSettingsCard} from '../components/ParentWebAuthnSetup';
 import {RemovePairingSettingsCard} from '../components/RemovePairingSettingsCard';
@@ -547,6 +548,8 @@ export function SettingsPage() {
       </div>
 
       <CameraPasswordSettingsCard />
+
+      <AutoGreetingSettingsCard />
 
       <FingerprintSettingsCard />
 

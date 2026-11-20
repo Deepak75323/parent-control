@@ -178,9 +178,32 @@ export const deletedMessagesPinApi = {
     api.post(ApiPaths.PARENT_DELETED_MESSAGES_PIN_RESET, {pin, confirmPin}),
 };
 
+export type AutoGreetingSettings = {
+  enabled: boolean;
+  roomId: string | null;
+  morningTime: string;
+  eveningStart: string;
+  eveningEnd: string;
+  timezone: string;
+  morningMessage: string;
+  eveningMessage: string;
+};
+
 export type CameraPasswordStatus = {
   pinConfigured: boolean;
   verified?: boolean;
+};
+
+export const autoGreetingApi = {
+  get: () => api.get<ApiResponse<AutoGreetingSettings>>(ApiPaths.PARENT_AUTO_GREETING),
+  update: (body: {
+    enabled: boolean;
+    roomId?: string | null;
+    morningTime?: string;
+    eveningStart?: string;
+    eveningEnd?: string;
+    timezone?: string;
+  }) => api.put<ApiResponse<AutoGreetingSettings>>(ApiPaths.PARENT_AUTO_GREETING, body),
 };
 
 export const cameraPasswordApi = {
