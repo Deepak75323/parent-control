@@ -492,5 +492,8 @@ public final class MessageConstants {
   public static final String AUTO_GREETING_INVALID_TIMES =
       "Morning and evening times must be valid HH:mm values";
 
+  public static final String AUTO_GREETING_MESSAGE_REQUIRED =
+      "Morning and evening messages are required when auto greetings are enabled";
+
   private MessageConstants() {}
 }

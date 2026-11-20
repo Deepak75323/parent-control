@@ -9,14 +9,11 @@ public final class AutoGreetingScheduleEvaluator {
   private AutoGreetingScheduleEvaluator() {}
 
   /**
-   * Morning fires once the local clock is at/after {@code morningTime} and before noon, so a late
-   * scheduler tick still delivers the same calendar day.
+   * Morning window {@code [start, end)}. Same non-wrapping rules as evening when end is not
+   * midnight.
    */
-  public static boolean isMorningDue(LocalTime now, LocalTime morningTime) {
-    if (morningTime == null || now == null) {
-      return false;
-    }
-    return !now.isBefore(morningTime) && now.isBefore(LocalTime.NOON);
+  public static boolean isInMorningWindow(LocalTime now, LocalTime start, LocalTime end) {
+    return isInWindow(now, start, end);
   }
 
   /**
@@ -24,6 +21,10 @@ public final class AutoGreetingScheduleEvaluator {
    * end-of-day]}. When {@code start} is after {@code end}, the window wraps midnight.
    */
   public static boolean isInEveningWindow(LocalTime now, LocalTime start, LocalTime end) {
+    return isInWindow(now, start, end);
+  }
+
+  private static boolean isInWindow(LocalTime now, LocalTime start, LocalTime end) {
     if (now == null || start == null || end == null) {
       return false;
     }

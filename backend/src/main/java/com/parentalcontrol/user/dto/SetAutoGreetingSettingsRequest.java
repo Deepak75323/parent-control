@@ -12,9 +12,17 @@ public class SetAutoGreetingSettingsRequest {
 
   private UUID roomId;
 
-  /** HH:mm — default 07:05 */
+  /** HH:mm morning window start — default 07:05. Alias: morningTime. */
+  @Size(max = 5)
+  private String morningStart;
+
+  /** Legacy alias for {@link #morningStart}. */
   @Size(max = 5)
   private String morningTime;
+
+  /** HH:mm morning window end — default 12:00 */
+  @Size(max = 5)
+  private String morningEnd;
 
   /** HH:mm — default 23:55 */
   @Size(max = 5)
@@ -27,4 +35,12 @@ public class SetAutoGreetingSettingsRequest {
   /** IANA zone, e.g. Asia/Kolkata */
   @Size(max = 64)
   private String timezone;
+
+  /** Plaintext morning chat body (sealed before send). */
+  @Size(max = 200)
+  private String morningMessage;
+
+  /** Plaintext evening chat body (sealed before send). */
+  @Size(max = 200)
+  private String eveningMessage;
 }

@@ -181,7 +181,10 @@ export const deletedMessagesPinApi = {
 export type AutoGreetingSettings = {
   enabled: boolean;
   roomId: string | null;
-  morningTime: string;
+  morningStart: string;
+  /** @deprecated alias of morningStart */
+  morningTime?: string;
+  morningEnd: string;
   eveningStart: string;
   eveningEnd: string;
   timezone: string;
@@ -199,10 +202,14 @@ export const autoGreetingApi = {
   update: (body: {
     enabled: boolean;
     roomId?: string | null;
+    morningStart?: string;
     morningTime?: string;
+    morningEnd?: string;
     eveningStart?: string;
     eveningEnd?: string;
     timezone?: string;
+    morningMessage?: string;
+    eveningMessage?: string;
   }) => api.put<ApiResponse<AutoGreetingSettings>>(ApiPaths.PARENT_AUTO_GREETING, body),
 };
 
