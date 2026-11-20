@@ -98,4 +98,9 @@ public class ParentProfileDaoImpl implements ParentProfileDao {
   public boolean existsByFamilyHandleIgnoreCaseAndIdNot(String handle, UUID excludeId) {
     return repository.existsByFamilyHandleIgnoreCaseAndIdNot(handle, excludeId);
   }
+
+  @Override
+  public List<ParentProfile> findAutoGreetingEnabled() {
+    return repository.findAutoGreetingEnabled();
+  }
 }

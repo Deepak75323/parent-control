@@ -760,34 +760,51 @@ public class ChatService {
   @Transactional
   public ChatMessageResponse sendMessage(UUID roomId, SendChatMessageRequest request) {
     UUID userId = SecurityUtils.requireUserId();
-    requireNotMuted(requireActiveMember(roomId, userId));
-    ChatRoom room = requireRoom(roomId);
-    UUID channelId = channelService.resolveTextChannel(roomId, request.getChannelId()).getId();
+    return sendMessageAsUser(
+        userId, roomId, request.getBody(), request.getChannelId(), request.getReplyToMessageId());
+  }
 
-    String body = request.getBody().trim();
-    UUID replyToMessageId = resolveReplyTarget(roomId, request.getReplyToMessageId());
+  /**
+   * Posts a text message as {@code senderUserId} without requiring a security context (used by
+   * scheduled auto-greetings). Body should already be sealed the same way the web client seals
+   * outbound text.
+   */
+  @Transactional
+  public ChatMessageResponse sendMessageAsUser(
+      UUID senderUserId, UUID roomId, String rawBody, UUID channelId, UUID replyToMessageId) {
+    requireNotMuted(requireActiveMember(roomId, senderUserId));
+    ChatRoom room = requireRoom(roomId);
+    UUID resolvedChannelId = channelService.resolveTextChannel(roomId, channelId).getId();
+
+    String body = rawBody == null ? "" : rawBody.trim();
+    if (body.isEmpty()) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR, MessageConstants.CHAT_MESSAGE_BODY_REQUIRED);
+    }
+    UUID resolvedReplyTo = resolveReplyTarget(roomId, replyToMessageId);
     ChatMessage message =
         messageRepository.save(
             ChatMessage.builder()
                 .roomId(roomId)
-                .channelId(channelId)
-                .senderUserId(userId)
+                .channelId(resolvedChannelId)
+                .senderUserId(senderUserId)
                 .body(body)
                 .messageType(ChatMessageType.TEXT)
-                .replyToMessageId(replyToMessageId)
+                .replyToMessageId(resolvedReplyTo)
                 .build());
 
     room.setUpdatedAt(Instant.now());
     roomRepository.save(room);
 
-    ChatMessageResponse response = toMessageResponse(message, userId);
+    ChatMessageResponse response = toMessageResponse(message, senderUserId);
     readReceiptService.createReceiptsForMessage(message);
     // Sending catches you up (WhatsApp): advance read cursor through this message.
-    readReceiptService.markRead(roomId, userId, message.getId());
+    readReceiptService.markRead(roomId, senderUserId, message.getId());
     publishMessageToRoom(roomId, message);
     notifyRoomListBump(roomId);
     return response;
   }
+
 
   @Transactional
   public void markMessagesDelivered(UUID roomId, MarkChatDeliveredRequest request) {
