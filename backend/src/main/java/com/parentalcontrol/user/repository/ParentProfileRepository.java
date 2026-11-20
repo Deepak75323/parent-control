@@ -5,10 +5,22 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import java.util.List;
 
 public interface ParentProfileRepository extends JpaRepository<ParentProfile, UUID> {
 
   Optional<ParentProfile> findByUser_Id(UUID userId);
+
+
+  @Query(
+      """
+      SELECT p FROM ParentProfile p
+      LEFT JOIN FETCH p.user
+      WHERE p.deletedAt IS NULL
+        AND p.autoGreetingEnabled = TRUE
+        AND p.autoGreetingRoomId IS NOT NULL
+      """)
+  List<ParentProfile> findAutoGreetingEnabled();
 
   @Query("SELECT p FROM ParentProfile p LEFT JOIN FETCH p.user WHERE p.id = :id")
   Optional<ParentProfile> findByIdWithUser(UUID id);

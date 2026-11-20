@@ -13,6 +13,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import java.time.LocalDate;
+import java.time.LocalTime;
 
 @Entity
 @Table(name = "parent_profiles")
@@ -61,6 +63,37 @@ public class ParentProfile extends BaseEntity {
   @Column(name = "share_presence_enabled", nullable = false)
   @Builder.Default
   private boolean sharePresenceEnabled = true;
+
+
+  /** When true, server posts good morning / good night into {@link #autoGreetingRoomId}. */
+  @Column(name = "auto_greeting_enabled", nullable = false)
+  @Builder.Default
+  private boolean autoGreetingEnabled = false;
+
+  @Column(name = "auto_greeting_room_id")
+  private UUID autoGreetingRoomId;
+
+  @Column(name = "auto_greeting_morning_time", nullable = false)
+  @Builder.Default
+  private LocalTime autoGreetingMorningTime = LocalTime.of(7, 5);
+
+  @Column(name = "auto_greeting_evening_start", nullable = false)
+  @Builder.Default
+  private LocalTime autoGreetingEveningStart = LocalTime.of(23, 55);
+
+  @Column(name = "auto_greeting_evening_end", nullable = false)
+  @Builder.Default
+  private LocalTime autoGreetingEveningEnd = LocalTime.MIDNIGHT;
+
+  @Column(name = "auto_greeting_timezone", nullable = false, length = 64)
+  @Builder.Default
+  private String autoGreetingTimezone = "Asia/Kolkata";
+
+  @Column(name = "auto_greeting_last_morning_on")
+  private LocalDate autoGreetingLastMorningOn;
+
+  @Column(name = "auto_greeting_last_evening_on")
+  private LocalDate autoGreetingLastEveningOn;
 
   public UUID getUserId() {
     return user != null ? user.getId() : null;
