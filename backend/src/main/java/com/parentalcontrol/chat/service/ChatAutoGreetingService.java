@@ -67,10 +67,14 @@ public class ChatAutoGreetingService {
     LocalDate localDate = zonedNow.toLocalDate();
     LocalTime localTime = zonedNow.toLocalTime();
 
-    LocalTime morning =
+    LocalTime morningStart =
         profile.getAutoGreetingMorningTime() != null
             ? profile.getAutoGreetingMorningTime()
-            : AutoGreetingSettingsService.DEFAULT_MORNING;
+            : AutoGreetingSettingsService.DEFAULT_MORNING_START;
+    LocalTime morningEnd =
+        profile.getAutoGreetingMorningEnd() != null
+            ? profile.getAutoGreetingMorningEnd()
+            : AutoGreetingSettingsService.DEFAULT_MORNING_END;
     LocalTime eveningStart =
         profile.getAutoGreetingEveningStart() != null
             ? profile.getAutoGreetingEveningStart()
@@ -80,10 +84,19 @@ public class ChatAutoGreetingService {
             ? profile.getAutoGreetingEveningEnd()
             : AutoGreetingSettingsService.DEFAULT_EVENING_END;
 
+    String morningMessage =
+        StringUtils.hasText(profile.getAutoGreetingMorningMessage())
+            ? profile.getAutoGreetingMorningMessage()
+            : AutoGreetingSettingsService.DEFAULT_MORNING_MESSAGE;
+    String eveningMessage =
+        StringUtils.hasText(profile.getAutoGreetingEveningMessage())
+            ? profile.getAutoGreetingEveningMessage()
+            : AutoGreetingSettingsService.DEFAULT_EVENING_MESSAGE;
+
     int sent = 0;
-    if (AutoGreetingScheduleEvaluator.isMorningDue(localTime, morning)
+    if (AutoGreetingScheduleEvaluator.isInMorningWindow(localTime, morningStart, morningEnd)
         && !localDate.equals(profile.getAutoGreetingLastMorningOn())) {
-      postGreeting(userId, roomId, AutoGreetingSettingsService.DEFAULT_MORNING_MESSAGE);
+      postGreeting(userId, roomId, morningMessage);
       profile.setAutoGreetingLastMorningOn(localDate);
       parentProfileDao.save(profile);
       sent++;
@@ -94,7 +107,7 @@ public class ChatAutoGreetingService {
           AutoGreetingScheduleEvaluator.eveningAnchorDate(
               localDate, localTime, eveningStart, eveningEnd);
       if (!eveningKey.equals(profile.getAutoGreetingLastEveningOn())) {
-        postGreeting(userId, roomId, AutoGreetingSettingsService.DEFAULT_EVENING_MESSAGE);
+        postGreeting(userId, roomId, eveningMessage);
         profile.setAutoGreetingLastEveningOn(eveningKey);
         parentProfileDao.save(profile);
         sent++;

@@ -11,11 +11,22 @@ import org.junit.jupiter.api.Test;
 class AutoGreetingScheduleEvaluatorTest {
 
   @Test
-  void morningDueAfterConfiguredTimeBeforeNoon() {
-    assertFalse(AutoGreetingScheduleEvaluator.isMorningDue(LocalTime.of(7, 4), LocalTime.of(7, 5)));
-    assertTrue(AutoGreetingScheduleEvaluator.isMorningDue(LocalTime.of(7, 5), LocalTime.of(7, 5)));
-    assertTrue(AutoGreetingScheduleEvaluator.isMorningDue(LocalTime.of(9, 0), LocalTime.of(7, 5)));
-    assertFalse(AutoGreetingScheduleEvaluator.isMorningDue(LocalTime.NOON, LocalTime.of(7, 5)));
+  void morningWindowSevenOhFiveToNine() {
+    LocalTime start = LocalTime.of(7, 5);
+    LocalTime end = LocalTime.of(9, 0);
+    assertFalse(AutoGreetingScheduleEvaluator.isInMorningWindow(LocalTime.of(7, 4), start, end));
+    assertTrue(AutoGreetingScheduleEvaluator.isInMorningWindow(LocalTime.of(7, 5), start, end));
+    assertTrue(AutoGreetingScheduleEvaluator.isInMorningWindow(LocalTime.of(8, 30), start, end));
+    assertFalse(AutoGreetingScheduleEvaluator.isInMorningWindow(LocalTime.of(9, 0), start, end));
+    assertFalse(AutoGreetingScheduleEvaluator.isInMorningWindow(LocalTime.NOON, start, end));
+  }
+
+  @Test
+  void morningWindowDefaultsStillCoverLateTickBeforeEnd() {
+    LocalTime start = LocalTime.of(7, 5);
+    LocalTime end = LocalTime.NOON;
+    assertTrue(AutoGreetingScheduleEvaluator.isInMorningWindow(LocalTime.of(9, 0), start, end));
+    assertFalse(AutoGreetingScheduleEvaluator.isInMorningWindow(LocalTime.NOON, start, end));
   }
 
   @Test

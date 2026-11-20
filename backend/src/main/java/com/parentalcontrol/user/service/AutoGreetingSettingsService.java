@@ -28,7 +28,10 @@ public class AutoGreetingSettingsService {
   public static final String DEFAULT_MORNING_MESSAGE = "good morning baby";
   public static final String DEFAULT_EVENING_MESSAGE = "good night baby";
   public static final String DEFAULT_TIMEZONE = "Asia/Kolkata";
-  public static final LocalTime DEFAULT_MORNING = LocalTime.of(7, 5);
+  public static final LocalTime DEFAULT_MORNING_START = LocalTime.of(7, 5);
+  public static final LocalTime DEFAULT_MORNING_END = LocalTime.NOON;
+  /** @deprecated use {@link #DEFAULT_MORNING_START} */
+  public static final LocalTime DEFAULT_MORNING = DEFAULT_MORNING_START;
   public static final LocalTime DEFAULT_EVENING_START = LocalTime.of(23, 55);
   public static final LocalTime DEFAULT_EVENING_END = LocalTime.MIDNIGHT;
 
@@ -60,17 +63,34 @@ public class AutoGreetingSettingsService {
       requireActiveMembership(roomId, userId);
     }
 
-    LocalTime morning = parseTimeOrDefault(request.getMorningTime(), DEFAULT_MORNING);
+    String morningStartRaw =
+        StringUtils.hasText(request.getMorningStart())
+            ? request.getMorningStart()
+            : request.getMorningTime();
+    LocalTime morningStart = parseTimeOrDefault(morningStartRaw, DEFAULT_MORNING_START);
+    LocalTime morningEnd = parseTimeOrDefault(request.getMorningEnd(), DEFAULT_MORNING_END);
     LocalTime eveningStart = parseTimeOrDefault(request.getEveningStart(), DEFAULT_EVENING_START);
     LocalTime eveningEnd = parseTimeOrDefault(request.getEveningEnd(), DEFAULT_EVENING_END);
     String timezone = resolveTimezone(request.getTimezone(), profile.getAutoGreetingTimezone());
+    String morningMessage =
+        resolveMessage(request.getMorningMessage(), profile.getAutoGreetingMorningMessage(), DEFAULT_MORNING_MESSAGE);
+    String eveningMessage =
+        resolveMessage(request.getEveningMessage(), profile.getAutoGreetingEveningMessage(), DEFAULT_EVENING_MESSAGE);
+
+    if (enabled && (!StringUtils.hasText(morningMessage) || !StringUtils.hasText(eveningMessage))) {
+      throw new BusinessException(
+          ErrorCode.VALIDATION_ERROR, MessageConstants.AUTO_GREETING_MESSAGE_REQUIRED);
+    }
 
     profile.setAutoGreetingEnabled(enabled);
     profile.setAutoGreetingRoomId(roomId);
-    profile.setAutoGreetingMorningTime(morning);
+    profile.setAutoGreetingMorningTime(morningStart);
+    profile.setAutoGreetingMorningEnd(morningEnd);
     profile.setAutoGreetingEveningStart(eveningStart);
     profile.setAutoGreetingEveningEnd(eveningEnd);
     profile.setAutoGreetingTimezone(timezone);
+    profile.setAutoGreetingMorningMessage(morningMessage);
+    profile.setAutoGreetingEveningMessage(eveningMessage);
     parentProfileDao.save(profile);
     return toResponse(profile);
   }
@@ -118,11 +138,25 @@ public class AutoGreetingSettingsService {
     }
   }
 
+  private static String resolveMessage(String requested, String existing, String fallback) {
+    if (requested != null) {
+      return requested.trim();
+    }
+    if (StringUtils.hasText(existing)) {
+      return existing.trim();
+    }
+    return fallback;
+  }
+
   private static AutoGreetingSettingsResponse toResponse(ParentProfile profile) {
-    LocalTime morning =
+    LocalTime morningStart =
         profile.getAutoGreetingMorningTime() != null
             ? profile.getAutoGreetingMorningTime()
-            : DEFAULT_MORNING;
+            : DEFAULT_MORNING_START;
+    LocalTime morningEnd =
+        profile.getAutoGreetingMorningEnd() != null
+            ? profile.getAutoGreetingMorningEnd()
+            : DEFAULT_MORNING_END;
     LocalTime eveningStart =
         profile.getAutoGreetingEveningStart() != null
             ? profile.getAutoGreetingEveningStart()
@@ -135,15 +169,26 @@ public class AutoGreetingSettingsService {
         StringUtils.hasText(profile.getAutoGreetingTimezone())
             ? profile.getAutoGreetingTimezone()
             : DEFAULT_TIMEZONE;
+    String morningMessage =
+        StringUtils.hasText(profile.getAutoGreetingMorningMessage())
+            ? profile.getAutoGreetingMorningMessage()
+            : DEFAULT_MORNING_MESSAGE;
+    String eveningMessage =
+        StringUtils.hasText(profile.getAutoGreetingEveningMessage())
+            ? profile.getAutoGreetingEveningMessage()
+            : DEFAULT_EVENING_MESSAGE;
+    String morningStartFmt = morningStart.format(HH_MM);
     return AutoGreetingSettingsResponse.builder()
         .enabled(profile.isAutoGreetingEnabled())
         .roomId(profile.getAutoGreetingRoomId())
-        .morningTime(morning.format(HH_MM))
+        .morningStart(morningStartFmt)
+        .morningTime(morningStartFmt)
+        .morningEnd(morningEnd.format(HH_MM))
         .eveningStart(eveningStart.format(HH_MM))
         .eveningEnd(eveningEnd.format(HH_MM))
         .timezone(timezone)
-        .morningMessage(DEFAULT_MORNING_MESSAGE)
-        .eveningMessage(DEFAULT_EVENING_MESSAGE)
+        .morningMessage(morningMessage)
+        .eveningMessage(eveningMessage)
         .build();
   }
 }

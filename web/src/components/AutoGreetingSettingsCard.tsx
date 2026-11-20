@@ -1,15 +1,17 @@
 import {type FormEvent, useCallback, useEffect, useState} from 'react';
 import {autoGreetingApi, chatApi} from '../api/services';
+import {validateAutoGreetingForm} from '../lib/autoGreetingSettings';
 import type {ChatRoomSummary} from '../types/api';
 
 /**
- * Settings-gated auto chat greetings: posts "good morning baby" / "good night baby"
- * into a chosen room on a schedule (server-side).
+ * Settings-gated auto chat greetings: posts parent-chosen morning/evening text
+ * into a chosen room during the configured morning and evening windows.
  */
 export function AutoGreetingSettingsCard() {
   const [enabled, setEnabled] = useState(false);
   const [roomId, setRoomId] = useState('');
-  const [morningTime, setMorningTime] = useState('07:05');
+  const [morningStart, setMorningStart] = useState('07:05');
+  const [morningEnd, setMorningEnd] = useState('12:00');
   const [eveningStart, setEveningStart] = useState('23:55');
   const [eveningEnd, setEveningEnd] = useState('00:00');
   const [timezone, setTimezone] = useState('Asia/Kolkata');
@@ -29,7 +31,8 @@ export function AutoGreetingSettingsCard() {
       if (s) {
         setEnabled(Boolean(s.enabled));
         setRoomId(s.roomId ?? '');
-        setMorningTime(s.morningTime || '07:05');
+        setMorningStart(s.morningStart || s.morningTime || '07:05');
+        setMorningEnd(s.morningEnd || '12:00');
         setEveningStart(s.eveningStart || '23:55');
         setEveningEnd(s.eveningEnd || '00:00');
         setTimezone(s.timezone || 'Asia/Kolkata');
@@ -48,8 +51,18 @@ export function AutoGreetingSettingsCard() {
 
   const onSave = async (e: FormEvent) => {
     e.preventDefault();
-    if (enabled && !roomId) {
-      setMsg('Select a chat room before enabling auto greetings');
+    const validation = validateAutoGreetingForm({
+      enabled,
+      roomId,
+      morningStart,
+      morningEnd,
+      eveningStart,
+      eveningEnd,
+      morningMessage,
+      eveningMessage,
+    });
+    if (validation) {
+      setMsg(validation);
       return;
     }
     setBusy(true);
@@ -58,19 +71,25 @@ export function AutoGreetingSettingsCard() {
       const {data} = await autoGreetingApi.update({
         enabled,
         roomId: roomId || null,
-        morningTime,
+        morningStart,
+        morningEnd,
         eveningStart,
         eveningEnd,
         timezone,
+        morningMessage: morningMessage.trim(),
+        eveningMessage: eveningMessage.trim(),
       });
       const s = data.data;
       if (s) {
         setEnabled(Boolean(s.enabled));
         setRoomId(s.roomId ?? '');
-        setMorningTime(s.morningTime || '07:05');
+        setMorningStart(s.morningStart || s.morningTime || '07:05');
+        setMorningEnd(s.morningEnd || '12:00');
         setEveningStart(s.eveningStart || '23:55');
         setEveningEnd(s.eveningEnd || '00:00');
         setTimezone(s.timezone || 'Asia/Kolkata');
+        setMorningMessage(s.morningMessage || 'good morning baby');
+        setEveningMessage(s.eveningMessage || 'good night baby');
       }
       setMsg(enabled ? 'Auto greetings enabled' : 'Auto greetings saved (off)');
     } catch {
@@ -84,9 +103,8 @@ export function AutoGreetingSettingsCard() {
     <div className="card">
       <h2>Auto chat greetings</h2>
       <p className="muted">
-        When on, the server posts <strong>{morningMessage}</strong> after the morning time and{' '}
-        <strong>{eveningMessage}</strong> in the evening window into the selected Notes room
-        (timezone: {timezone}).
+        When on, the server posts your morning message during the morning window and your evening
+        message during the evening window into the selected Notes room (timezone: {timezone}).
       </p>
       <form className="form-row" onSubmit={e => void onSave(e)}>
         <label>
@@ -102,12 +120,39 @@ export function AutoGreetingSettingsCard() {
           </select>
         </label>
         <label>
-          Morning time (HH:mm)
+          Morning message
           <input
-            value={morningTime}
-            onChange={e => setMorningTime(e.target.value)}
+            value={morningMessage}
+            onChange={e => setMorningMessage(e.target.value.slice(0, 200))}
+            placeholder="good morning baby"
+            maxLength={200}
+          />
+        </label>
+        <label>
+          Morning start (HH:mm)
+          <input
+            value={morningStart}
+            onChange={e => setMorningStart(e.target.value)}
             placeholder="07:05"
             maxLength={5}
+          />
+        </label>
+        <label>
+          Morning end (HH:mm)
+          <input
+            value={morningEnd}
+            onChange={e => setMorningEnd(e.target.value)}
+            placeholder="12:00"
+            maxLength={5}
+          />
+        </label>
+        <label>
+          Evening message
+          <input
+            value={eveningMessage}
+            onChange={e => setEveningMessage(e.target.value.slice(0, 200))}
+            placeholder="good night baby"
+            maxLength={200}
           />
         </label>
         <label>
